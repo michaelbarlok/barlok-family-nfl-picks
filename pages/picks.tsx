@@ -25,9 +25,21 @@ interface ThreeBest {
 const CURRENT_WEEK = 1
 const CURRENT_SEASON = 2025
 
+function formatKickoff(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
 export default function PicksPage() {
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user, loading, signOut } = useAuth()
   const [games, setGames] = useState<Game[]>([])
   const [picks, setPicks] = useState<UserPick>({})
   const [threeBest, setThreeBest] = useState<ThreeBest>({
@@ -51,7 +63,6 @@ export default function PicksPage() {
       if (!user) return
 
       try {
-        // Fetch games for current week
         const { data: gamesData } = await supabase
           .from('games')
           .select('*')
@@ -63,7 +74,6 @@ export default function PicksPage() {
           setGames(gamesData)
         }
 
-        // Fetch user's existing picks
         if (gamesData) {
           const { data: picksData } = await supabase
             .from('picks')
@@ -79,7 +89,6 @@ export default function PicksPage() {
           setPicks(picksMap)
         }
 
-        // Fetch three best picks
         const { data: threeBestData } = await supabase
           .from('three_best')
           .select('*')
@@ -106,17 +115,11 @@ export default function PicksPage() {
   }, [user])
 
   const handlePickChange = (gameId: string, team: string) => {
-    setPicks(prev => ({
-      ...prev,
-      [gameId]: team,
-    }))
+    setPicks(prev => ({ ...prev, [gameId]: team }))
   }
 
   const handleThreeBestChange = (index: number, team: string) => {
-    setThreeBest(prev => ({
-      ...prev,
-      [`pick_${index}`]: team,
-    }))
+    setThreeBest(prev => ({ ...prev, [`pick_${index}`]: team.toUpperCase() }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -128,7 +131,6 @@ export default function PicksPage() {
     setSuccess('')
 
     try {
-      // Submit picks
       for (const gameId in picks) {
         await supabase.from('picks').upsert({
           user_id: user.id,
@@ -139,7 +141,6 @@ export default function PicksPage() {
         })
       }
 
-      // Submit three best
       await supabase.from('three_best').upsert({
         user_id: user.id,
         week: CURRENT_WEEK,
@@ -149,7 +150,8 @@ export default function PicksPage() {
         pick_3: threeBest.pick_3,
       })
 
-      setSuccess('Picks submitted successfully!')
+      setSuccess('Picks saved!')
+      setTimeout(() => setSuccess(''), 4000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit picks')
     } finally {
@@ -157,76 +159,127 @@ export default function PicksPage() {
     }
   }
 
+  const handleSignOut = async () => {
+    await signOut()
+    router.push('/login')
+  }
+
   if (loading || dataLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p>Loading...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-4xl mb-3">🏈</div>
+          <p className="text-gray-500 text-sm">Loading your picks...</p>
+        </div>
       </div>
     )
   }
 
-  if (!user) {
-    return null
-  }
+  if (!user) return null
+
+  const pickedCount = Object.keys(picks).length
+  const totalGames = games.length
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-2 text-gray-800">
-          Barlok Family NFL Picks
-        </h1>
-        <p className="text-gray-600 mb-8">Welcome, {user.name}!</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Top nav */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏈</span>
+            <div>
+              <p className="font-semibold text-gray-900 text-sm leading-tight">Barlok Family NFL Picks</p>
+              <p className="text-xs text-gray-400">Week {CURRENT_WEEK} · 2025 Season</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">Hi, {user.name}</span>
+            <button
+              onClick={handleSignOut}
+              className="text-sm text-gray-400 hover:text-gray-700 transition"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-4 py-6">
+        {/* Progress bar */}
+        {totalGames > 0 && (
+          <div className="mb-6">
+            <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+              <span>{pickedCount} of {totalGames} games picked</span>
+              <span>{totalGames - pickedCount} remaining</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div
+                className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: totalGames > 0 ? `${(pickedCount / totalGames) * 100}%` : '0%' }}
+              />
+            </div>
+          </div>
+        )}
 
         {error && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
             {error}
           </div>
         )}
 
         {success && (
-          <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
-            {success}
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm flex items-center gap-2">
+            <span>✓</span> {success}
           </div>
         )}
 
         <form onSubmit={handleSubmit}>
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">
-              Week {CURRENT_WEEK} Picks
+          {/* Games */}
+          <div className="mb-6">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+              Week {CURRENT_WEEK} Games
             </h2>
 
             {games.length === 0 ? (
-              <p className="text-gray-600">No games available for this week yet.</p>
+              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                <p className="text-2xl mb-2">📅</p>
+                <p className="text-gray-500 text-sm">No games available yet. Check back soon!</p>
+              </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {games.map(game => (
-                  <div key={game.id} className="border-b pb-4">
-                    <p className="font-bold mb-2">
-                      {game.away_team} @ {game.home_team}
-                    </p>
-                    <div className="flex gap-4">
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name={`game-${game.id}`}
-                          value={game.away_team}
-                          checked={picks[game.id] === game.away_team}
-                          onChange={(e) => handlePickChange(game.id, e.target.value)}
-                          className="mr-2"
-                        />
+                  <div
+                    key={game.id}
+                    className="bg-white rounded-xl border border-gray-200 p-4"
+                  >
+                    <p className="text-xs text-gray-400 mb-3">{formatKickoff(game.kickoff_time)}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Away team */}
+                      <button
+                        type="button"
+                        onClick={() => handlePickChange(game.id, game.away_team)}
+                        className={`py-3 px-4 rounded-lg border-2 text-sm font-semibold transition text-center ${
+                          picks[game.id] === game.away_team
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
+                        }`}
+                      >
                         {game.away_team}
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name={`game-${game.id}`}
-                          value={game.home_team}
-                          checked={picks[game.id] === game.home_team}
-                          onChange={(e) => handlePickChange(game.id, e.target.value)}
-                          className="mr-2"
-                        />
+                        <span className="block text-xs font-normal opacity-70 mt-0.5">Away</span>
+                      </button>
+                      {/* Home team */}
+                      <button
+                        type="button"
+                        onClick={() => handlePickChange(game.id, game.home_team)}
+                        className={`py-3 px-4 rounded-lg border-2 text-sm font-semibold transition text-center ${
+                          picks[game.id] === game.home_team
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
+                        }`}
+                      >
                         {game.home_team}
-                      </label>
+                        <span className="block text-xs font-normal opacity-70 mt-0.5">Home</span>
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -234,38 +287,41 @@ export default function PicksPage() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">3 Best Picks</h2>
-            <p className="text-gray-600 mb-4">
-              Select your 3 most confident picks (these are the tiebreaker):
-            </p>
-
-            {[1, 2, 3].map(i => (
-              <div key={i} className="mb-4">
-                <label className="block text-gray-700 font-bold mb-2">
-                  Pick {i}
-                </label>
-                <input
-                  type="text"
-                  value={threeBest[`pick_${i}`]}
-                  onChange={(e) => handleThreeBestChange(i, e.target.value)}
-                  placeholder={`e.g., KC, DAL, etc.`}
-                  className="w-full px-4 py-2 border border-gray-300 rounded uppercase"
-                  maxLength={3}
-                />
-              </div>
-            ))}
+          {/* 3 Best Picks */}
+          <div className="mb-6">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+              3 Best Picks
+            </h2>
+            <p className="text-xs text-gray-400 mb-3">Your most confident picks — used as a tiebreaker</p>
+            <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                    {i}
+                  </span>
+                  <input
+                    type="text"
+                    value={threeBest[`pick_${i}`]}
+                    onChange={(e) => handleThreeBestChange(i, e.target.value)}
+                    placeholder="Team abbreviation (e.g. KC)"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm uppercase placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    maxLength={3}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
 
+          {/* Submit */}
           <button
             type="submit"
             disabled={submitting}
-            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
-            {submitting ? 'Submitting...' : 'Submit Picks'}
+            {submitting ? 'Saving...' : 'Save Picks'}
           </button>
         </form>
-      </div>
+      </main>
     </div>
   )
 }

@@ -48,7 +48,8 @@ async function isAuthorized(req: NextApiRequest): Promise<boolean> {
 }
 
 // Auto-detect which week to update: the most recent week with any game already kicked off
-async function detectCurrentWeek(supabase: ReturnType<typeof createClient>): Promise<number | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function detectCurrentWeek(supabase: any): Promise<number | null> {
   const { data } = await supabase
     .from('games')
     .select('week')

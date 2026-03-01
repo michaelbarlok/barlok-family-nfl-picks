@@ -19,6 +19,7 @@ interface ThreeBest {
   pick_1: string
   pick_2: string
   pick_3: string
+  [key: string]: string
 }
 
 const CURRENT_WEEK = 1

@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/update-scores",
+      "schedule": "0 4 * * 5"
+    },
+    {
+      "path": "/api/update-scores",
+      "schedule": "0 4 * * 1"
+    },
+    {
+      "path": "/api/update-scores",
+      "schedule": "0 4 * * 2"
+    }
+  ]
+}

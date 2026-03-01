@@ -48,7 +48,7 @@ export default async function handler(
       ],
     })
 
-    res.status(200).json({ success: true, messageId: result.id })
+    res.status(200).json({ success: true, messageId: result.data?.id })
   } catch (error) {
     console.error('Email error:', error)
     res.status(500).json({ error: 'Failed to send email' })

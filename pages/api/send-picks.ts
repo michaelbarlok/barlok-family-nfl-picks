@@ -28,7 +28,7 @@ export default async function handler(
     )
     
     const buffer = await workbook.xlsx.writeBuffer()
-    const base64 = (buffer as Buffer).toString('base64')
+    const base64 = Buffer.from(buffer).toString('base64')
 
     // Send email with spreadsheet attachment to all recipients
     const result = await resend.emails.send({

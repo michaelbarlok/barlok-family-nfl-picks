@@ -47,7 +47,7 @@ export async function generateWeeklyPicksSpreadsheet(
   const titleCell = worksheet.getCell('A1')
   titleCell.value = `WEEK ${week} - ${leagueName.toUpperCase()} 2025`
   titleCell.font = { bold: true, size: 14 }
-  titleCell.alignment = { horizontal: 'center', vertical: 'center' }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
 
   // Header row with user names
   worksheet.getCell('A2').value = 'Home Team'

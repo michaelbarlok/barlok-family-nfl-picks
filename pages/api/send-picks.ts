@@ -1,9 +1,25 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
-import { supabase } from '@/lib/supabase'
 
+const ADMIN_EMAIL = 'barlokmichael@gmail.com'
 const resend = new Resend(process.env.RESEND_API_KEY)
+
+async function isAdmin(req: NextApiRequest): Promise<boolean> {
+  const token = (req.headers.authorization ?? '').replace('Bearer ', '')
+  if (!token) return false
+  try {
+    const anon = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { data: { user } } = await anon.auth.getUser(token)
+    return user?.email === ADMIN_EMAIL
+  } catch {
+    return false
+  }
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -11,6 +27,10 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  if (!(await isAdmin(req))) {
+    return res.status(403).json({ error: 'Unauthorized' })
   }
 
   try {
@@ -26,7 +46,7 @@ export default async function handler(
       season,
       leagueName
     )
-    
+
     const buffer = await workbook.xlsx.writeBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
 

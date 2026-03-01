@@ -5,12 +5,12 @@ import { supabase } from '@/lib/supabase'
 import Nav from '@/components/Nav'
 
 const CURRENT_SEASON = 2025
-const CURRENT_WEEK = 1
 
 export default function SpreadsheetsPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
+  const [latestWeek, setLatestWeek] = useState<number | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
   const [downloading, setDownloading] = useState<number | null>(null)
 
@@ -31,6 +31,7 @@ export default function SpreadsheetsPage() {
         if (data) {
           const weeks = [...new Set(data.map(g => g.week))].sort((a, b) => a - b)
           setAvailableWeeks(weeks)
+          if (weeks.length > 0) setLatestWeek(weeks[weeks.length - 1])
         }
       } catch (err) {
         console.error('Error fetching weeks:', err)
@@ -44,8 +45,12 @@ export default function SpreadsheetsPage() {
   const handleDownload = async (week: number) => {
     setDownloading(week)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
       const url = `/api/download-picks?week=${week}&season=${CURRENT_SEASON}`
-      const response = await fetch(url)
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       if (!response.ok) throw new Error('Download failed')
       const blob = await response.blob()
       const link = document.createElement('a')
@@ -92,7 +97,7 @@ export default function SpreadsheetsPage() {
           <div className="space-y-2">
             {/* Current week highlighted */}
             {availableWeeks.map(week => {
-              const isCurrent = week === CURRENT_WEEK
+              const isCurrent = week === latestWeek
               const isDownloading = downloading === week
 
               return (

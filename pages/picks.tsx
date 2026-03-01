@@ -16,7 +16,6 @@ interface UserPick {
   [gameId: string]: string
 }
 
-const CURRENT_WEEK = 1
 const CURRENT_SEASON = 2025
 const MAX_BEST_PICKS = 3
 
@@ -91,6 +90,7 @@ function computeLockTime(games: Game[]): Date | null {
 export default function PicksPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const [currentWeek, setCurrentWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
   const [picks, setPicks] = useState<UserPick>({})
   const [bestPicks, setBestPicks] = useState<Set<string>>(new Set())
@@ -110,13 +110,31 @@ export default function PicksPage() {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
 
+  // Detect current week: the latest week in the DB for this season
+  useEffect(() => {
+    const detectWeek = async () => {
+      if (!user) return
+      const { data } = await supabase
+        .from('games').select('week')
+        .eq('season', CURRENT_SEASON)
+        .order('week', { ascending: false })
+        .limit(1)
+      if (data && data.length > 0) {
+        setCurrentWeek(data[0].week)
+      } else {
+        setDataLoading(false)
+      }
+    }
+    detectWeek()
+  }, [user])
+
   useEffect(() => {
     const fetchData = async () => {
-      if (!user) return
+      if (!user || currentWeek === null) return
       try {
         const { data: gamesData } = await supabase
           .from('games').select('*')
-          .eq('week', CURRENT_WEEK).eq('season', CURRENT_SEASON)
+          .eq('week', currentWeek).eq('season', CURRENT_SEASON)
           .order('kickoff_time')
 
         if (gamesData) setGames(gamesData)
@@ -124,7 +142,7 @@ export default function PicksPage() {
         if (gamesData) {
           const { data: picksData } = await supabase
             .from('picks').select('*')
-            .eq('user_id', user.id).eq('week', CURRENT_WEEK).eq('season', CURRENT_SEASON)
+            .eq('user_id', user.id).eq('week', currentWeek).eq('season', CURRENT_SEASON)
 
           const picksMap: UserPick = {}
           picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
@@ -132,7 +150,7 @@ export default function PicksPage() {
 
           const { data: threeBestData } = await supabase
             .from('three_best').select('*')
-            .eq('user_id', user.id).eq('week', CURRENT_WEEK).eq('season', CURRENT_SEASON)
+            .eq('user_id', user.id).eq('week', currentWeek).eq('season', CURRENT_SEASON)
             .single()
 
           if (threeBestData) {
@@ -149,7 +167,7 @@ export default function PicksPage() {
       }
     }
     fetchData()
-  }, [user])
+  }, [user, currentWeek])
 
   const lockTime = computeLockTime(games)
   const isLocked = lockTime ? now >= lockTime : false
@@ -171,7 +189,7 @@ export default function PicksPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user || isLocked) return
+    if (!user || isLocked || currentWeek === null) return
     if (bestPicks.size !== MAX_BEST_PICKS) {
       setError(`Please star exactly 3 Best Picks (you have ${bestPicks.size}).`)
       return
@@ -181,12 +199,12 @@ export default function PicksPage() {
       for (const gameId in picks) {
         await supabase.from('picks').upsert({
           user_id: user.id, game_id: gameId, picked_team: picks[gameId],
-          week: CURRENT_WEEK, season: CURRENT_SEASON,
+          week: currentWeek, season: CURRENT_SEASON,
         })
       }
       const bestTeams = Array.from(bestPicks).map(id => picks[id])
       await supabase.from('three_best').upsert({
-        user_id: user.id, week: CURRENT_WEEK, season: CURRENT_SEASON,
+        user_id: user.id, week: currentWeek, season: CURRENT_SEASON,
         pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '',
       })
       setSuccess('Picks saved!')
@@ -270,7 +288,7 @@ export default function PicksPage() {
         <form onSubmit={handleSubmit}>
           <div className="mb-6">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Week {CURRENT_WEEK} Games
+              Week {currentWeek} Games
             </h2>
 
             {games.length === 0 ? (

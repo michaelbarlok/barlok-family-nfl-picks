@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import Nav from '@/components/Nav'
 
 interface Game {
   id: string
@@ -19,7 +20,6 @@ const CURRENT_WEEK = 1
 const CURRENT_SEASON = 2025
 const MAX_BEST_PICKS = 3
 
-// Full team info — name, city, ESPN logo CDN
 const NFL_TEAMS: Record<string, { city: string; name: string; logo: string }> = {
   ARI: { city: 'Arizona',       name: 'Cardinals',   logo: 'https://a.espncdn.com/i/teamlogos/nfl/500/ari.png' },
   ATL: { city: 'Atlanta',       name: 'Falcons',      logo: 'https://a.espncdn.com/i/teamlogos/nfl/500/atl.png' },
@@ -62,86 +62,83 @@ function getTeam(abbr: string) {
 function formatKickoff(iso: string) {
   const d = new Date(iso)
   return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
   })
+}
+
+// Compute lock time: Thursday 8:15 PM ET of the current NFL week.
+// We find the Thursday on or before the first game, then set 8:15 PM ET.
+function computeLockTime(games: Game[]): Date | null {
+  if (games.length === 0) return null
+  const kickoffs = games.map(g => new Date(g.kickoff_time))
+  const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
+
+  // Walk back to Thursday (day 4)
+  const thursday = new Date(earliest)
+  const dow = thursday.getUTCDay()
+  const daysBack = dow >= 4 ? dow - 4 : dow + 3
+  thursday.setUTCDate(thursday.getUTCDate() - daysBack)
+
+  // NFL season: EDT (UTC-4) Sep–Oct, EST (UTC-5) Nov onwards
+  const month = thursday.getUTCMonth() // 0-indexed
+  const utcOffset = month >= 10 ? 5 : 4  // Nov (10) = EST
+  // 8:15 PM ET = 20:15 local = (20 + utcOffset):15 UTC
+  thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
+  return thursday
 }
 
 export default function PicksPage() {
   const router = useRouter()
-  const { user, loading, signOut } = useAuth()
+  const { user, loading } = useAuth()
   const [games, setGames] = useState<Game[]>([])
   const [picks, setPicks] = useState<UserPick>({})
-  // bestPicks: Set of gameIds the user has starred as their 3 best
   const [bestPicks, setBestPicks] = useState<Set<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [dataLoading, setDataLoading] = useState(true)
+  const [now, setNow] = useState(new Date())
+
+  // Keep clock ticking so lock state stays live
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 10_000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login')
-    }
+    if (!loading && !user) router.push('/login')
   }, [user, loading, router])
 
   useEffect(() => {
     const fetchData = async () => {
       if (!user) return
-
       try {
         const { data: gamesData } = await supabase
-          .from('games')
-          .select('*')
-          .eq('week', CURRENT_WEEK)
-          .eq('season', CURRENT_SEASON)
+          .from('games').select('*')
+          .eq('week', CURRENT_WEEK).eq('season', CURRENT_SEASON)
           .order('kickoff_time')
 
-        if (gamesData) {
-          setGames(gamesData)
-        }
+        if (gamesData) setGames(gamesData)
 
         if (gamesData) {
           const { data: picksData } = await supabase
-            .from('picks')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('week', CURRENT_WEEK)
-            .eq('season', CURRENT_SEASON)
+            .from('picks').select('*')
+            .eq('user_id', user.id).eq('week', CURRENT_WEEK).eq('season', CURRENT_SEASON)
 
           const picksMap: UserPick = {}
-          picksData?.forEach(pick => {
-            picksMap[pick.game_id] = pick.picked_team
-          })
+          picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
           setPicks(picksMap)
 
-          // Load 3 best picks and reconstruct which gameIds they correspond to
           const { data: threeBestData } = await supabase
-            .from('three_best')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('week', CURRENT_WEEK)
-            .eq('season', CURRENT_SEASON)
+            .from('three_best').select('*')
+            .eq('user_id', user.id).eq('week', CURRENT_WEEK).eq('season', CURRENT_SEASON)
             .single()
 
           if (threeBestData) {
-            const bestTeams = new Set([
-              threeBestData.pick_1,
-              threeBestData.pick_2,
-              threeBestData.pick_3,
-            ].filter(Boolean))
-
-            // Find gameIds where the user's pick matches a best-pick team
+            const bestTeams = new Set([threeBestData.pick_1, threeBestData.pick_2, threeBestData.pick_3].filter(Boolean))
             const bestGameIds = new Set<string>()
-            picksData?.forEach(pick => {
-              if (bestTeams.has(pick.picked_team)) {
-                bestGameIds.add(pick.game_id)
-              }
-            })
+            picksData?.forEach(p => { if (bestTeams.has(p.picked_team)) bestGameIds.add(p.game_id) })
             setBestPicks(bestGameIds)
           }
         }
@@ -151,67 +148,47 @@ export default function PicksPage() {
         setDataLoading(false)
       }
     }
-
     fetchData()
   }, [user])
 
+  const lockTime = computeLockTime(games)
+  const isLocked = lockTime ? now >= lockTime : false
+
   const handlePickChange = (gameId: string, team: string) => {
+    if (isLocked) return
     setPicks(prev => ({ ...prev, [gameId]: team }))
-    // If this game was starred as a best pick, keep it starred (pick changed)
-    // but if there's no longer a pick for this game, remove the star
   }
 
   const toggleBestPick = (gameId: string) => {
-    // Can only star a game if a pick has been made
-    if (!picks[gameId]) return
-
+    if (isLocked || !picks[gameId]) return
     setBestPicks(prev => {
       const next = new Set(prev)
-      if (next.has(gameId)) {
-        next.delete(gameId)
-      } else if (next.size < MAX_BEST_PICKS) {
-        next.add(gameId)
-      }
+      if (next.has(gameId)) { next.delete(gameId) }
+      else if (next.size < MAX_BEST_PICKS) { next.add(gameId) }
       return next
     })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user) return
-
+    if (!user || isLocked) return
     if (bestPicks.size !== MAX_BEST_PICKS) {
-      setError(`Please select exactly 3 Best Picks (you have ${bestPicks.size}).`)
+      setError(`Please star exactly 3 Best Picks (you have ${bestPicks.size}).`)
       return
     }
-
-    setSubmitting(true)
-    setError('')
-    setSuccess('')
-
+    setSubmitting(true); setError(''); setSuccess('')
     try {
-      // Submit all game picks
       for (const gameId in picks) {
         await supabase.from('picks').upsert({
-          user_id: user.id,
-          game_id: gameId,
-          picked_team: picks[gameId],
-          week: CURRENT_WEEK,
-          season: CURRENT_SEASON,
+          user_id: user.id, game_id: gameId, picked_team: picks[gameId],
+          week: CURRENT_WEEK, season: CURRENT_SEASON,
         })
       }
-
-      // Convert starred gameIds → team abbreviations for three_best table
-      const bestTeams = Array.from(bestPicks).map(gameId => picks[gameId])
+      const bestTeams = Array.from(bestPicks).map(id => picks[id])
       await supabase.from('three_best').upsert({
-        user_id: user.id,
-        week: CURRENT_WEEK,
-        season: CURRENT_SEASON,
-        pick_1: bestTeams[0] ?? '',
-        pick_2: bestTeams[1] ?? '',
-        pick_3: bestTeams[2] ?? '',
+        user_id: user.id, week: CURRENT_WEEK, season: CURRENT_SEASON,
+        pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '',
       })
-
       setSuccess('Picks saved!')
       setTimeout(() => setSuccess(''), 4000)
     } catch (err) {
@@ -219,11 +196,6 @@ export default function PicksPage() {
     } finally {
       setSubmitting(false)
     }
-  }
-
-  const handleSignOut = async () => {
-    await signOut()
-    router.push('/login')
   }
 
   if (loading || dataLoading) {
@@ -244,33 +216,37 @@ export default function PicksPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sticky header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🏈</span>
+      <Nav />
+
+      <main className="max-w-3xl mx-auto px-4 py-6">
+        {/* Lock banner */}
+        {isLocked && (
+          <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+            <span className="text-xl">🔒</span>
             <div>
-              <p className="font-semibold text-gray-900 text-sm leading-tight">Barlok Family NFL Picks</p>
-              <p className="text-xs text-gray-400">Week {CURRENT_WEEK} · 2025 Season</p>
+              <p className="font-semibold text-red-800 text-sm">Picks are locked</p>
+              <p className="text-red-600 text-xs mt-0.5">
+                The deadline of {lockTime ? formatKickoff(lockTime.toISOString()) : ''} has passed. Your saved picks are shown below.
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">Hi, {user.name}</span>
-            <button onClick={handleSignOut} className="text-sm text-gray-400 hover:text-gray-700 transition">
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
+        )}
 
-      <main className="max-w-2xl mx-auto px-4 py-6">
+        {/* Lock countdown */}
+        {!isLocked && lockTime && (
+          <div className="mb-5 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2 text-amber-800 text-xs">
+            <span>⏰</span>
+            <span>Picks lock at <strong>{formatKickoff(lockTime.toISOString())}</strong> — Thursday 8:15 PM ET</span>
+          </div>
+        )}
+
         {/* Progress */}
         {totalGames > 0 && (
           <div className="mb-5">
             <div className="flex justify-between text-xs text-gray-500 mb-1.5">
               <span>{pickedCount} of {totalGames} games picked</span>
               <span className={bestPicks.size === MAX_BEST_PICKS ? 'text-amber-500 font-medium' : ''}>
-                ⭐ {bestPicks.size}/{MAX_BEST_PICKS} best picks selected
+                ⭐ {bestPicks.size}/{MAX_BEST_PICKS} best picks
               </span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-1.5">
@@ -283,9 +259,7 @@ export default function PicksPage() {
         )}
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-            {error}
-          </div>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
         )}
         {success && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm flex items-center gap-2">
@@ -311,88 +285,61 @@ export default function PicksPage() {
                   const home = getTeam(game.home_team)
                   const pickedTeam = picks[game.id]
                   const isStarred = bestPicks.has(game.id)
-                  const canStar = !!pickedTeam
+                  const canStar = !!pickedTeam && !isLocked
                   const starDisabled = !canStar || (!isStarred && bestPicks.size >= MAX_BEST_PICKS)
 
                   return (
-                    <div key={game.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                      {/* Game header row */}
+                    <div key={game.id} className={`bg-white rounded-xl border overflow-hidden ${isLocked ? 'border-gray-100 opacity-90' : 'border-gray-200'}`}>
                       <div className="flex items-center justify-between px-4 pt-3 pb-2">
                         <p className="text-xs text-gray-400">{formatKickoff(game.kickoff_time)}</p>
-                        {/* Best Pick star button */}
-                        <button
-                          type="button"
-                          onClick={() => toggleBestPick(game.id)}
-                          disabled={starDisabled}
-                          title={
-                            !canStar
-                              ? 'Pick a team first'
-                              : isStarred
-                              ? 'Remove best pick'
-                              : bestPicks.size >= MAX_BEST_PICKS
-                              ? 'Already selected 3 best picks'
-                              : 'Mark as best pick'
-                          }
-                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition font-medium
-                            ${isStarred
-                              ? 'bg-amber-50 border-amber-300 text-amber-600'
-                              : starDisabled
-                              ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                        {!isLocked && (
+                          <button
+                            type="button"
+                            onClick={() => toggleBestPick(game.id)}
+                            disabled={starDisabled}
+                            title={!canStar ? 'Pick a team first' : isStarred ? 'Remove best pick' : bestPicks.size >= MAX_BEST_PICKS ? 'Already selected 3' : 'Mark as best pick'}
+                            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition font-medium ${
+                              isStarred ? 'bg-amber-50 border-amber-300 text-amber-600'
+                              : starDisabled ? 'border-gray-100 text-gray-300 cursor-not-allowed'
                               : 'border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-500'
                             }`}
-                        >
-                          <span>{isStarred ? '⭐' : '☆'}</span>
-                          <span>Best Pick</span>
-                        </button>
+                          >
+                            <span>{isStarred ? '⭐' : '☆'}</span>
+                            <span>Best Pick</span>
+                          </button>
+                        )}
+                        {isLocked && isStarred && (
+                          <span className="text-xs text-amber-600 font-medium">⭐ Best Pick</span>
+                        )}
                       </div>
 
-                      {/* Team buttons */}
                       <div className="grid grid-cols-2 gap-2 px-3 pb-3">
-                        {/* Away */}
-                        <button
-                          type="button"
-                          onClick={() => handlePickChange(game.id, game.away_team)}
-                          className={`flex items-center gap-3 py-3 px-4 rounded-lg border-2 transition text-left
-                            ${pickedTeam === game.away_team
-                              ? 'border-blue-600 bg-blue-600 text-white'
-                              : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
+                        {[{ abbr: game.away_team, info: away, label: 'Away' }, { abbr: game.home_team, info: home, label: 'Home' }].map(({ abbr, info, label }) => (
+                          <button
+                            key={abbr}
+                            type="button"
+                            onClick={() => handlePickChange(game.id, abbr)}
+                            disabled={isLocked}
+                            className={`flex items-center gap-3 py-3 px-4 rounded-lg border-2 transition text-left ${
+                              pickedTeam === abbr
+                                ? 'border-blue-600 bg-blue-600 text-white'
+                                : isLocked
+                                ? 'border-gray-100 bg-gray-50 text-gray-400 cursor-default'
+                                : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
                             }`}
-                        >
-                          <img
-                            src={away.logo}
-                            alt={game.away_team}
-                            className="w-8 h-8 object-contain flex-shrink-0"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                          />
-                          <div className="min-w-0">
-                            <p className="text-xs opacity-70 leading-tight truncate">{away.city}</p>
-                            <p className="font-semibold text-sm leading-tight truncate">{away.name}</p>
-                            <p className={`text-xs mt-0.5 ${pickedTeam === game.away_team ? 'opacity-70' : 'text-gray-400'}`}>Away</p>
-                          </div>
-                        </button>
-
-                        {/* Home */}
-                        <button
-                          type="button"
-                          onClick={() => handlePickChange(game.id, game.home_team)}
-                          className={`flex items-center gap-3 py-3 px-4 rounded-lg border-2 transition text-left
-                            ${pickedTeam === game.home_team
-                              ? 'border-blue-600 bg-blue-600 text-white'
-                              : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
-                            }`}
-                        >
-                          <img
-                            src={home.logo}
-                            alt={game.home_team}
-                            className="w-8 h-8 object-contain flex-shrink-0"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                          />
-                          <div className="min-w-0">
-                            <p className="text-xs opacity-70 leading-tight truncate">{home.city}</p>
-                            <p className="font-semibold text-sm leading-tight truncate">{home.name}</p>
-                            <p className={`text-xs mt-0.5 ${pickedTeam === game.home_team ? 'opacity-70' : 'text-gray-400'}`}>Home</p>
-                          </div>
-                        </button>
+                          >
+                            <img
+                              src={info.logo} alt={abbr}
+                              className={`w-8 h-8 object-contain flex-shrink-0 ${isLocked && pickedTeam !== abbr ? 'opacity-30' : ''}`}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs opacity-70 leading-tight truncate">{info.city}</p>
+                              <p className="font-semibold text-sm leading-tight truncate">{info.name}</p>
+                              <p className={`text-xs mt-0.5 ${pickedTeam === abbr ? 'opacity-70' : 'text-gray-400'}`}>{label}</p>
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )
@@ -420,13 +367,15 @@ export default function PicksPage() {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {submitting ? 'Saving...' : 'Save Picks'}
-          </button>
+          {!isLocked && (
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {submitting ? 'Saving...' : 'Save Picks'}
+            </button>
+          )}
         </form>
       </main>
     </div>

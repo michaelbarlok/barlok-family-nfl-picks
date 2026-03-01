@@ -56,7 +56,8 @@ async function detectCurrentWeek(supabase: ReturnType<typeof createClient>): Pro
     .lt('kickoff_time', new Date().toISOString())
     .order('week', { ascending: false })
     .limit(1)
-  return data?.[0]?.week ?? null
+  const row = (data as { week: number }[] | null)?.[0]
+  return row?.week ?? null
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

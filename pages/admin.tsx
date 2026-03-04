@@ -304,10 +304,10 @@ export default function AdminPage() {
 
   if (loading || dataLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-3">🔧</div>
-          <p className="text-gray-500 text-sm">Loading admin panel...</p>
+          <p className="text-slate-400 text-sm">Loading admin panel...</p>
         </div>
       </div>
     )
@@ -318,23 +318,23 @@ export default function AdminPage() {
   const selectedUser = users.find(u => u.id === selectedUserId)
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface">
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Admin Dashboard</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Visible only to you</p>
+            <h1 className="text-lg font-bold text-white">Admin Dashboard</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Visible only to you</p>
           </div>
-          <span className="text-xs font-semibold bg-red-100 text-red-700 px-2.5 py-1 rounded-full border border-red-200">
+          <span className="text-xs font-semibold bg-red-500/15 text-red-400 px-2.5 py-1 rounded-full border border-red-500/20">
             🔐 Admin Only
           </span>
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl">
+        <div className="flex gap-1 mb-5 bg-white/[0.04] p-1 rounded-xl">
           {[
             { key: 'results', label: '🏆 Game Results' },
             { key: 'override', label: '✏️ Override Picks' },
@@ -344,8 +344,8 @@ export default function AdminPage() {
               onClick={() => { setActiveTab(tab.key as 'results' | 'override'); setMessage(null) }}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition ${
                 activeTab === tab.key
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-white/[0.10] text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-300'
               }`}
             >
               {tab.label}
@@ -355,10 +355,10 @@ export default function AdminPage() {
 
         {/* Message banner */}
         {message && (
-          <div className={`mb-4 p-3 rounded-lg text-sm border ${
+          <div className={`mb-4 p-3 rounded-xl text-sm border animate-slide-up ${
             message.type === 'success'
-              ? 'bg-green-50 border-green-200 text-green-700'
-              : 'bg-red-50 border-red-200 text-red-700'
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+              : 'bg-red-500/10 border-red-500/20 text-red-400'
           }`}>
             {message.type === 'success' ? '✓ ' : '✗ '}{message.text}
           </div>
@@ -367,7 +367,7 @@ export default function AdminPage() {
         {/* Week selector (shared) */}
         {availableWeeks.length > 0 && (
           <div className="mb-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Select Week</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Week</p>
             <div className="flex flex-wrap gap-2">
               {availableWeeks.map(w => (
                 <button
@@ -376,7 +376,7 @@ export default function AdminPage() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
                     selectedWeek === w
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                      : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-blue-500/30'
                   }`}
                 >
                   Week {w}
@@ -391,9 +391,9 @@ export default function AdminPage() {
           <>
             {/* Action buttons row */}
             <div className="grid grid-cols-2 gap-3 mb-5">
-              <div className="p-4 bg-white rounded-xl border border-gray-200">
-                <p className="text-sm font-semibold text-gray-800 mb-1">Sync from ESPN</p>
-                <p className="text-xs text-gray-400 mb-3">Pull completed game results & update all scores.</p>
+              <div className="p-4 glass-card rounded-xl">
+                <p className="text-sm font-semibold text-slate-200 mb-1">Sync from ESPN</p>
+                <p className="text-xs text-slate-500 mb-3">Pull completed game results & update all scores.</p>
                 <button
                   onClick={handleSync}
                   disabled={syncing}
@@ -403,15 +403,15 @@ export default function AdminPage() {
                 </button>
               </div>
 
-              <div className="p-4 bg-white rounded-xl border border-gray-200">
-                <p className="text-sm font-semibold text-gray-800 mb-1">Email Spreadsheet</p>
-                <p className="text-xs text-gray-400 mb-3">Send Week {selectedWeek} picks sheet to all players.</p>
+              <div className="p-4 glass-card rounded-xl">
+                <p className="text-sm font-semibold text-slate-200 mb-1">Email Spreadsheet</p>
+                <p className="text-xs text-slate-500 mb-3">Send Week {selectedWeek} picks sheet to all players.</p>
                 <textarea
                   value={customMessage}
                   onChange={e => setCustomMessage(e.target.value)}
                   placeholder="Add an optional message to include in the email..."
                   rows={3}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 mb-3 resize-none"
+                  className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 mb-3 resize-none"
                 />
                 <button
                   onClick={handleEmail}
@@ -424,13 +424,13 @@ export default function AdminPage() {
             </div>
 
             {/* Games list */}
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
               Week {selectedWeek} — Set Winners
             </p>
 
             {games.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                <p className="text-gray-400 text-sm">No games found for Week {selectedWeek}.</p>
+              <div className="glass-card rounded-xl p-8 text-center">
+                <p className="text-slate-500 text-sm">No games found for Week {selectedWeek}.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -442,20 +442,20 @@ export default function AdminPage() {
                   const kickedOff = new Date(game.kickoff_time) < new Date()
 
                   return (
-                    <div key={game.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div key={game.id} className="glass-card rounded-xl overflow-hidden">
                       <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                        <p className="text-xs text-gray-400">{formatKickoff(game.kickoff_time)}</p>
+                        <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
                         <div className="flex items-center gap-2">
                           {winner ? (
-                            <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                               ✓ {winner} won
                             </span>
                           ) : kickedOff ? (
-                            <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                            <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
                               Pending result
                             </span>
                           ) : (
-                            <span className="text-xs text-gray-300 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+                            <span className="text-xs text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2 py-0.5 rounded-full">
                               Not started
                             </span>
                           )}
@@ -476,10 +476,10 @@ export default function AdminPage() {
                               disabled={isSettingThis}
                               className={`flex items-center gap-3 py-3 px-4 rounded-lg border-2 transition text-left ${
                                 isWinner
-                                  ? 'border-green-500 bg-green-500 text-white'
+                                  ? 'border-emerald-500/60 bg-emerald-500/15 text-white glow-green'
                                   : winner && !isWinner
-                                  ? 'border-gray-100 bg-gray-50 text-gray-300'
-                                  : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
+                                  ? 'border-white/[0.03] bg-white/[0.02] text-slate-600'
+                                  : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'
                               } disabled:cursor-wait`}
                             >
                               <img
@@ -490,7 +490,7 @@ export default function AdminPage() {
                               <div className="min-w-0">
                                 <p className="text-xs opacity-70 leading-tight truncate">{info.city}</p>
                                 <p className="font-semibold text-sm leading-tight truncate">{info.name}</p>
-                                <p className={`text-xs mt-0.5 ${isWinner ? 'opacity-70' : 'text-gray-400'}`}>{label}</p>
+                                <p className={`text-xs mt-0.5 ${isWinner ? 'opacity-70' : 'text-slate-500'}`}>{label}</p>
                               </div>
                               {isWinner && <span className="ml-auto text-sm">✓</span>}
                             </button>
@@ -499,7 +499,7 @@ export default function AdminPage() {
                       </div>
 
                       {isSettingThis && (
-                        <div className="px-4 pb-3 text-xs text-gray-400">Updating scores...</div>
+                        <div className="px-4 pb-3 text-xs text-slate-500">Updating scores...</div>
                       )}
                     </div>
                   )
@@ -514,7 +514,7 @@ export default function AdminPage() {
           <>
             {/* User selector */}
             <div className="mb-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Select Player</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Player</p>
               <div className="flex flex-wrap gap-2">
                 {users.map(u => (
                   <button
@@ -523,7 +523,7 @@ export default function AdminPage() {
                     className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
                       selectedUserId === u.id
                         ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300'
+                        : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-indigo-500/30'
                     }`}
                   >
                     {u.name}
@@ -533,20 +533,20 @@ export default function AdminPage() {
             </div>
 
             {!selectedUserId && (
-              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                <p className="text-gray-400 text-sm">Select a player above to view and override their picks.</p>
+              <div className="glass-card rounded-xl p-8 text-center">
+                <p className="text-slate-500 text-sm">Select a player above to view and override their picks.</p>
               </div>
             )}
 
             {selectedUserId && (
               <>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
                   {selectedUser?.name}&apos;s Week {selectedWeek} Picks — Click to change
                 </p>
 
                 {loadingUserPicks ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                    <p className="text-gray-400 text-sm">Loading picks...</p>
+                  <div className="glass-card rounded-xl p-8 text-center">
+                    <p className="text-slate-500 text-sm">Loading picks...</p>
                   </div>
                 ) : (
                   <>
@@ -557,12 +557,12 @@ export default function AdminPage() {
                         const currentPick = overridePicks[game.id] ?? null
 
                         return (
-                          <div key={game.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                          <div key={game.id} className="glass-card rounded-xl overflow-hidden">
                             <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                              <p className="text-xs text-gray-400">{formatKickoff(game.kickoff_time)}</p>
+                              <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
                               {currentPick ? (
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                                  <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
                                     Picked: {currentPick}
                                   </span>
                                   <button
@@ -574,7 +574,7 @@ export default function AdminPage() {
                                   </button>
                                 </div>
                               ) : (
-                                <span className="text-xs text-gray-300 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+                                <span className="text-xs text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2 py-0.5 rounded-full">
                                   No pick
                                 </span>
                               )}
@@ -593,10 +593,10 @@ export default function AdminPage() {
                                     onClick={() => handleOverridePick(game.id, abbr)}
                                     className={`flex items-center gap-3 py-3 px-4 rounded-lg border-2 transition text-left ${
                                       isPicked
-                                        ? 'border-blue-500 bg-blue-500 text-white'
+                                        ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue'
                                         : currentPick && !isPicked
-                                        ? 'border-gray-100 bg-gray-50 text-gray-300'
-                                        : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50'
+                                        ? 'border-white/[0.03] bg-white/[0.02] text-slate-600'
+                                        : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'
                                     }`}
                                   >
                                     <img
@@ -607,7 +607,7 @@ export default function AdminPage() {
                                     <div className="min-w-0">
                                       <p className="text-xs opacity-70 leading-tight truncate">{info.city}</p>
                                       <p className="font-semibold text-sm leading-tight truncate">{info.name}</p>
-                                      <p className={`text-xs mt-0.5 ${isPicked ? 'opacity-70' : 'text-gray-400'}`}>{label}</p>
+                                      <p className={`text-xs mt-0.5 ${isPicked ? 'opacity-70' : 'text-slate-500'}`}>{label}</p>
                                     </div>
                                     {isPicked && <span className="ml-auto text-sm">✓</span>}
                                   </button>
@@ -620,22 +620,22 @@ export default function AdminPage() {
                     </div>
 
                     {/* Three Best override */}
-                    <div className="bg-white rounded-xl border border-gray-200 p-4">
-                      <p className="text-sm font-semibold text-gray-800 mb-1">Override Best 3 Picks</p>
-                      <p className="text-xs text-gray-400 mb-3">
+                    <div className="glass-card rounded-xl p-4">
+                      <p className="text-sm font-semibold text-slate-200 mb-1">Override Best 3 Picks</p>
+                      <p className="text-xs text-slate-500 mb-3">
                         Enter team abbreviations (e.g. KC, BUF, PHI). Leave blank to clear.
                       </p>
                       <div className="grid grid-cols-3 gap-3 mb-4">
                         {(['pick_1', 'pick_2', 'pick_3'] as const).map((key, i) => (
                           <div key={key}>
-                            <label className="block text-xs font-semibold text-gray-500 mb-1">Best #{i + 1}</label>
+                            <label className="block text-xs font-semibold text-slate-400 mb-1">Best #{i + 1}</label>
                             <input
                               type="text"
                               value={overrideThreeBest[key]}
                               onChange={e => setOverrideThreeBest(prev => ({ ...prev, [key]: e.target.value.toUpperCase() }))}
                               maxLength={3}
                               placeholder="e.g. KC"
-                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono uppercase"
+                              className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono uppercase"
                             />
                           </div>
                         ))}
@@ -656,8 +656,8 @@ export default function AdminPage() {
         )}
 
         {availableWeeks.length === 0 && !dataLoading && (
-          <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-            <p className="text-gray-400 text-sm">No games found. Add games to the database first.</p>
+          <div className="glass-card rounded-xl p-10 text-center">
+            <p className="text-slate-500 text-sm">No games found. Add games to the database first.</p>
           </div>
         )}
       </main>

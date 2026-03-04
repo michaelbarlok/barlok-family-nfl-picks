@@ -5,6 +5,33 @@ import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
 
+function SheetsSkeleton() {
+  return (
+    <div className="min-h-screen bg-surface">
+      <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="skeleton h-5 w-48 rounded-lg mb-3" />
+          <div className="flex gap-2">
+            <div className="skeleton h-8 w-24 rounded-full" />
+            <div className="skeleton h-8 w-24 rounded-full" />
+            <div className="skeleton h-8 w-20 rounded-full" />
+          </div>
+        </div>
+      </div>
+      <main className="max-w-3xl mx-auto px-4 py-6">
+        <div className="skeleton h-4 w-48 rounded mb-4" />
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="glass-card rounded-2xl p-5">
+              <div className="skeleton h-12 w-full rounded-xl" />
+            </div>
+          ))}
+        </div>
+      </main>
+    </div>
+  )
+}
+
 export default function SpreadsheetsPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
@@ -64,59 +91,55 @@ export default function SpreadsheetsPage() {
     }
   }
 
-  if (loading || dataLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-4xl mb-3">📊</div>
-          <p className="text-gray-500 text-sm">Loading spreadsheets...</p>
-        </div>
-      </div>
-    )
-  }
-
+  if (loading || dataLoading) return <SheetsSkeleton />
   if (!user) return null
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface">
       <Nav />
 
-      <main className="max-w-3xl mx-auto px-4 py-6">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+      <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
           {CURRENT_SEASON} Season Spreadsheets
         </h2>
 
         {availableWeeks.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+          <div className="glass-card rounded-2xl p-12 text-center">
             <p className="text-3xl mb-3">📭</p>
-            <p className="text-gray-700 font-medium">No spreadsheets available yet</p>
-            <p className="text-gray-400 text-sm mt-1">Spreadsheets will appear here once games are added to the schedule.</p>
+            <p className="text-white font-medium">No spreadsheets available yet</p>
+            <p className="text-slate-500 text-sm mt-1.5">Spreadsheets will appear here once games are added to the schedule.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {/* Current week highlighted */}
-            {availableWeeks.map(week => {
+          <div className="space-y-3">
+            {availableWeeks.map((week, idx) => {
               const isCurrent = week === latestWeek
               const isDownloading = downloading === week
 
               return (
                 <div
                   key={week}
-                  className={`bg-white rounded-xl border p-4 flex items-center justify-between ${isCurrent ? 'border-blue-200 ring-1 ring-blue-100' : 'border-gray-200'}`}
+                  className={`glass-card rounded-2xl p-4 flex items-center justify-between transition-all animate-slide-up ${
+                    isCurrent ? 'ring-1 ring-blue-500/30' : ''
+                  }`}
+                  style={{ animationDelay: `${idx * 50}ms` }}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold ${isCurrent ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm font-bold ${
+                      isCurrent
+                        ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/20'
+                        : 'bg-white/[0.06] text-slate-400'
+                    }`}>
                       W{week}
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900 text-sm">
+                      <p className="font-semibold text-white text-sm">
                         Week {week}
                         {isCurrent && (
-                          <span className="ml-2 text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Current</span>
+                          <span className="ml-2 text-[11px] font-medium text-blue-400 bg-blue-500/15 px-2 py-0.5 rounded-full">Current</span>
                         )}
                       </p>
-                      <p className="text-xs text-gray-400">
-                        {CURRENT_SEASON} NFL Season · All picks included
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {CURRENT_SEASON} NFL Season
                       </p>
                     </div>
                   </div>
@@ -124,21 +147,24 @@ export default function SpreadsheetsPage() {
                   <button
                     onClick={() => handleDownload(week)}
                     disabled={isDownloading}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                    className={`press flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                       isCurrent
-                        ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50'
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-600/20 disabled:opacity-50'
+                        : 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.10] disabled:opacity-50'
                     }`}
                   >
                     {isDownloading ? (
                       <>
-                        <span className="animate-spin">⏳</span>
+                        <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
                         Generating...
                       </>
                     ) : (
                       <>
-                        <span>⬇️</span>
-                        Download .xlsx
+                        <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+                          <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="rgba(34,197,94,0.15)" />
+                          <path d="M5 5L8 8M8 8L11 5M8 8L5 11M8 8L11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                        Download
                       </>
                     )}
                   </button>
@@ -148,9 +174,9 @@ export default function SpreadsheetsPage() {
           </div>
         )}
 
-        <div className="mt-6 bg-gray-100 rounded-xl p-4">
-          <p className="text-xs font-semibold text-gray-600 mb-1">📧 Prefer email delivery?</p>
-          <p className="text-xs text-gray-500">
+        <div className="mt-6 glass-card rounded-2xl p-4">
+          <p className="text-xs font-semibold text-slate-300 mb-1">📧 Prefer email delivery?</p>
+          <p className="text-xs text-slate-500">
             Michael can send the spreadsheet to everyone via email. Reach out to request a copy sent to the group.
           </p>
         </div>

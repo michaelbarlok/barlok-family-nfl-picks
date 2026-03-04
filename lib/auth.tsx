@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { supabase, supabaseConfigured } from './supabase'
 
 interface User {
   id: string
@@ -10,6 +10,7 @@ interface User {
 interface AuthContextType {
   user: User | null
   loading: boolean
+  configError: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string, name: string) => Promise<void>
   signOut: () => Promise<void>
@@ -20,8 +21,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [configError, setConfigError] = useState(false)
 
   useEffect(() => {
+    if (!supabaseConfigured) {
+      console.error('Supabase is not configured. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.')
+      setConfigError(true)
+      setLoading(false)
+      return
+    }
+
     const checkUser = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
@@ -94,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, configError, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   )

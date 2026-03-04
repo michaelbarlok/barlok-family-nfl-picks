@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
+
+interface ManagedPlayer {
+  id: string
+  name: string
+}
 
 interface Game {
   id: string
@@ -133,6 +138,8 @@ export default function PicksPage() {
   const [loadError, setLoadError] = useState('')
   const [now, setNow] = useState(new Date())
   const [toastVisible, setToastVisible] = useState(false)
+  const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
+  const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
 
   // Keep clock ticking so lock state stays live
   useEffect(() => {
@@ -143,6 +150,27 @@ export default function PicksPage() {
   useEffect(() => {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
+
+  // Fetch managed players
+  useEffect(() => {
+    const fetchManaged = async () => {
+      if (!user) return
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token ?? ''
+        const res = await fetch('/api/managed-players', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const json = await res.json()
+        if (res.ok && json.players?.length > 0) {
+          setManagedPlayers(json.players)
+        }
+      } catch (err) {
+        console.error('Failed to fetch managed players:', err)
+      }
+    }
+    fetchManaged()
+  }, [user])
 
   // Detect current week: the latest week in the DB for this season
   useEffect(() => {
@@ -162,6 +190,37 @@ export default function PicksPage() {
     detectWeek()
   }, [user])
 
+  // The effective user ID for picks: self or managed player
+  const effectiveUserId = activePlayerId ?? user?.id
+
+  const loadPicksForUser = useCallback(async (userId: string, week: number) => {
+    try {
+      const { data: picksData } = await supabase
+        .from('picks').select('*')
+        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+
+      const picksMap: UserPick = {}
+      picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
+      setPicks(picksMap)
+
+      const { data: threeBestData } = await supabase
+        .from('three_best').select('*')
+        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+        .single()
+
+      if (threeBestData) {
+        const bestTeams = new Set([threeBestData.pick_1, threeBestData.pick_2, threeBestData.pick_3].filter(Boolean))
+        const bestGameIds = new Set<string>()
+        picksData?.forEach(p => { if (bestTeams.has(p.picked_team)) bestGameIds.add(p.game_id) })
+        setBestPicks(bestGameIds)
+      } else {
+        setBestPicks(new Set())
+      }
+    } catch (err) {
+      console.error('Error fetching picks:', err)
+    }
+  }, [])
+
   useEffect(() => {
     const fetchData = async () => {
       if (!user || currentWeek === null) return
@@ -173,26 +232,8 @@ export default function PicksPage() {
 
         if (gamesData) setGames(gamesData)
 
-        if (gamesData) {
-          const { data: picksData } = await supabase
-            .from('picks').select('*')
-            .eq('user_id', user.id).eq('week', currentWeek).eq('season', CURRENT_SEASON)
-
-          const picksMap: UserPick = {}
-          picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
-          setPicks(picksMap)
-
-          const { data: threeBestData } = await supabase
-            .from('three_best').select('*')
-            .eq('user_id', user.id).eq('week', currentWeek).eq('season', CURRENT_SEASON)
-            .single()
-
-          if (threeBestData) {
-            const bestTeams = new Set([threeBestData.pick_1, threeBestData.pick_2, threeBestData.pick_3].filter(Boolean))
-            const bestGameIds = new Set<string>()
-            picksData?.forEach(p => { if (bestTeams.has(p.picked_team)) bestGameIds.add(p.game_id) })
-            setBestPicks(bestGameIds)
-          }
+        if (gamesData && effectiveUserId) {
+          await loadPicksForUser(effectiveUserId, currentWeek)
         }
       } catch (err) {
         console.error('Error fetching data:', err)
@@ -202,7 +243,7 @@ export default function PicksPage() {
       }
     }
     fetchData()
-  }, [user, currentWeek])
+  }, [user, currentWeek, effectiveUserId, loadPicksForUser])
 
   const lockTime = computeLockTime(games)
   const isLocked = lockTime ? now >= lockTime : false
@@ -238,22 +279,44 @@ export default function PicksPage() {
     }
     setSubmitting(true); setError('')
     try {
-      // Batch all picks into a single upsert
-      const picksArray = Object.entries(picks).map(([gameId, pickedTeam]) => ({
-        user_id: user.id, game_id: gameId, picked_team: pickedTeam,
-        week: currentWeek, season: CURRENT_SEASON,
-      }))
-      const { error: picksError } = await supabase.from('picks').upsert(picksArray)
-      if (picksError) throw new Error(`Failed to save picks: ${picksError.message}`)
+      if (activePlayerId) {
+        // Proxy submission for managed player — use API
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token ?? ''
+        const bestTeams = Array.from(bestPicks).map(id => picks[id])
+        const res = await fetch('/api/proxy-picks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            playerId: activePlayerId,
+            week: currentWeek,
+            season: CURRENT_SEASON,
+            picks,
+            bestPicks: bestTeams,
+          }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error ?? 'Failed to save picks')
+        const playerName = managedPlayers.find(p => p.id === activePlayerId)?.name ?? 'Player'
+        showToast(`${playerName}'s picks saved!`)
+      } else {
+        // Direct submission for self
+        const picksArray = Object.entries(picks).map(([gameId, pickedTeam]) => ({
+          user_id: user.id, game_id: gameId, picked_team: pickedTeam,
+          week: currentWeek, season: CURRENT_SEASON,
+        }))
+        const { error: picksError } = await supabase.from('picks').upsert(picksArray)
+        if (picksError) throw new Error(`Failed to save picks: ${picksError.message}`)
 
-      const bestTeams = Array.from(bestPicks).map(id => picks[id])
-      const { error: bestError } = await supabase.from('three_best').upsert({
-        user_id: user.id, week: currentWeek, season: CURRENT_SEASON,
-        pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '',
-      })
-      if (bestError) throw new Error(`Failed to save best picks: ${bestError.message}`)
+        const bestTeams = Array.from(bestPicks).map(id => picks[id])
+        const { error: bestError } = await supabase.from('three_best').upsert({
+          user_id: user.id, week: currentWeek, season: CURRENT_SEASON,
+          pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '',
+        })
+        if (bestError) throw new Error(`Failed to save best picks: ${bestError.message}`)
 
-      showToast('Picks saved!')
+        showToast('Picks saved!')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit picks')
     } finally {
@@ -272,6 +335,44 @@ export default function PicksPage() {
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6 pb-28 animate-fade-in">
+        {/* Player tabs (shown only if user manages other players) */}
+        {managedPlayers.length > 0 && (
+          <div className="mb-5">
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              <button
+                onClick={() => { setActivePlayerId(null); setPicks({}); setBestPicks(new Set()); setError('') }}
+                className={`press flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap ${
+                  activePlayerId === null
+                    ? 'bg-white/[0.10] text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                }`}
+              >
+                My Picks
+              </button>
+              {managedPlayers.map(mp => (
+                <button
+                  key={mp.id}
+                  onClick={() => { setActivePlayerId(mp.id); setPicks({}); setBestPicks(new Set()); setError('') }}
+                  className={`press flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap ${
+                    activePlayerId === mp.id
+                      ? 'bg-indigo-500/20 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <span className="text-xs">👤</span>
+                  {mp.name}
+                </button>
+              ))}
+            </div>
+            {activePlayerId && (
+              <div className="mt-2 p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center gap-2 text-xs text-indigo-300">
+                <span>👤</span>
+                <span>Picking for <strong>{managedPlayers.find(p => p.id === activePlayerId)?.name}</strong></span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Load error */}
         {loadError && (
           <div className="mb-5 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 animate-slide-up">
@@ -450,7 +551,9 @@ export default function PicksPage() {
           {/* Best picks summary */}
           {bestPicks.size > 0 && (
             <div className="mb-5 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
-              <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">⭐ Your Best Picks</p>
+              <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                ⭐ {activePlayerId ? `${managedPlayers.find(p => p.id === activePlayerId)?.name}'s` : 'Your'} Best Picks
+              </p>
               <div className="flex flex-wrap gap-2">
                 {Array.from(bestPicks).map(gameId => {
                   const team = picks[gameId]
@@ -484,7 +587,7 @@ export default function PicksPage() {
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Saving...
                   </span>
-                ) : 'Save Picks'}
+                ) : activePlayerId ? `Save ${managedPlayers.find(p => p.id === activePlayerId)?.name}'s Picks` : 'Save Picks'}
               </button>
             </div>
           </div>

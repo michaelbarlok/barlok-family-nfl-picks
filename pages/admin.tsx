@@ -83,7 +83,7 @@ export default function AdminPage() {
   const { user, loading } = useAuth()
 
   // Shared state
-  const [activeTab, setActiveTab] = useState<'results' | 'override'>('results')
+  const [activeTab, setActiveTab] = useState<'results' | 'override' | 'players'>('results')
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
@@ -103,6 +103,18 @@ export default function AdminPage() {
   const [overrideThreeBest, setOverrideThreeBest] = useState<ThreeBestMap>({ pick_1: '', pick_2: '', pick_3: '' })
   const [savingOverride, setSavingOverride] = useState(false)
   const [loadingUserPicks, setLoadingUserPicks] = useState(false)
+
+  // Manage Players tab state
+  interface ManagedPlayer { id: string; name: string }
+  interface ManagerLink { manager_id: string; player_id: string }
+  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean }
+  const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
+  const [managerLinks, setManagerLinks] = useState<ManagerLink[]>([])
+  const [allUsers, setAllUsers] = useState<FullUser[]>([])
+  const [newPlayerName, setNewPlayerName] = useState('')
+  const [newPlayerManager, setNewPlayerManager] = useState('')
+  const [creatingPlayer, setCreatingPlayer] = useState(false)
+  const [playersLoading, setPlayersLoading] = useState(false)
 
   // Auth guard
   useEffect(() => {
@@ -181,6 +193,113 @@ export default function AdminPage() {
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ?? ''
+  }
+
+  // Load managed players data for admin tab
+  const loadManagedPlayersData = useCallback(async () => {
+    setPlayersLoading(true)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players?all=true', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const json = await res.json()
+      if (res.ok) {
+        setManagedPlayers(json.managedPlayers ?? [])
+        setManagerLinks(json.managerLinks ?? [])
+        setAllUsers(json.users ?? [])
+      }
+    } catch (err) {
+      console.error('Failed to load managed players:', err)
+    } finally {
+      setPlayersLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'players' && user?.email === ADMIN_EMAIL) {
+      loadManagedPlayersData()
+    }
+  }, [activeTab, user, loadManagedPlayersData])
+
+  // Create a managed player
+  const handleCreateManagedPlayer = async () => {
+    if (!newPlayerName.trim()) return
+    setCreatingPlayer(true)
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: newPlayerName.trim(), managerId: newPlayerManager || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create player')
+      setMessage({ type: 'success', text: `Created "${newPlayerName.trim()}" as a managed player.` })
+      setNewPlayerName('')
+      setNewPlayerManager('')
+      await loadManagedPlayersData()
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    } finally {
+      setCreatingPlayer(false)
+    }
+  }
+
+  // Delete a managed player
+  const handleDeleteManagedPlayer = async (playerId: string, playerName: string) => {
+    if (!confirm(`Delete "${playerName}"? This will remove all their picks and scores.`)) return
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ playerId }),
+      })
+      if (!res.ok) throw new Error('Failed to delete player')
+      setMessage({ type: 'success', text: `Deleted "${playerName}".` })
+      await loadManagedPlayersData()
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Toggle manager status
+  const handleToggleManager = async (userId: string, isManager: boolean) => {
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'toggle_manager', userId, isManager }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      await loadManagedPlayersData()
+      setMessage({ type: 'success', text: isManager ? 'Manager status granted.' : 'Manager status revoked.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Reassign managed player to a different manager
+  const handleReassign = async (playerId: string, newManagerId: string) => {
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'reassign', playerId, newManagerId }),
+      })
+      if (!res.ok) throw new Error('Failed to reassign')
+      await loadManagedPlayersData()
+      setMessage({ type: 'success', text: 'Manager reassigned.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
   }
 
   // Sync results from ESPN
@@ -336,12 +455,13 @@ export default function AdminPage() {
         {/* Tab bar */}
         <div className="flex gap-1 mb-5 bg-white/[0.04] p-1 rounded-xl">
           {[
-            { key: 'results', label: '🏆 Game Results' },
-            { key: 'override', label: '✏️ Override Picks' },
+            { key: 'results', label: '🏆 Results' },
+            { key: 'override', label: '✏️ Override' },
+            { key: 'players', label: '👥 Players' },
           ].map(tab => (
             <button
               key={tab.key}
-              onClick={() => { setActiveTab(tab.key as 'results' | 'override'); setMessage(null) }}
+              onClick={() => { setActiveTab(tab.key as 'results' | 'override' | 'players'); setMessage(null) }}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition ${
                 activeTab === tab.key
                   ? 'bg-white/[0.10] text-white shadow-sm'
@@ -655,7 +775,138 @@ export default function AdminPage() {
           </>
         )}
 
-        {availableWeeks.length === 0 && !dataLoading && (
+        {/* ── MANAGE PLAYERS TAB ── */}
+        {activeTab === 'players' && (
+          <>
+            {playersLoading ? (
+              <div className="glass-card rounded-xl p-8 text-center">
+                <p className="text-slate-400 text-sm">Loading player data...</p>
+              </div>
+            ) : (
+              <>
+                {/* Create managed player */}
+                <div className="glass-card rounded-xl p-4 mb-5">
+                  <p className="text-sm font-semibold text-slate-200 mb-1">Create Managed Player</p>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Add a player who doesn&apos;t need their own account. Someone else will pick for them.
+                  </p>
+                  <div className="flex gap-3 mb-3">
+                    <input
+                      type="text"
+                      value={newPlayerName}
+                      onChange={e => setNewPlayerName(e.target.value)}
+                      placeholder="Player name (e.g. Grandpa Joe)"
+                      className="flex-1 px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    />
+                    <select
+                      value={newPlayerManager}
+                      onChange={e => setNewPlayerManager(e.target.value)}
+                      className="px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="">Assign manager...</option>
+                      {allUsers.filter(u => !u.is_managed).map(u => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleCreateManagedPlayer}
+                    disabled={creatingPlayer || !newPlayerName.trim() || !newPlayerManager}
+                    className="w-full py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+                  >
+                    {creatingPlayer ? 'Creating...' : 'Create Player'}
+                  </button>
+                </div>
+
+                {/* Manager permissions */}
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                  Manager Permissions
+                </p>
+                <div className="glass-card rounded-xl overflow-hidden mb-5">
+                  {allUsers.filter(u => !u.is_managed).length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 text-sm">No users found.</div>
+                  ) : (
+                    allUsers.filter(u => !u.is_managed).map((u, idx) => (
+                      <div
+                        key={u.id}
+                        className={`flex items-center justify-between px-4 py-3 ${idx > 0 ? 'border-t border-white/[0.04]' : ''}`}
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-white">{u.name}</p>
+                          <p className="text-xs text-slate-500">{u.email ?? 'No email'}</p>
+                        </div>
+                        <button
+                          onClick={() => handleToggleManager(u.id, !u.is_manager)}
+                          className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                            u.is_manager
+                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                              : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-blue-500/30'
+                          }`}
+                        >
+                          {u.is_manager ? '✓ Manager' : 'Make Manager'}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Managed players list */}
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                  Managed Players ({managedPlayers.length})
+                </p>
+                {managedPlayers.length === 0 ? (
+                  <div className="glass-card rounded-xl p-8 text-center">
+                    <p className="text-3xl mb-2">👥</p>
+                    <p className="text-slate-400 text-sm">No managed players yet. Create one above.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {managedPlayers.map(player => {
+                      const link = managerLinks.find(l => l.player_id === player.id)
+                      const manager = allUsers.find(u => u.id === link?.manager_id)
+
+                      return (
+                        <div key={player.id} className="glass-card rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium">
+                                Managed
+                              </span>
+                              <p className="text-sm font-semibold text-white">{player.name}</p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteManagedPlayer(player.id, player.name)}
+                              className="text-xs text-red-400 hover:text-red-300 transition px-2 py-1"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500">Managed by:</span>
+                            <select
+                              value={link?.manager_id ?? ''}
+                              onChange={e => handleReassign(player.id, e.target.value)}
+                              className="text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                            >
+                              {allUsers.filter(u => !u.is_managed).map(u => (
+                                <option key={u.id} value={u.id}>{u.name}</option>
+                              ))}
+                            </select>
+                            {manager && (
+                              <span className="text-xs text-slate-500">({manager.email ?? 'no email'})</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {activeTab !== 'players' && availableWeeks.length === 0 && !dataLoading && (
           <div className="glass-card rounded-xl p-10 text-center">
             <p className="text-slate-500 text-sm">No games found. Add games to the database first.</p>
           </div>

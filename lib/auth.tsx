@@ -33,7 +33,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const checkUser = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        // getSession() can hang indefinitely if navigator.locks is stuck
+        // from a previous crashed session. Race it against a timeout.
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+        ])
+
+        if (!sessionResult) {
+          console.warn('Auth session check timed out — clearing stored session')
+          await supabase.auth.signOut()
+          setLoading(false)
+          return
+        }
+
+        const { data: { session } } = sessionResult as { data: { session: any } }
         if (session?.user) {
           const { data } = await supabase
             .from('users')

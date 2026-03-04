@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
-
-const CURRENT_SEASON = 2025
 
 interface User {
   id: string
@@ -21,11 +20,41 @@ interface UserStanding {
   totalPicks: number
 }
 
+// Skeleton loading
+function StandingsSkeleton() {
+  return (
+    <div className="min-h-screen bg-surface">
+      <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="skeleton h-5 w-48 rounded-lg mb-3" />
+          <div className="flex gap-2">
+            <div className="skeleton h-8 w-24 rounded-full" />
+            <div className="skeleton h-8 w-24 rounded-full" />
+            <div className="skeleton h-8 w-20 rounded-full" />
+          </div>
+        </div>
+      </div>
+      <main className="max-w-3xl mx-auto px-4 py-6">
+        <div className="skeleton h-4 w-40 rounded mb-5" />
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <div className="skeleton h-10 w-full" />
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="px-4 py-4 border-t border-white/[0.04]">
+              <div className="skeleton h-5 w-full rounded" />
+            </div>
+          ))}
+        </div>
+      </main>
+    </div>
+  )
+}
+
 export default function StandingsPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
   const [standings, setStandings] = useState<UserStanding[]>([])
   const [dataLoading, setDataLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
 
   useEffect(() => {
@@ -52,9 +81,6 @@ export default function StandingsPage() {
         ])
 
         if (!users) return
-
-        // Build a map of game_id → { away_team, home_team } for resolving 3-best picks
-        const gameMap = new Map((games || []).map(g => [g.id, g]))
 
         // Build a picks map: userId-gameId → picked_team
         const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p.picked_team]))
@@ -113,6 +139,7 @@ export default function StandingsPage() {
         setStandings(result)
       } catch (err) {
         console.error('Error fetching standings:', err)
+        setLoadError('Failed to load standings. Please refresh the page.')
       } finally {
         setDataLoading(false)
       }
@@ -120,45 +147,51 @@ export default function StandingsPage() {
     fetchStandings()
   }, [user])
 
-  if (loading || dataLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-4xl mb-3">🏆</div>
-          <p className="text-gray-500 text-sm">Loading standings...</p>
-        </div>
-      </div>
-    )
-  }
-
+  if (loading || dataLoading) return <StandingsSkeleton />
   if (!user) return null
 
   const hasScores = standings.some(s => s.totalPicks > 0)
 
+  const medalColors = [
+    { bg: 'from-amber-500/20 to-amber-600/10', border: 'border-amber-500/30', text: 'text-amber-400' },
+    { bg: 'from-slate-300/15 to-slate-400/5', border: 'border-slate-400/20', text: 'text-slate-300' },
+    { bg: 'from-orange-600/15 to-orange-700/5', border: 'border-orange-600/20', text: 'text-orange-400' },
+  ]
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface">
       <Nav />
 
-      <main className="max-w-3xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            2025 Season Standings
+      <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
+        {loadError && (
+          <div className="mb-5 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 animate-slide-up">
+            <span className="text-xl">⚠️</span>
+            <div className="flex-1">
+              <p className="font-semibold text-red-400 text-sm">{loadError}</p>
+              <button onClick={() => window.location.reload()} className="text-red-400/70 text-xs underline mt-1 hover:text-red-300">Reload page</button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            {CURRENT_SEASON} Season Standings
           </h2>
           {lastUpdated && (
-            <p className="text-xs text-gray-400">Updated {lastUpdated}</p>
+            <p className="text-xs text-slate-500">Updated {lastUpdated}</p>
           )}
         </div>
 
         {!hasScores ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-            <p className="text-3xl mb-3">🏈</p>
-            <p className="text-gray-700 font-medium">Season hasn't started yet</p>
-            <p className="text-gray-400 text-sm mt-1">Standings will appear here once Week 1 results are recorded.</p>
+          <div className="glass-card rounded-2xl p-12 text-center">
+            <p className="text-4xl mb-3">🏈</p>
+            <p className="text-white font-medium">Season hasn&apos;t started yet</p>
+            <p className="text-slate-500 text-sm mt-1.5">Standings will appear here once Week 1 results are recorded.</p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="glass-card rounded-2xl overflow-hidden">
             {/* Table header */}
-            <div className="grid grid-cols-12 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            <div className="grid grid-cols-12 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] text-xs font-semibold text-slate-500 uppercase tracking-wider">
               <div className="col-span-1 text-center">#</div>
               <div className="col-span-5">Player</div>
               <div className="col-span-3 text-center">Overall</div>
@@ -169,46 +202,71 @@ export default function StandingsPage() {
               const isMe = s.user.id === user.id
               const winPct = s.totalPicks > 0 ? Math.round((s.wins / s.totalPicks) * 100) : null
               const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
+              const podium = idx < 3 ? medalColors[idx] : null
 
               return (
                 <div
                   key={s.user.id}
-                  className={`grid grid-cols-12 px-4 py-3.5 items-center border-b border-gray-100 last:border-0 ${isMe ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                  className={`grid grid-cols-12 px-4 py-4 items-center border-b border-white/[0.04] last:border-0 transition-colors animate-slide-up ${
+                    isMe
+                      ? 'bg-blue-500/10 border-l-2 border-l-blue-500'
+                      : podium
+                      ? `bg-gradient-to-r ${podium.bg}`
+                      : 'hover:bg-white/[0.02]'
+                  }`}
+                  style={{ animationDelay: `${idx * 50}ms` }}
                 >
                   {/* Rank */}
                   <div className="col-span-1 text-center">
                     {medal ? (
-                      <span className="text-base">{medal}</span>
+                      <span className="text-lg">{medal}</span>
                     ) : (
-                      <span className="text-sm text-gray-400 font-medium">{idx + 1}</span>
+                      <span className="text-sm text-slate-500 font-medium">{idx + 1}</span>
                     )}
                   </div>
 
                   {/* Name */}
                   <div className="col-span-5">
-                    <p className={`text-sm font-semibold ${isMe ? 'text-blue-700' : 'text-gray-800'}`}>
-                      {s.user.name} {isMe && <span className="text-blue-400 font-normal text-xs">(you)</span>}
+                    <p className={`text-sm font-semibold ${isMe ? 'text-blue-400' : 'text-white'}`}>
+                      {s.user.name} {isMe && <span className="text-blue-400/60 font-normal text-xs">(you)</span>}
                     </p>
                     {winPct !== null && (
-                      <p className="text-xs text-gray-400 mt-0.5">{winPct}% correct</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="w-12 h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"
+                            style={{ width: `${winPct}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500">{winPct}%</p>
+                      </div>
                     )}
                   </div>
 
                   {/* Overall W-L */}
                   <div className="col-span-3 text-center">
-                    <p className="text-sm font-bold text-gray-800">
-                      {s.wins}–{s.losses}
-                    </p>
-                    {s.totalPicks === 0 && (
-                      <p className="text-xs text-gray-300">—</p>
+                    {s.totalPicks > 0 ? (
+                      <p className="text-sm font-bold text-white">
+                        <span className="text-emerald-400">{s.wins}</span>
+                        <span className="text-slate-500 mx-0.5">&ndash;</span>
+                        <span className="text-red-400">{s.losses}</span>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-slate-600">&mdash;</p>
                     )}
                   </div>
 
                   {/* Best 3 W-L */}
                   <div className="col-span-3 text-center">
-                    <p className={`text-sm font-bold ${s.bestWins + s.bestLosses > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
-                      {s.bestWins + s.bestLosses > 0 ? `${s.bestWins}–${s.bestLosses}` : '—'}
-                    </p>
+                    {s.bestWins + s.bestLosses > 0 ? (
+                      <p className="text-sm font-bold">
+                        <span className="text-amber-400">{s.bestWins}</span>
+                        <span className="text-slate-500 mx-0.5">&ndash;</span>
+                        <span className="text-amber-600">{s.bestLosses}</span>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-slate-600">&mdash;</p>
+                    )}
                   </div>
                 </div>
               )
@@ -216,8 +274,8 @@ export default function StandingsPage() {
           </div>
         )}
 
-        <p className="text-xs text-gray-400 text-center mt-4">
-          Results are updated by Michael after each week's games complete.
+        <p className="text-xs text-slate-600 text-center mt-5">
+          Results are updated by Michael after each week&apos;s games complete.
         </p>
       </main>
     </div>

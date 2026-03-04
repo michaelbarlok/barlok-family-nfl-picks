@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-
-const ADMIN_EMAIL = 'barlokmichael@gmail.com'
+import { ADMIN_EMAIL } from '@/lib/constants'
 
 function getAdminClient() {
   return createClient(

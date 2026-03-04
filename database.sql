@@ -67,6 +67,7 @@ ALTER TABLE scores ENABLE ROW LEVEL SECURITY;
 
 -- Create policies
 CREATE POLICY "Users can read all users" ON users FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own profile" ON users FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Users can read all games" ON games FOR SELECT USING (true);
 CREATE POLICY "Users can read their own picks" ON picks FOR SELECT USING (true);
 CREATE POLICY "Users can insert their own picks" ON picks FOR INSERT WITH CHECK (auth.uid() = user_id);

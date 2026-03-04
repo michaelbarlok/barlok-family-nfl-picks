@@ -256,6 +256,9 @@ export async function generateWeeklyPicksSpreadsheet(
   writeWL('This Week', weekW, weekL)
   writeWL('Total', totalW, totalL)
 
+  // --- Blank row before 3 BEST ---
+  row++
+
   // --- 3 BEST header row ---
   // A:B merged (empty), C:lastPlayerCol merged with "3 BEST"
   ws.mergeCells(row, 1, row, 2)

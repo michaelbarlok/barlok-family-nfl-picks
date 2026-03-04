@@ -2,9 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
-
-const ADMIN_EMAIL = 'barlokmichael@gmail.com'
-const CURRENT_SEASON = 2025
+import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
 
 const resend = new Resend(process.env.RESEND_API_KEY)

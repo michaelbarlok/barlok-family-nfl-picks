@@ -31,24 +31,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    let resolved = false
+
+    // Hard safety timeout — no matter what hangs, the user won't be stuck
+    const safetyTimeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        console.warn('Auth check timed out — proceeding without session')
+        setLoading(false)
+        // Clear stale session in background (don't await)
+        supabase.auth.signOut().catch(() => {})
+      }
+    }, 5000)
+
     const checkUser = async () => {
       try {
-        // getSession() can hang indefinitely if navigator.locks is stuck
-        // from a previous crashed session. Race it against a timeout.
-        const sessionResult = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
-        ])
-
-        if (!sessionResult) {
-          console.warn('Auth session check timed out — clearing stored session')
-          await supabase.auth.signOut()
-          setLoading(false)
-          return
-        }
-
-        const { data: { session } } = sessionResult as { data: { session: any } }
-        if (session?.user) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!resolved && session?.user) {
           const { data } = await supabase
             .from('users')
             .select('*')
@@ -61,7 +60,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Auth check error:', error)
       } finally {
-        setLoading(false)
+        if (!resolved) {
+          resolved = true
+          clearTimeout(safetyTimeout)
+          setLoading(false)
+        }
       }
     }
 
@@ -84,7 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     )
 
-    return () => subscription?.unsubscribe()
+    return () => {
+      clearTimeout(safetyTimeout)
+      subscription?.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email: string, password: string) => {

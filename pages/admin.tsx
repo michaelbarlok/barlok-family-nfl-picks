@@ -2,10 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
 import Nav from '@/components/Nav'
-
-const ADMIN_EMAIL = 'barlokmichael@gmail.com'
-const CURRENT_SEASON = 2025
 
 const NFL_TEAMS: Record<string, { city: string; name: string; logo: string }> = {
   ARI: { city: 'Arizona',       name: 'Cardinals',   logo: 'https://a.espncdn.com/i/teamlogos/nfl/500/ari.png' },

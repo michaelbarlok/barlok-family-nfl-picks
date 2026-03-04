@@ -56,18 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     checkUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          const profile = await fetchUserProfile(session.user.id)
-          if (profile) setUser(profile)
-        } else {
-          setUser(null)
-        }
-      }
-    )
-
-    return () => subscription?.unsubscribe()
+    // Note: we intentionally do NOT use onAuthStateChange here.
+    // signIn/signOut bypass the Supabase client, so the listener
+    // would only fire stale events from the background signOut()
+    // and race with the new signIn, potentially resetting user to null.
   }, [])
 
   const signIn = async (email: string, password: string) => {
@@ -118,17 +110,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signUp = async (email: string, password: string, name: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-    if (error) throw error
-    if (data.user) {
-      await supabase.from('users').insert({
-        id: data.user.id,
-        email,
-        name,
+    // Use direct fetch for sign-up to match the signIn approach
+    const res = await Promise.race([
+      fetch(`${supabaseUrl}/auth/v1/signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ email, password }),
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Sign up timed out')), 10000)
+      )
+    ])
+
+    const body = await res.json()
+    if (!res.ok) {
+      throw new Error(body.error_description || body.msg || 'Sign up failed')
+    }
+
+    // Insert user profile using the new user's access token
+    const token = body.access_token
+    if (token && body.user) {
+      const profileRes = await fetch(`${supabaseUrl}/rest/v1/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseAnonKey,
+          'Authorization': `Bearer ${token}`,
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ id: body.user.id, email, name }),
       })
+      if (!profileRes.ok) {
+        const err = await profileRes.json().catch(() => ({}))
+        throw new Error(err.message || 'Failed to create user profile')
+      }
     }
   }
 

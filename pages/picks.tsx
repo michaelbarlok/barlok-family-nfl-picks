@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
 
 interface Game {
@@ -15,8 +16,6 @@ interface Game {
 interface UserPick {
   [gameId: string]: string
 }
-
-const CURRENT_SEASON = 2025
 const MAX_BEST_PICKS = 3
 
 const NFL_TEAMS: Record<string, { city: string; name: string; logo: string }> = {
@@ -98,6 +97,7 @@ export default function PicksPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [dataLoading, setDataLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [now, setNow] = useState(new Date())
 
   // Keep clock ticking so lock state stays live
@@ -162,6 +162,7 @@ export default function PicksPage() {
         }
       } catch (err) {
         console.error('Error fetching data:', err)
+        setLoadError('Failed to load picks. Please refresh the page.')
       } finally {
         setDataLoading(false)
       }
@@ -196,17 +197,21 @@ export default function PicksPage() {
     }
     setSubmitting(true); setError(''); setSuccess('')
     try {
-      for (const gameId in picks) {
-        await supabase.from('picks').upsert({
-          user_id: user.id, game_id: gameId, picked_team: picks[gameId],
-          week: currentWeek, season: CURRENT_SEASON,
-        })
-      }
+      // Batch all picks into a single upsert
+      const picksArray = Object.entries(picks).map(([gameId, pickedTeam]) => ({
+        user_id: user.id, game_id: gameId, picked_team: pickedTeam,
+        week: currentWeek, season: CURRENT_SEASON,
+      }))
+      const { error: picksError } = await supabase.from('picks').upsert(picksArray)
+      if (picksError) throw new Error(`Failed to save picks: ${picksError.message}`)
+
       const bestTeams = Array.from(bestPicks).map(id => picks[id])
-      await supabase.from('three_best').upsert({
+      const { error: bestError } = await supabase.from('three_best').upsert({
         user_id: user.id, week: currentWeek, season: CURRENT_SEASON,
         pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '',
       })
+      if (bestError) throw new Error(`Failed to save best picks: ${bestError.message}`)
+
       setSuccess('Picks saved!')
       setTimeout(() => setSuccess(''), 4000)
     } catch (err) {
@@ -237,6 +242,17 @@ export default function PicksPage() {
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6">
+        {/* Load error */}
+        {loadError && (
+          <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+            <span className="text-xl">⚠️</span>
+            <div className="flex-1">
+              <p className="font-semibold text-red-800 text-sm">{loadError}</p>
+              <button onClick={() => window.location.reload()} className="text-red-600 text-xs underline mt-1">Reload page</button>
+            </div>
+          </div>
+        )}
+
         {/* Lock banner */}
         {isLocked && (
           <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">

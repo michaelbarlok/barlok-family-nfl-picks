@@ -2,8 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
-
-const ADMIN_EMAIL = 'barlokmichael@gmail.com'
+import { ADMIN_EMAIL } from '@/lib/constants'
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 async function isAdmin(req: NextApiRequest): Promise<boolean> {

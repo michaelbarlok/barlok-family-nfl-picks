@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
-
-const CURRENT_SEASON = 2025
 
 interface User {
   id: string
@@ -26,6 +25,7 @@ export default function StandingsPage() {
   const { user, loading } = useAuth()
   const [standings, setStandings] = useState<UserStanding[]>([])
   const [dataLoading, setDataLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
 
   useEffect(() => {
@@ -113,6 +113,7 @@ export default function StandingsPage() {
         setStandings(result)
       } catch (err) {
         console.error('Error fetching standings:', err)
+        setLoadError('Failed to load standings. Please refresh the page.')
       } finally {
         setDataLoading(false)
       }
@@ -140,9 +141,19 @@ export default function StandingsPage() {
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6">
+        {loadError && (
+          <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+            <span className="text-xl">⚠️</span>
+            <div className="flex-1">
+              <p className="font-semibold text-red-800 text-sm">{loadError}</p>
+              <button onClick={() => window.location.reload()} className="text-red-600 text-xs underline mt-1">Reload page</button>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            2025 Season Standings
+            {CURRENT_SEASON} Season Standings
           </h2>
           {lastUpdated && (
             <p className="text-xs text-gray-400">Updated {lastUpdated}</p>

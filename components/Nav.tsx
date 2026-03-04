@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
+import { CURRENT_SEASON } from '@/lib/constants'
 
 const tabs = [
   { label: '🏈 My Picks', href: '/picks' },
@@ -26,7 +27,7 @@ export default function Nav() {
             <span className="text-xl">🏈</span>
             <div>
               <p className="font-semibold text-gray-900 text-sm leading-tight">Barlok Family NFL Picks</p>
-              <p className="text-xs text-gray-400">2025 Season</p>
+              <p className="text-xs text-gray-400">{CURRENT_SEASON} Season</p>
             </div>
           </div>
           {user && (

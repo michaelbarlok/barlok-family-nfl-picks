@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
-
-const CURRENT_SEASON = 2025
 
 export default function SpreadsheetsPage() {
   const router = useRouter()

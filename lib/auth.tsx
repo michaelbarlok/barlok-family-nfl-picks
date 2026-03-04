@@ -121,16 +121,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    try {
-      await supabase.auth.signOut()
-    } catch {
-      // Clear storage manually if signOut fails
-      try {
-        const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
-        if (storageKey) localStorage.removeItem(storageKey)
-      } catch {}
-    }
+    // Clear user state and storage immediately — don't let a hanging
+    // API call prevent the user from signing out
     setUser(null)
+    try {
+      const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
+      if (storageKey) localStorage.removeItem(storageKey)
+    } catch {}
+    // Revoke server session in background (best-effort)
+    supabase.auth.signOut().catch(() => {})
   }
 
   return (

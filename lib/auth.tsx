@@ -106,6 +106,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       )
     ])
     if (result.error) throw result.error
+
+    // Set user immediately rather than relying on onAuthStateChange race
+    const authUser = result.data?.user
+    if (authUser) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single()
+      if (error) {
+        throw new Error(`Signed in but failed to load user profile: ${error.message}`)
+      }
+      if (data) {
+        setUser(data)
+      }
+    }
   }
 
   const signUp = async (email: string, password: string, name: string) => {

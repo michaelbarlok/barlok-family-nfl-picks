@@ -71,7 +71,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    // Use direct fetch to avoid any Supabase client internal lock issues
+    // Use direct fetch — bypass Supabase client entirely to avoid
+    // any internal state issues from background signOut
     const res = await Promise.race([
       fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
         method: 'POST',
@@ -91,18 +92,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(body.error_description || body.msg || 'Login failed')
     }
 
-    // Store the session in the Supabase client
-    await supabase.auth.setSession({
+    // Store session directly in localStorage (bypass setSession which can hang)
+    const storageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`
+    localStorage.setItem(storageKey, JSON.stringify({
       access_token: body.access_token,
       refresh_token: body.refresh_token,
-    })
+      expires_at: body.expires_at,
+      expires_in: body.expires_in,
+      token_type: body.token_type,
+      user: body.user,
+    }))
 
-    // Fetch user profile
-    const profile = await fetchUserProfile(body.user.id)
-    if (!profile) {
+    // Fetch user profile with direct fetch using the new access token
+    const profileRes = await fetch(`${supabaseUrl}/rest/v1/users?id=eq.${body.user.id}&select=*`, {
+      headers: {
+        'apikey': supabaseAnonKey,
+        'Authorization': `Bearer ${body.access_token}`,
+      },
+    })
+    const profiles = await profileRes.json()
+    if (!profileRes.ok || !profiles.length) {
       throw new Error('Signed in but no user profile found — contact Michael')
     }
-    setUser(profile)
+    setUser(profiles[0])
   }
 
   const signUp = async (email: string, password: string, name: string) => {

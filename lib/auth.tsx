@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { supabase, supabaseConfigured } from './supabase'
 
 interface User {
   id: string
@@ -10,6 +10,7 @@ interface User {
 interface AuthContextType {
   user: User | null
   loading: boolean
+  configError: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string, name: string) => Promise<void>
   signOut: () => Promise<void>
@@ -20,12 +21,33 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [configError, setConfigError] = useState(false)
 
   useEffect(() => {
+    if (!supabaseConfigured) {
+      console.error('Supabase is not configured. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.')
+      setConfigError(true)
+      setLoading(false)
+      return
+    }
+
+    let resolved = false
+
+    // Hard safety timeout — no matter what hangs, the user won't be stuck
+    const safetyTimeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        console.warn('Auth check timed out — proceeding without session')
+        setLoading(false)
+        // Clear stale session in background (don't await)
+        supabase.auth.signOut().catch(() => {})
+      }
+    }, 5000)
+
     const checkUser = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
+        if (!resolved && session?.user) {
           const { data } = await supabase
             .from('users')
             .select('*')
@@ -38,7 +60,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Auth check error:', error)
       } finally {
-        setLoading(false)
+        if (!resolved) {
+          resolved = true
+          clearTimeout(safetyTimeout)
+          setLoading(false)
+        }
       }
     }
 
@@ -61,7 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     )
 
-    return () => subscription?.unsubscribe()
+    return () => {
+      clearTimeout(safetyTimeout)
+      subscription?.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email: string, password: string) => {
@@ -94,7 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, configError, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   )

@@ -96,6 +96,7 @@ export default function AdminPage() {
   const [syncing, setSyncing] = useState(false)
   const [emailing, setEmailing] = useState(false)
   const [settingResult, setSettingResult] = useState<string | null>(null)
+  const [customMessage, setCustomMessage] = useState('')
 
   // Override tab state
   const [users, setUsers] = useState<UserRow[]>([])
@@ -215,11 +216,13 @@ export default function AdminPage() {
       const token = await getToken()
       const res = await fetch(`/api/send-weekly-email?week=${selectedWeek}&season=${CURRENT_SEASON}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ customMessage: customMessage.trim() || undefined }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Email failed')
       setMessage({ type: 'success', text: json.message ?? 'Email sent!' })
+      setCustomMessage('')
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Email failed' })
     } finally {
@@ -405,6 +408,13 @@ export default function AdminPage() {
               <div className="p-4 bg-white rounded-xl border border-gray-200">
                 <p className="text-sm font-semibold text-gray-800 mb-1">Email Spreadsheet</p>
                 <p className="text-xs text-gray-400 mb-3">Send Week {selectedWeek} picks sheet to all players.</p>
+                <textarea
+                  value={customMessage}
+                  onChange={e => setCustomMessage(e.target.value)}
+                  placeholder="Add an optional message to include in the email..."
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 mb-3 resize-none"
+                />
                 <button
                   onClick={handleEmail}
                   disabled={emailing}

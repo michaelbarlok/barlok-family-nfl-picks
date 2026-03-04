@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 
@@ -9,6 +9,27 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [connStatus, setConnStatus] = useState<string>('')
+
+  // Connectivity check on mount
+  useEffect(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    if (!supabaseUrl) {
+      setConnStatus('ERROR: NEXT_PUBLIC_SUPABASE_URL is empty/missing in build')
+      return
+    }
+    setConnStatus(`Checking connection to ${supabaseUrl.substring(0, 30)}...`)
+    fetch(`${supabaseUrl}/auth/v1/health`, {
+      method: 'GET',
+      headers: { 'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '' }
+    })
+      .then(res => {
+        setConnStatus(`Supabase reachable (HTTP ${res.status})`)
+      })
+      .catch(err => {
+        setConnStatus(`ERROR: Cannot reach Supabase — ${err.message}`)
+      })
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -87,6 +108,12 @@ export default function LoginPage() {
         <p className="text-center text-sm text-gray-400 mt-6">
           New member? Contact Michael for access.
         </p>
+
+        {connStatus && (
+          <p className={`text-center text-xs mt-3 ${connStatus.includes('ERROR') ? 'text-red-500' : 'text-gray-400'}`}>
+            {connStatus}
+          </p>
+        )}
       </div>
     </div>
   )

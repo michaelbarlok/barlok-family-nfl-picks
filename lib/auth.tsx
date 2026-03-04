@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (storageKey) localStorage.removeItem(storageKey)
         } catch {}
       }
-    }, 5000)
+    }, 1000)
 
     const checkUser = async () => {
       try {

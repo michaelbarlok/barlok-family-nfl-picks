@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { supabase, supabaseConfigured } from './supabase'
+import { supabase, supabaseConfigured, supabaseUrl, supabaseAnonKey } from './supabase'
 
 interface User {
   id: string
@@ -18,6 +18,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+async function fetchUserProfile(userId: string): Promise<User | null> {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single()
+  return data
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -31,45 +40,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    let resolved = false
-
-    // Hard safety timeout — no matter what hangs, the user won't be stuck
-    const safetyTimeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        console.warn('Auth check timed out — proceeding without session')
-        setLoading(false)
-        // Clear stale auth data directly from storage instead of calling
-        // signOut() which acquires an internal lock that blocks future
-        // signInWithPassword() calls
-        try {
-          const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
-          if (storageKey) localStorage.removeItem(storageKey)
-        } catch {}
-      }
-    }, 1000)
-
     const checkUser = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        if (!resolved && session?.user) {
-          const { data } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-          if (data) {
-            setUser(data)
-          }
+        if (session?.user) {
+          const profile = await fetchUserProfile(session.user.id)
+          if (profile) setUser(profile)
         }
       } catch (error) {
         console.error('Auth check error:', error)
       } finally {
-        if (!resolved) {
-          resolved = true
-          clearTimeout(safetyTimeout)
-          setLoading(false)
-        }
+        setLoading(false)
       }
     }
 
@@ -78,50 +59,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (session?.user) {
-          const { data } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-          if (data) {
-            setUser(data)
-          }
+          const profile = await fetchUserProfile(session.user.id)
+          if (profile) setUser(profile)
         } else {
           setUser(null)
         }
       }
     )
 
-    return () => {
-      clearTimeout(safetyTimeout)
-      subscription?.unsubscribe()
-    }
+    return () => subscription?.unsubscribe()
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    const result = await Promise.race([
-      supabase.auth.signInWithPassword({ email, password }),
+    // Use direct fetch to avoid any Supabase client internal lock issues
+    const res = await Promise.race([
+      fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ email, password }),
+      }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Sign in timed out — check your connection or Supabase project status')), 10000)
       )
     ])
-    if (result.error) throw result.error
 
-    // Set user immediately rather than relying on onAuthStateChange race
-    const authUser = result.data?.user
-    if (authUser) {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authUser.id)
-        .single()
-      if (error) {
-        throw new Error(`Signed in but failed to load user profile: ${error.message}`)
-      }
-      if (data) {
-        setUser(data)
-      }
+    const body = await res.json()
+    if (!res.ok) {
+      throw new Error(body.error_description || body.msg || 'Login failed')
     }
+
+    // Store the session in the Supabase client
+    await supabase.auth.setSession({
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+    })
+
+    // Fetch user profile
+    const profile = await fetchUserProfile(body.user.id)
+    if (!profile) {
+      throw new Error('Signed in but no user profile found — contact Michael')
+    }
+    setUser(profile)
   }
 
   const signUp = async (email: string, password: string, name: string) => {
@@ -140,8 +121,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+    try {
+      await supabase.auth.signOut()
+    } catch {
+      // Clear storage manually if signOut fails
+      try {
+        const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
+        if (storageKey) localStorage.removeItem(storageKey)
+      } catch {}
+    }
     setUser(null)
   }
 

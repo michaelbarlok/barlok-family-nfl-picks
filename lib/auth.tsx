@@ -39,8 +39,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resolved = true
         console.warn('Auth check timed out — proceeding without session')
         setLoading(false)
-        // Clear stale session in background (don't await)
-        supabase.auth.signOut().catch(() => {})
+        // Clear stale auth data directly from storage instead of calling
+        // signOut() which acquires an internal lock that blocks future
+        // signInWithPassword() calls
+        try {
+          const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
+          if (storageKey) localStorage.removeItem(storageKey)
+        } catch {}
       }
     }, 5000)
 

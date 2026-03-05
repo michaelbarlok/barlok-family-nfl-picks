@@ -108,7 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const [primaryRecipient, ...ccRecipients] = recipients
 
     const { data: emailData, error: emailError } = await resend.emails.send({
-      from: 'onboarding@resend.dev',
+      from: 'Barlok Family NFL Picks <picks@barlokfamily.com>',
       to: [primaryRecipient],
       ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
       replyTo: primaryRecipient,

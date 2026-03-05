@@ -37,7 +37,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const isAdmin = authUser.email === ADMIN_EMAIL
 
-      if (req.query.all === 'true' && isAdmin) {
+      // Check if caller is a manager
+      const { data: callerData } = await supabase
+        .from('users')
+        .select('is_manager')
+        .eq('id', authUser.id)
+        .single()
+      const isManagerUser = callerData?.is_manager === true
+
+      if (req.query.all === 'true' && (isAdmin || isManagerUser)) {
         // Admin: list all managed players with their managers
         const { data: allPlayers } = await supabase
           .from('users')

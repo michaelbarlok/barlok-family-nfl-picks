@@ -82,8 +82,12 @@ export default function AdminPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
 
+  const isAdmin = user?.email === ADMIN_EMAIL
+  const isManager = (user as any)?.is_manager === true
+  const hasAccess = isAdmin || isManager
+
   // Shared state
-  const [activeTab, setActiveTab] = useState<'results' | 'override' | 'players'>('results')
+  const [activeTab, setActiveTab] = useState<'results' | 'override' | 'players'>('players')
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
@@ -116,13 +120,14 @@ export default function AdminPage() {
   const [creatingPlayer, setCreatingPlayer] = useState(false)
   const [playersLoading, setPlayersLoading] = useState(false)
 
-  // Auth guard
+  // Auth guard — allow admin and managers
   useEffect(() => {
     if (!loading) {
       if (!user) { router.push('/login'); return }
-      if (user.email !== ADMIN_EMAIL) { router.push('/picks'); return }
+      if (!isAdmin && !isManager) { router.push('/picks'); return }
+      if (isAdmin) setActiveTab('results')
     }
-  }, [user, loading, router])
+  }, [user, loading, router, isAdmin, isManager])
 
   // Load available weeks
   useEffect(() => {
@@ -136,8 +141,8 @@ export default function AdminPage() {
       }
       setDataLoading(false)
     }
-    if (user?.email === ADMIN_EMAIL) fetchWeeks()
-  }, [user])
+    if (hasAccess) fetchWeeks()
+  }, [user, hasAccess])
 
   // Load users for override tab
   useEffect(() => {
@@ -145,8 +150,8 @@ export default function AdminPage() {
       const { data } = await supabase.from('users').select('id, name, email').order('name')
       if (data) setUsers(data)
     }
-    if (user?.email === ADMIN_EMAIL) fetchUsers()
-  }, [user])
+    if (isAdmin) fetchUsers()
+  }, [user, isAdmin])
 
   // Load games for selected week
   const loadGames = useCallback(async () => {
@@ -217,7 +222,7 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'players' && user?.email === ADMIN_EMAIL) {
+    if (activeTab === 'players' && hasAccess) {
       loadManagedPlayersData()
     }
   }, [activeTab, user, loadManagedPlayersData])
@@ -452,7 +457,7 @@ export default function AdminPage() {
     )
   }
 
-  if (!user || user.email !== ADMIN_EMAIL) return null
+  if (!user || (!isAdmin && !isManager)) return null
 
   const selectedUser = users.find(u => u.id === selectedUserId)
 
@@ -465,18 +470,24 @@ export default function AdminPage() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h1 className="text-lg font-bold text-white">Admin Dashboard</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Visible only to you</p>
+            <p className="text-xs text-slate-500 mt-0.5">Visible to admins &amp; managers</p>
           </div>
-          <span className="text-xs font-semibold bg-red-500/15 text-red-400 px-2.5 py-1 rounded-full border border-red-500/20">
-            🔐 Admin Only
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+            isAdmin
+              ? 'bg-red-500/15 text-red-400 border-red-500/20'
+              : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+          }`}>
+            {isAdmin ? '🔐 Admin' : '👤 Manager'}
           </span>
         </div>
 
         {/* Tab bar */}
         <div className="flex gap-1 mb-5 bg-white/[0.04] p-1 rounded-xl">
           {[
-            { key: 'results', label: '🏆 Results' },
-            { key: 'override', label: '✏️ Override' },
+            ...(isAdmin ? [
+              { key: 'results', label: '🏆 Results' },
+              { key: 'override', label: '✏️ Override' },
+            ] : []),
             { key: 'players', label: '👥 Players' },
           ].map(tab => (
             <button
@@ -856,8 +867,11 @@ export default function AdminPage() {
                 </div>
 
                 {/* Manager permissions */}
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
                   Manager Permissions
+                </p>
+                <p className="text-xs text-slate-600 mb-3">
+                  Managers can access this Admin page and make picks for managed players.
                 </p>
                 <div className="glass-card rounded-xl overflow-hidden mb-5">
                   {allUsers.filter(u => !u.is_managed).length === 0 ? (

@@ -2,177 +2,99 @@
 
 ## Overview
 
-You now have a complete Next.js application ready to deploy. Here's exactly what to do, step by step.
+A Next.js application for managing NFL pick predictions in a family league, deployed on Vercel with Supabase.
 
-## STEP 1: Set Up Supabase Database (10 minutes)
+## STEP 1: Set Up Supabase Database
 
 1. Go to your Supabase project: https://supabase.com
-2. On the left sidebar, click **SQL Editor** (bottom section)
-3. Click **"New Query"** button
-4. Copy ALL the SQL code from the `database.sql` file
-5. Paste it into the SQL Editor
-6. Click the **"Run"** button (or press Ctrl+Enter)
-7. Wait for the query to complete (you'll see a success message)
+2. On the left sidebar, click **SQL Editor**
+3. Click **"New Query"**
+4. Copy ALL the SQL code from `database.sql`
+5. Paste it into the SQL Editor and click **Run**
+6. Then run `database_managed_players.sql` and `admin_migration.sql` the same way
 
-**What this does**: Creates all your database tables (users, games, picks, three_best, scores)
-
----
-
-## STEP 2: Create GitHub Repository (5 minutes)
-
-1. Go to https://github.com
-2. Click **"+"** in the top right → **"New repository"**
-3. Name it: `barlok-nfl-picks`
-4. Click **"Create repository"** (don't initialize with anything)
-5. You'll see instructions. Follow these:
-   ```bash
-   # In your terminal:
-   git clone https://github.com/YOUR_USERNAME/barlok-nfl-picks.git
-   cd barlok-nfl-picks
-   ```
+**What this does**: Creates all your database tables (users, games, picks, three_best, scores, player_managers)
 
 ---
 
-## STEP 3: Add Project Files (2 minutes)
+## STEP 2: Deploy to Vercel
 
-1. You should have downloaded all the project files I created
-2. Copy all of them into your `barlok-nfl-picks` folder
-3. In your terminal:
-   ```bash
-   git add .
-   git commit -m "Initial commit"
-   git push origin main
-   ```
+1. Push your code to a GitHub repository
+2. Go to https://vercel.com and click **"New Project"**
+3. Import your Git repository
+4. Add these environment variables (see `.env.example` for the full list):
+   - `NEXT_PUBLIC_SUPABASE_URL` = your Supabase project URL
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon key
+   - `SUPABASE_SERVICE_ROLE_KEY` = your Supabase service role key
+   - `GMAIL_ADDRESS` = your Gmail address
+   - `GMAIL_APP_PASSWORD` = your Gmail App Password (see below)
+5. Click **"Deploy"**
 
-The `.env.local` file already has your Supabase and Resend keys.
+### Gmail App Password Setup
 
----
-
-## STEP 4: Deploy to Vercel (5 minutes)
-
-1. Go to https://vercel.com
-2. Click **"New Project"**
-3. Click **"Import Git Repository"**
-4. Paste your repo URL: `https://github.com/YOUR_USERNAME/barlok-nfl-picks`
-5. Click **"Import"**
-6. You'll see environment variables section. Add these:
-   - `NEXT_PUBLIC_SUPABASE_URL` = `https://urbsiukiolwryszbigre.supabase.co`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = (your anon key - already in .env.local)
-   - `RESEND_API_KEY` = `re_JZ2yPKfR_EfsCpQRU51UpN1UPGsdpVLFe`
-7. Click **"Deploy"**
-8. Wait 2-3 minutes for deployment
-9. You'll get a URL like `https://barlok-nfl-picks.vercel.app`
-
-**Your site is now live!**
+1. Go to https://myaccount.google.com/security
+2. Enable **2-Step Verification** if not already on
+3. Go to https://myaccount.google.com/apppasswords
+4. Create an app password named "NFL Picks"
+5. Copy the 16-character password (remove spaces)
+6. Use this as `GMAIL_APP_PASSWORD` in Vercel
 
 ---
 
-## STEP 5: Enable Email/Password Authentication in Supabase (3 minutes)
+## STEP 3: Enable Email/Password Authentication in Supabase
 
 1. Go to your Supabase project
-2. On left sidebar, click **Authentication**
-3. Click **"Providers"**
-4. Find **"Email"** and toggle it **ON**
-5. Under Email settings, find **"Confirm email"** and toggle it **OFF** (makes testing easier)
-6. Click **"Save"**
+2. Click **Authentication** > **Providers**
+3. Toggle **Email** to **ON**
+4. Disable **"Confirm email"** (makes onboarding easier)
+5. Click **Save**
 
 ---
 
-## STEP 6: Add Your First Test User (2 minutes)
+## STEP 4: Create Your Admin Account
 
-You have two options:
-
-**Option A: Use the app itself**
-1. Go to your Vercel URL (e.g., `https://barlok-nfl-picks.vercel.app`)
-2. Click login
-3. Create account with:
-   - Email: `barlokmichael@gmail.com`
-   - Password: (any password)
-   - Name: `Michael`
-
-**Option B: Use Supabase directly** (for testing, doesn't create auth account):
-1. Go to Supabase
-2. Click **"SQL Editor"**
-3. Run:
-   ```sql
-   INSERT INTO users (email, name) VALUES ('barlokmichael@gmail.com', 'Michael');
-   ```
-
-Then log in with that email/password.
+1. Go to your deployed site
+2. Sign up with the email matching `ADMIN_EMAIL` in `lib/constants.ts`
+3. You'll have access to the Admin panel
 
 ---
 
-## STEP 7: Add NFL Games (5 minutes per week)
+## STEP 5: Add NFL Games
 
-1. Go to your Supabase project
-2. Click **"Table Editor"** (left sidebar)
-3. Click the **"games"** table
-4. Click **"Insert"** → **"New row"**
-5. Fill in:
-   - `away_team`: e.g., "KC"
-   - `home_team`: e.g., "DAL"
-   - `kickoff_time`: e.g., "2025-09-07T20:20:00Z"
-   - `week`: e.g., 1
-   - `season`: 2025
+Games can be loaded from the Admin panel using **Sync Schedule** (pulls from ESPN API), or manually via Supabase SQL Editor:
 
-Repeat for all games in the week.
-
----
-
-## STEP 8: Send Weekly Picks Email (1 minute)
-
-When you want to email the spreadsheet to all participants:
-
-**Using cURL** (easiest):
-```bash
-curl -X POST https://YOUR-VERCEL-URL.vercel.app/api/send-picks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "week": 1,
-    "season": 2025,
-    "leagueName": "Barlok Family NFL Picks",
-    "recipients": ["person1@email.com", "person2@email.com"]
-  }'
+```sql
+INSERT INTO games (away_team, home_team, week, season, kickoff_time) VALUES
+  ('KC', 'DAL', 1, 2025, '2025-09-07T20:20:00Z');
 ```
 
-Or use a tool like **Postman** to make the same POST request.
-
 ---
 
-## STEP 9: Add All League Members (optional for now)
+## STEP 6: Add League Members
 
-When you're ready to add all 12-14 people:
+In Supabase SQL Editor:
 
-**In Supabase SQL Editor**, run:
 ```sql
 INSERT INTO users (email, name) VALUES
-('email1@example.com', 'Person 1'),
-('email2@example.com', 'Person 2'),
-('email3@example.com', 'Person 3');
--- ... add all participants
+('person1@email.com', 'Person 1'),
+('person2@email.com', 'Person 2');
 ```
 
-Then send them login instructions.
+Then send them the site URL and have them sign up with their email.
 
 ---
 
-## Testing Checklist
+## Weekly Workflow
 
-✅ Supabase database created
-✅ GitHub repo created
-✅ Vercel deployed
-✅ Email/Password auth enabled
-✅ First user created
-✅ Can log in to app
-✅ Can navigate to picks page
-✅ Can submit a pick
+1. Games are loaded for the week (via Sync Schedule or manually)
+2. Everyone submits their picks before Thursday kickoff
+3. After games finish, hit **Sync Week** on the Admin page to pull results from ESPN
+4. Hit **Send Email** to email the spreadsheet to all participants
+5. Standings update automatically
 
 ---
 
 ## Troubleshooting
-
-**"Cannot find module" errors**
-- Run `npm install` locally and try again
 
 **Login doesn't work**
 - Make sure Email provider is enabled in Supabase Authentication
@@ -180,34 +102,11 @@ Then send them login instructions.
 
 **Picks page blank**
 - You need to add games to the `games` table first
-- Games must have `week=1` and `season=2025` to show up
 
 **Email sending fails**
-- Make sure `RESEND_API_KEY` is set in Vercel environment variables
-- Check Resend dashboard to see if API key is valid
+- Check `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` are set in Vercel
+- Make sure 2-Step Verification is enabled on your Google account
 
----
-
-## What's Next?
-
-Once you've tested everything:
-
-1. Add all league members to the `users` table
-2. Send them login info
-3. Each week:
-   - Add that week's games to the database
-   - People submit their picks
-   - You run the email API to send spreadsheet to everyone
-
-The automated email generates a spreadsheet exactly like your example file!
-
----
-
-## Support
-
-If something breaks or doesn't work:
-- Check Vercel deployment logs: https://vercel.com → your project → Deployments
-- Check Supabase logs: https://supabase.com → your project → Logs
-- Error messages in browser console (F12) often help
-
-You've got this! 🏈
+**Sync not pulling results**
+- ESPN only reports completed games; in-progress games are skipped
+- Try syncing again after all games have finished

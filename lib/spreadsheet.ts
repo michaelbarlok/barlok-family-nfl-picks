@@ -91,11 +91,7 @@ function computePlaces(
     ) j++
     const pos = i + 1, count = j - i
     let label: string
-    if (count === 1) { label = `${pos}` }
-    else {
-      const positions = Array.from({ length: count }, (_, k) => pos + k)
-      label = positions.every(p => p < 10) ? positions.join('') : `${positions[0]}-${positions[positions.length - 1]}`
-    }
+    label = `${pos}`
     for (let k = i; k < j; k++) places.set(sorted[k], label)
     i = j
   }
@@ -202,6 +198,7 @@ export async function generateWeeklyPicksSpreadsheet(
     const u = users.find((u: any) => u.id === uid)
     ws.getCell(2, playerStartCol + idx).value = u?.name || ''
     ws.getCell(2, playerStartCol + idx).font = baseFont
+    ws.getCell(2, playerStartCol + idx).alignment = centerH
   })
 
   // --- Row 3: PLACE row (merged A3:B3 with rich text day + "PLACE") ---
@@ -213,7 +210,7 @@ export async function generateWeeklyPicksSpreadsheet(
       { font: { ...baseFont, bold: true, size: 9, color: { argb: 'FFFF0000' } }, text: 'PLACE' },
     ],
   } as any
-  ws.getCell(row, 1).alignment = centerH
+  ws.getCell(row, 1).alignment = { horizontal: 'left' }
   ws.getCell(row, 1).font = dayLabelFont // base font for the cell
 
   // Place values: RED text, light blue fill, centered (blank for week 1)
@@ -236,6 +233,7 @@ export async function generateWeeklyPicksSpreadsheet(
       ws.mergeCells(row, 1, row, 2)
       ws.getCell(row, 1).value = day
       ws.getCell(row, 1).font = dayLabelFont
+      ws.getCell(row, 1).alignment = { horizontal: 'left' }
       row++
     }
     isFirstDay = false
@@ -287,16 +285,13 @@ export async function generateWeeklyPicksSpreadsheet(
   // --- Blank row before 3 BEST ---
   row++
 
-  // --- 3 BEST header row ---
-  // Each player column gets its own "3 BEST" cell (matching original)
-  ws.mergeCells(row, 1, row, 2)
-  userIds.forEach((_uid: string, idx: number) => {
-    const cell = ws.getCell(row, playerStartCol + idx)
-    cell.value = '3 BEST'
-    cell.font = { ...baseFont, bold: true, size: 14 }
-    cell.fill = lightBlueFill
-    cell.alignment = centerH
-  })
+  // --- 3 BEST header row (merged across all user columns) ---
+  ws.mergeCells(row, playerStartCol, row, lastPlayerCol)
+  const bestHeaderCell = ws.getCell(row, playerStartCol)
+  bestHeaderCell.value = 'BEST 3'
+  bestHeaderCell.font = { ...baseFont, bold: true, size: 14 }
+  bestHeaderCell.fill = lightBlueFill
+  bestHeaderCell.alignment = centerH
   row++
 
   // Player names row for 3 BEST

@@ -234,6 +234,10 @@ export async function generateWeeklyPicksSpreadsheet(
       ws.getCell(row, 1).value = day
       ws.getCell(row, 1).font = dayLabelFont
       ws.getCell(row, 1).alignment = { horizontal: 'left' }
+      // Light blue fill across user columns on date rows
+      for (let c = playerStartCol; c <= lastPlayerCol; c++) {
+        ws.getCell(row, c).fill = lightBlueFill
+      }
       row++
     }
     isFirstDay = false
@@ -262,7 +266,10 @@ export async function generateWeeklyPicksSpreadsheet(
     })
   }
 
-  // --- Blank row ---
+  // --- Blank row (light blue fill) ---
+  for (let c = playerStartCol; c <= lastPlayerCol; c++) {
+    ws.getCell(row, c).fill = lightBlueFill
+  }
   row++
 
   // --- W-L Records: Last Week / This Week / Total ---
@@ -314,7 +321,10 @@ export async function generateWeeklyPicksSpreadsheet(
     row++
   }
 
-  // --- Blank row ---
+  // --- Blank row (light blue fill) ---
+  for (let c = playerStartCol; c <= lastPlayerCol; c++) {
+    ws.getCell(row, c).fill = lightBlueFill
+  }
   row++
 
   // --- 3 BEST W-L Records ---
@@ -328,6 +338,15 @@ export async function generateWeeklyPicksSpreadsheet(
   userIds.forEach((_: string, idx: number) => {
     ws.getColumn(playerStartCol + idx).width = 7.5
   })
+
+  // --- Page setup: landscape, fit to one page ---
+  ws.pageSetup = {
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    paperSize: 1, // Letter
+  }
 
   // --- Apply thin borders to all player column cells (row 2 through last used row) ---
   const lastRow = row - 1

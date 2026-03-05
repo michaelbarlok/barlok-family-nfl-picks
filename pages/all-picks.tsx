@@ -55,10 +55,10 @@ interface AllPicksData {
 }
 
 function parseUTC(iso: string): Date {
-  if (!iso.endsWith('Z') && !iso.includes('+') && !/\d{2}:\d{2}$/.test(iso.slice(-6))) {
-    return new Date(iso + 'Z')
-  }
-  return new Date(iso)
+  const normalized = iso.replace(' ', 'T')
+  const timepart = normalized.split('T')[1] || ''
+  const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
+  return new Date(hasOffset ? normalized : normalized + 'Z')
 }
 
 function computeLockTime(games: Game[]): Date | null {

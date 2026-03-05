@@ -63,11 +63,12 @@ function getTeam(abbr: string) {
 }
 
 function parseUTC(iso: string): Date {
-  // Supabase may return timestamps without Z/offset — ensure UTC parsing
-  if (!iso.endsWith('Z') && !iso.includes('+') && !/\d{2}:\d{2}$/.test(iso.slice(-6))) {
-    return new Date(iso + 'Z')
-  }
-  return new Date(iso)
+  // Supabase returns timestamps like "2025-09-12 00:15:00" or "2025-09-12T00:15:00+00:00".
+  // Normalize space to T, then check for offset indicators after the T.
+  const normalized = iso.replace(' ', 'T')
+  const timepart = normalized.split('T')[1] || ''
+  const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
+  return new Date(hasOffset ? normalized : normalized + 'Z')
 }
 
 function formatKickoff(iso: string) {

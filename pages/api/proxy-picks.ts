@@ -100,7 +100,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         pick_1: bestPicks[0] ?? '',
         pick_2: bestPicks[1] ?? '',
         pick_3: bestPicks[2] ?? '',
-      })
+      }, { onConflict: 'user_id,week,season' })
       if (bestError) throw bestError
     }
 

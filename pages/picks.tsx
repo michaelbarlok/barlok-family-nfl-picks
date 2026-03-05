@@ -140,6 +140,16 @@ export default function PicksPage() {
   const [toastVisible, setToastVisible] = useState(false)
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
+  const [activeSection, setActiveSection] = useState<'my-picks' | 'week-picks'>('my-picks')
+
+  // All picks data (for "Week X Picks" tab)
+  interface AllPicksData {
+    users: { id: string; name: string }[]
+    picks: { user_id: string; game_id: string; picked_team: string }[]
+    threeBests: { user_id: string; pick_1: string; pick_2: string; pick_3: string }[]
+  }
+  const [allPicksData, setAllPicksData] = useState<AllPicksData | null>(null)
+  const [allPicksLoading, setAllPicksLoading] = useState(false)
 
   // Keep clock ticking so lock state stays live
   useEffect(() => {
@@ -248,6 +258,37 @@ export default function PicksPage() {
   const lockTime = computeLockTime(games)
   const isLocked = lockTime ? now >= lockTime : false
 
+  // Fetch all picks when switching to week-picks tab
+  useEffect(() => {
+    if (activeSection !== 'week-picks' || !isLocked || !currentWeek || allPicksData) return
+    const fetchAllPicks = async () => {
+      setAllPicksLoading(true)
+      try {
+        const [
+          { data: usersData },
+          { data: picksData },
+          { data: threeBestsData },
+        ] = await Promise.all([
+          supabase.from('users').select('id, name').order('name'),
+          supabase.from('picks').select('user_id, game_id, picked_team')
+            .eq('week', currentWeek).eq('season', CURRENT_SEASON),
+          supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
+            .eq('week', currentWeek).eq('season', CURRENT_SEASON),
+        ])
+        setAllPicksData({
+          users: usersData ?? [],
+          picks: picksData ?? [],
+          threeBests: threeBestsData ?? [],
+        })
+      } catch (err) {
+        console.error('Failed to fetch all picks:', err)
+      } finally {
+        setAllPicksLoading(false)
+      }
+    }
+    fetchAllPicks()
+  }, [activeSection, isLocked, currentWeek, allPicksData])
+
   const handlePickChange = (gameId: string, team: string) => {
     if (isLocked) return
     setPicks(prev => ({ ...prev, [gameId]: team }))
@@ -335,14 +376,14 @@ export default function PicksPage() {
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6 pb-28 animate-fade-in">
-        {/* Player tabs (shown only if user manages other players) */}
-        {managedPlayers.length > 0 && (
+        {/* Tab bar */}
+        {(managedPlayers.length > 0 || isLocked) && (
           <div className="mb-5">
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               <button
-                onClick={() => { setActivePlayerId(null); setPicks({}); setBestPicks(new Set()); setError('') }}
+                onClick={() => { setActiveSection('my-picks'); setActivePlayerId(null); setPicks({}); setBestPicks(new Set()); setError('') }}
                 className={`press flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap ${
-                  activePlayerId === null
+                  activeSection === 'my-picks' && activePlayerId === null
                     ? 'bg-white/[0.10] text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                 }`}
@@ -352,9 +393,9 @@ export default function PicksPage() {
               {managedPlayers.map(mp => (
                 <button
                   key={mp.id}
-                  onClick={() => { setActivePlayerId(mp.id); setPicks({}); setBestPicks(new Set()); setError('') }}
+                  onClick={() => { setActiveSection('my-picks'); setActivePlayerId(mp.id); setPicks({}); setBestPicks(new Set()); setError('') }}
                   className={`press flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap ${
-                    activePlayerId === mp.id
+                    activeSection === 'my-picks' && activePlayerId === mp.id
                       ? 'bg-indigo-500/20 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                   }`}
@@ -363,8 +404,20 @@ export default function PicksPage() {
                   {mp.name}
                 </button>
               ))}
+              {isLocked && (
+                <button
+                  onClick={() => setActiveSection('week-picks')}
+                  className={`press flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap ${
+                    activeSection === 'week-picks'
+                      ? 'bg-white/[0.10] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                  }`}
+                >
+                  Week {currentWeek} Picks
+                </button>
+              )}
             </div>
-            {activePlayerId && (
+            {activeSection === 'my-picks' && activePlayerId && (
               <div className="mt-2 p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center gap-2 text-xs text-indigo-300">
                 <span>👤</span>
                 <span>Picking for <strong>{managedPlayers.find(p => p.id === activePlayerId)?.name}</strong></span>
@@ -372,6 +425,78 @@ export default function PicksPage() {
             )}
           </div>
         )}
+
+        {/* ── WEEK PICKS VIEW ── */}
+        {activeSection === 'week-picks' && (
+          <div className="mb-6">
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+              Week {currentWeek} — All Picks
+            </h2>
+            {allPicksLoading ? (
+              <div className="glass-card rounded-2xl p-10 text-center">
+                <p className="text-slate-400 text-sm">Loading all picks...</p>
+              </div>
+            ) : allPicksData ? (() => {
+              const picksLookup = new Map<string, string>()
+              allPicksData.picks.forEach(p => picksLookup.set(`${p.user_id}-${p.game_id}`, p.picked_team))
+              const threeBestLookup = new Map<string, Set<string>>()
+              allPicksData.threeBests.forEach(tb => {
+                threeBestLookup.set(tb.user_id, new Set([tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)))
+              })
+
+              return (
+                <div className="glass-card rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.03] border-b border-white/[0.06]">
+                          <th className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase min-w-[120px]">
+                            Game
+                          </th>
+                          {allPicksData.users.map(u => (
+                            <th key={u.id} className="px-2 py-2 text-center text-xs font-semibold text-slate-400 whitespace-nowrap">
+                              {u.name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {games.map(game => (
+                          <tr key={game.id} className="border-b border-white/[0.04]">
+                            <td className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2 whitespace-nowrap">
+                              <span className="text-slate-300 text-xs font-medium">
+                                {game.away_team} @ {game.home_team}
+                              </span>
+                            </td>
+                            {allPicksData.users.map(u => {
+                              const picked = picksLookup.get(`${u.id}-${game.id}`)
+                              const bestSet = threeBestLookup.get(u.id)
+                              const isBest = picked && bestSet?.has(picked)
+                              return (
+                                <td key={u.id} className="px-2 py-2 text-center">
+                                  {picked ? (
+                                    <span className={`text-xs font-medium ${isBest ? 'text-amber-400' : 'text-slate-300'}`}>
+                                      {isBest && '\u2B50 '}{picked}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-600 text-xs">&mdash;</span>
+                                  )}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })() : null}
+          </div>
+        )}
+
+        {/* ── MY PICKS VIEW ── */}
+        {activeSection === 'my-picks' && (<>
 
         {/* Load error */}
         {loadError && (
@@ -569,10 +694,12 @@ export default function PicksPage() {
             </div>
           )}
         </form>
+
+        </>)}
       </main>
 
       {/* Sticky bottom save bar */}
-      {!isLocked && (
+      {!isLocked && activeSection === 'my-picks' && (
         <div className="fixed bottom-0 left-0 right-0 z-20 safe-bottom">
           <div className="bg-surface/90 backdrop-blur-xl border-t border-white/[0.06]">
             <div className="max-w-3xl mx-auto px-4 py-3">

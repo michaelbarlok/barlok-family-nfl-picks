@@ -62,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         is_correct: isTie ? null : pick.picked_team === winningTeam,
         week,
         season,
-      })
+      }, { onConflict: 'user_id,game_id' })
       updated++
     }
 

@@ -60,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           picked_team: pickedTeam,
           week,
           season,
-        })
+        }, { onConflict: 'user_id,game_id' })
         if (error) throw error
 
         // If this game already has a result, update the score row too
@@ -77,7 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             is_correct: game.winning_team === 'TIE' ? null : pickedTeam === game.winning_team,
             week,
             season,
-          })
+          }, { onConflict: 'user_id,game_id' })
         }
       }
       return res.status(200).json({ success: true, type: 'pick', userId, gameId, pickedTeam })
@@ -93,7 +93,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         pick_1: pick_1 ?? '',
         pick_2: pick_2 ?? '',
         pick_3: pick_3 ?? '',
-      })
+      }, { onConflict: 'user_id,week,season' })
       if (error) throw error
       return res.status(200).json({ success: true, type: 'three_best', userId, threeBest })
     }

@@ -481,27 +481,12 @@ export default function AdminPage() {
     setMessage({ type: 'success', text: pickedTeam ? `Pick updated to ${pickedTeam}.` : 'Pick cleared.' })
   }
 
-  // Toggle a game as a best pick
-  const toggleBestGame = (gameId: string) => {
-    setOverrideBestGames(prev => {
-      const next = new Set(prev)
-      if (next.has(gameId)) next.delete(gameId)
-      else if (next.size < 3) next.add(gameId)
-      return next
-    })
-  }
-
-  // Save three best overrides — convert game IDs to team abbreviations
-  const handleSaveThreeBest = async () => {
+  // Save three best to the API
+  const saveBestPicks = async (bestGameIds: Set<string>) => {
     if (!selectedUserId || !selectedWeek) return
-    if (overrideBestGames.size !== 3) {
-      setMessage({ type: 'error', text: `Select exactly 3 best picks (you have ${overrideBestGames.size}).` })
-      return
-    }
     setSavingOverride(true)
-    setMessage(null)
     try {
-      const bestTeams = Array.from(overrideBestGames).map(gid => overridePicks[gid] ?? '')
+      const bestTeams = Array.from(bestGameIds).map(gid => overridePicks[gid] ?? '')
       const token = await getToken()
       const res = await fetch('/api/admin-override-pick', {
         method: 'POST',
@@ -521,6 +506,17 @@ export default function AdminPage() {
     } finally {
       setSavingOverride(false)
     }
+  }
+
+  // Toggle a game as a best pick — auto-saves when exactly 3 are selected
+  const toggleBestGame = (gameId: string) => {
+    setOverrideBestGames(prev => {
+      const next = new Set(prev)
+      if (next.has(gameId)) next.delete(gameId)
+      else if (next.size < 3) next.add(gameId)
+      if (next.size === 3) saveBestPicks(next)
+      return next
+    })
   }
 
   if (loading || dataLoading) {
@@ -812,17 +808,10 @@ export default function AdminPage() {
                 ) : (
                   <>
                     {/* Best picks counter */}
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="mb-3">
                       <p className={`text-xs font-medium ${overrideBestGames.size === 3 ? 'text-amber-400' : 'text-slate-500'}`}>
-                        ⭐ {overrideBestGames.size}/3 best picks selected
+                        ⭐ {overrideBestGames.size}/3 best picks {savingOverride ? '— saving...' : overrideBestGames.size === 3 ? '— saved' : ''}
                       </p>
-                      <button
-                        onClick={handleSaveThreeBest}
-                        disabled={savingOverride || overrideBestGames.size !== 3}
-                        className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-                      >
-                        {savingOverride ? 'Saving...' : 'Save Best 3'}
-                      </button>
                     </div>
 
                     <div className="space-y-2 mb-5">

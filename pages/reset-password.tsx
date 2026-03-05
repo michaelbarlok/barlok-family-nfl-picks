@@ -10,28 +10,57 @@ export default function ResetPasswordPage() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'done' | 'error'>('loading')
   const [error, setError] = useState('')
 
-  // Supabase sends the recovery token in the URL hash — the JS client picks it up automatically
   useEffect(() => {
+    let cancelled = false
+
+    // Listen for the PASSWORD_RECOVERY event (fires when the client processes the hash token)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      if (event === 'PASSWORD_RECOVERY' && !cancelled) {
         setStatus('ready')
       }
     })
 
-    // If there's already a session (user clicked link while logged in), show the form
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setStatus('ready')
-    })
+    async function initSession() {
+      // PKCE flow: Supabase redirects with ?code=... in the query string
+      const params = new URLSearchParams(window.location.search)
+      const code = params.get('code')
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+        if (!cancelled) {
+          if (exchangeError) {
+            setError('Invalid or expired reset link. Please request a new one from your profile.')
+            setStatus('error')
+          } else {
+            setStatus('ready')
+          }
+        }
+        return
+      }
 
-    // Fallback timeout — if no event fires, show an error
-    const timeout = setTimeout(() => {
-      setStatus(prev => prev === 'loading' ? 'error' : prev)
-      setError('Invalid or expired reset link. Please request a new one from your profile.')
-    }, 5000)
+      // Implicit flow: tokens are in the URL hash — the client may have already
+      // processed them before this component mounted, so check for an existing session
+      const hash = window.location.hash
+      if (hash && (hash.includes('access_token') || hash.includes('type=recovery'))) {
+        // Give the Supabase client a moment to process the hash
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!cancelled) {
+        if (session) {
+          setStatus('ready')
+        } else {
+          setError('Invalid or expired reset link. Please request a new one from your profile.')
+          setStatus('error')
+        }
+      }
+    }
+
+    initSession()
 
     return () => {
+      cancelled = true
       subscription.unsubscribe()
-      clearTimeout(timeout)
     }
   }, [])
 

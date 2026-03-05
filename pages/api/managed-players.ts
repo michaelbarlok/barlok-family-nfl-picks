@@ -54,10 +54,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .select('id, name, email, is_manager, is_managed')
           .order('name')
 
+        // Fetch last_sign_in_at from Supabase Auth for users with logins
+        let lastSignInMap: Record<string, string | null> = {}
+        try {
+          const { data: { users: authUsers } } = await supabase.auth.admin.listUsers({ perPage: 1000 })
+          for (const au of authUsers) {
+            lastSignInMap[au.id] = au.last_sign_in_at ?? null
+          }
+        } catch (err) {
+          console.error('Failed to fetch auth users for last_sign_in_at:', err)
+        }
+
+        const usersWithLogin = (allUsers ?? []).map(u => ({
+          ...u,
+          last_sign_in_at: lastSignInMap[u.id] ?? null,
+        }))
+
         return res.status(200).json({
           managedPlayers: allPlayers ?? [],
           managerLinks: allLinks ?? [],
-          users: allUsers ?? [],
+          users: usersWithLogin,
         })
       }
 

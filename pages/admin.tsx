@@ -107,7 +107,7 @@ export default function AdminPage() {
   // Manage Players tab state
   interface ManagedPlayer { id: string; name: string }
   interface ManagerLink { manager_id: string; player_id: string }
-  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean }
+  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; last_sign_in_at: string | null }
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [managerLinks, setManagerLinks] = useState<ManagerLink[]>([])
   const [allUsers, setAllUsers] = useState<FullUser[]>([])
@@ -871,6 +871,13 @@ export default function AdminPage() {
                         <div>
                           <p className="text-sm font-medium text-white">{u.name}</p>
                           <p className="text-xs text-slate-500">{u.email ?? 'No email'}</p>
+                          {u.email && (
+                            <p className="text-xs text-slate-600 mt-0.5">
+                              Last Active: {u.last_sign_in_at
+                                ? new Date(u.last_sign_in_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                                : 'Never'}
+                            </p>
+                          )}
                         </div>
                         <button
                           onClick={() => handleToggleManager(u.id, !u.is_manager)}

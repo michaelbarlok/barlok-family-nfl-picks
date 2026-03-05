@@ -581,7 +581,7 @@ export default function AdminPage() {
         {activeTab === 'results' && selectedWeek && (
           <>
             {/* Action buttons row */}
-            <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               <div className="p-4 glass-card rounded-xl">
                 <p className="text-sm font-semibold text-slate-200 mb-1">Sync Schedule</p>
                 <p className="text-xs text-slate-500 mb-3">Pull Week {selectedWeek} games & times from ESPN.</p>

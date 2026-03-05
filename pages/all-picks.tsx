@@ -46,12 +46,21 @@ interface Game {
   home_team: string
   kickoff_time: string
   week: number
+  winning_team: string | null
+  away_score: number | null
+  home_score: number | null
 }
 
 interface AllPicksData {
   users: { id: string; name: string }[]
   picks: { user_id: string; game_id: string; picked_team: string }[]
   threeBests: { user_id: string; pick_1: string; pick_2: string; pick_3: string }[]
+}
+
+interface SeasonData {
+  games: { id: string; week: number; winning_team: string | null }[]
+  picks: { user_id: string; game_id: string; picked_team: string; week: number }[]
+  threeBests: { user_id: string; week: number; pick_1: string; pick_2: string; pick_3: string }[]
 }
 
 function parseUTC(iso: string): Date {
@@ -105,6 +114,7 @@ export default function AllPicksPage() {
   const [dataLoading, setDataLoading] = useState(true)
   const [picksLoading, setPicksLoading] = useState(false)
   const [isLocked, setIsLocked] = useState(false)
+  const [seasonData, setSeasonData] = useState<SeasonData | null>(null)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -156,18 +166,32 @@ export default function AllPicksPage() {
       { data: usersData },
       { data: picksData },
       { data: threeBestsData },
+      { data: allSeasonGames },
+      { data: allSeasonPicks },
+      { data: allSeasonThreeBests },
     ] = await Promise.all([
       supabase.from('users').select('id, name').order('name'),
       supabase.from('picks').select('user_id, game_id, picked_team')
         .eq('week', week).eq('season', CURRENT_SEASON),
       supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
         .eq('week', week).eq('season', CURRENT_SEASON),
+      supabase.from('games').select('id, week, winning_team')
+        .eq('season', CURRENT_SEASON),
+      supabase.from('picks').select('user_id, game_id, picked_team, week')
+        .eq('season', CURRENT_SEASON),
+      supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3')
+        .eq('season', CURRENT_SEASON),
     ])
 
     setAllPicksData({
       users: usersData ?? [],
       picks: picksData ?? [],
       threeBests: threeBestsData ?? [],
+    })
+    setSeasonData({
+      games: allSeasonGames ?? [],
+      picks: allSeasonPicks ?? [],
+      threeBests: allSeasonThreeBests ?? [],
     })
     setPicksLoading(false)
   }, [])
@@ -185,6 +209,49 @@ export default function AllPicksPage() {
   allPicksData?.threeBests.forEach(tb => {
     threeBestLookup.set(tb.user_id, new Set([tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)))
   })
+
+  // Build game result lookup: gameId -> winning_team
+  const gameResultLookup = new Map<string, string | null>()
+  games.forEach(g => gameResultLookup.set(g.id, g.winning_team))
+
+  // Compute records per user
+  const computeRecords = (userId: string) => {
+    if (!seasonData || !selectedWeek) return { priorW: 0, priorL: 0, weekW: 0, weekL: 0, totalW: 0, totalL: 0, priorB3W: 0, priorB3L: 0, weekB3W: 0, weekB3L: 0, totalB3W: 0, totalB3L: 0 }
+
+    const gameMap = new Map(seasonData.games.map(g => [g.id, g]))
+    const userPicks = seasonData.picks.filter(p => p.user_id === userId)
+    const userThreeBests = new Map<number, Set<string>>()
+    seasonData.threeBests.filter(tb => tb.user_id === userId).forEach(tb => {
+      userThreeBests.set(tb.week, new Set([tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)))
+    })
+
+    let priorW = 0, priorL = 0, weekW = 0, weekL = 0
+    let priorB3W = 0, priorB3L = 0, weekB3W = 0, weekB3L = 0
+
+    for (const pick of userPicks) {
+      const game = gameMap.get(pick.game_id)
+      if (!game || !game.winning_team) continue
+
+      const won = pick.picked_team === game.winning_team
+      const tbSet = userThreeBests.get(pick.week)
+      const isBest3 = tbSet?.has(pick.picked_team) ?? false
+
+      if (game.week < selectedWeek) {
+        if (won) { priorW++; if (isBest3) priorB3W++ }
+        else { priorL++; if (isBest3) priorB3L++ }
+      } else if (game.week === selectedWeek) {
+        if (won) { weekW++; if (isBest3) weekB3W++ }
+        else { weekL++; if (isBest3) weekB3L++ }
+      }
+    }
+
+    return {
+      priorW, priorL, weekW, weekL,
+      totalW: priorW + weekW, totalL: priorL + weekL,
+      priorB3W, priorB3L, weekB3W, weekB3L,
+      totalB3W: priorB3W + weekB3W, totalB3L: priorB3L + weekB3L,
+    }
+  }
 
   return (
     <div className="min-h-screen bg-surface pb-20">
@@ -280,7 +347,11 @@ export default function AllPicksPage() {
                           <div className="flex items-center gap-2">
                             {away && <img src={away.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                             <span className="text-slate-300 text-xs font-medium">
-                              {game.away_team} @ {game.home_team}
+                              {game.away_team}
+                              {game.away_score != null && <span className={`ml-1 ${game.winning_team === game.away_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
+                              {' @ '}
+                              {game.home_team}
+                              {game.home_score != null && <span className={`ml-1 ${game.winning_team === game.home_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
                             </span>
                             {home && <img src={home.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                           </div>
@@ -289,10 +360,17 @@ export default function AllPicksPage() {
                           const picked = picksLookup.get(`${u.id}-${game.id}`)
                           const bestSet = threeBestLookup.get(u.id)
                           const isBest = picked && bestSet?.has(picked)
+                          const winner = gameResultLookup.get(game.id)
+                          const isWin = picked && winner && picked === winner
+                          const isLoss = picked && winner && picked !== winner
                           return (
                             <td key={u.id} className="px-2 py-2.5 text-center">
                               {picked ? (
-                                <span className={`text-xs font-medium ${isBest ? 'text-amber-400' : 'text-slate-300'}`}>
+                                <span className={`text-xs font-medium ${
+                                  isWin ? (isBest ? 'text-emerald-300' : 'text-emerald-400')
+                                  : isLoss ? (isBest ? 'text-red-300' : 'text-red-400')
+                                  : (isBest ? 'text-amber-400' : 'text-slate-300')
+                                }`}>
                                   {isBest && '\u2B50 '}{picked}
                                 </span>
                               ) : (
@@ -304,6 +382,70 @@ export default function AllPicksPage() {
                       </tr>
                     )
                   })}
+                  {/* Record summary rows */}
+                  {(() => {
+                    const userRecords = allPicksData.users.map(u => computeRecords(u.id))
+                    const rows = [
+                      { label: `Prior Wks`, key: 'prior' as const },
+                      { label: `Week ${selectedWeek}`, key: 'week' as const },
+                      { label: 'Total', key: 'total' as const },
+                    ]
+                    const b3Rows = [
+                      { label: 'Best 3 Prior', key: 'prior' as const },
+                      { label: `Best 3 Wk ${selectedWeek}`, key: 'week' as const },
+                      { label: 'Best 3 Total', key: 'total' as const },
+                    ]
+                    return (
+                      <>
+                        <tr className="bg-white/[0.03]">
+                          <td colSpan={allPicksData.users.length + 1} className="px-3 py-1.5">
+                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Overall Record</span>
+                          </td>
+                        </tr>
+                        {rows.map(r => (
+                          <tr key={r.key} className="border-t border-white/[0.04]">
+                            <td className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2 text-xs font-medium text-slate-400 whitespace-nowrap">
+                              {r.label}
+                            </td>
+                            {userRecords.map((rec, i) => {
+                              const w = r.key === 'prior' ? rec.priorW : r.key === 'week' ? rec.weekW : rec.totalW
+                              const l = r.key === 'prior' ? rec.priorL : r.key === 'week' ? rec.weekL : rec.totalL
+                              return (
+                                <td key={allPicksData!.users[i].id} className="px-2 py-2 text-center">
+                                  <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-white' : 'text-slate-300'}`}>
+                                    {w}-{l}
+                                  </span>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                        <tr className="bg-white/[0.03]">
+                          <td colSpan={allPicksData.users.length + 1} className="px-3 py-1.5">
+                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Best 3 Record</span>
+                          </td>
+                        </tr>
+                        {b3Rows.map(r => (
+                          <tr key={`b3-${r.key}`} className="border-t border-white/[0.04]">
+                            <td className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2 text-xs font-medium text-slate-400 whitespace-nowrap">
+                              {r.label}
+                            </td>
+                            {userRecords.map((rec, i) => {
+                              const w = r.key === 'prior' ? rec.priorB3W : r.key === 'week' ? rec.weekB3W : rec.totalB3W
+                              const l = r.key === 'prior' ? rec.priorB3L : r.key === 'week' ? rec.weekB3L : rec.totalB3L
+                              return (
+                                <td key={allPicksData!.users[i].id} className="px-2 py-2 text-center">
+                                  <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-amber-400' : 'text-slate-300'}`}>
+                                    {w}-{l}
+                                  </span>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </>
+                    )
+                  })()}
                 </tbody>
               </table>
             </div>

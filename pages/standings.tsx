@@ -89,8 +89,9 @@ export default function StandingsPage() {
 
         const scored = (scores || []).filter(s => s.is_correct !== null)
         if (scored.length > 0) {
-          setLastUpdated(new Date(Math.max(...scored.map((s: { created_at: string }) => new Date(s.created_at).getTime()))).toLocaleDateString('en-US', {
+          setLastUpdated(new Date(Math.max(...scored.map((s: { created_at: string }) => new Date(s.created_at).getTime()))).toLocaleString('en-US', {
             month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+            timeZone: 'America/New_York',
           }))
         }
 

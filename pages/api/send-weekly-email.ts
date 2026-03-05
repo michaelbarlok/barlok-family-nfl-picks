@@ -90,17 +90,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to fetch users or no users found' })
     }
 
-    const recipients = users.map((u: { email: string }) => u.email)
+    const recipients = users
+      .map((u: { email: string | null }) => u.email)
+      .filter((e: string | null): e is string => !!e)
+
+    if (recipients.length === 0) {
+      return res.status(400).json({ error: 'No users with email addresses found' })
+    }
 
     // Generate spreadsheet
     const workbook = await generateWeeklyPicksSpreadsheet(week, season, LEAGUE_NAME)
     const buffer = await workbook.xlsx.writeBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
 
-    // Send email
+    // Send as a single group email so everyone is on the same thread
+    // and can reply-all. First recipient in "to", rest in "cc".
+    const [primaryRecipient, ...ccRecipients] = recipients
+
     const { data: emailData, error: emailError } = await resend.emails.send({
       from: 'onboarding@resend.dev',
-      to: recipients,
+      to: [primaryRecipient],
+      ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
+      replyTo: primaryRecipient,
       subject: `${LEAGUE_NAME} — Week ${week} Picks`,
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">

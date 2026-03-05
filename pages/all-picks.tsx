@@ -47,6 +47,8 @@ interface Game {
   kickoff_time: string
   week: number
   winning_team: string | null
+  away_score: number | null
+  home_score: number | null
 }
 
 interface AllPicksData {
@@ -345,7 +347,11 @@ export default function AllPicksPage() {
                           <div className="flex items-center gap-2">
                             {away && <img src={away.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                             <span className="text-slate-300 text-xs font-medium">
-                              {game.away_team} @ {game.home_team}
+                              {game.away_team}
+                              {game.away_score != null && <span className={`ml-1 ${game.winning_team === game.away_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
+                              {' @ '}
+                              {game.home_team}
+                              {game.home_score != null && <span className={`ml-1 ${game.winning_team === game.home_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
                             </span>
                             {home && <img src={home.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                           </div>

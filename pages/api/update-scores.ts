@@ -120,7 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         continue
       }
 
-      const competitors: { homeAway: string; team: { abbreviation: string }; winner: boolean }[] =
+      const competitors: { homeAway: string; team: { abbreviation: string }; winner: boolean; score: string }[] =
         competition.competitors ?? []
 
       const winnerComp = competitors.find((c) => c.winner === true)
@@ -129,12 +129,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const espnWinner = winnerComp.team.abbreviation
       const ourWinner = normalizeTeam(espnWinner)
 
-      const awayComp = competitors.find((c) => c.homeAway === 'away')
-      const homeComp = competitors.find((c) => c.homeAway === 'home')
+      const awayComp = competitors.find((c: { homeAway: string }) => c.homeAway === 'away')
+      const homeComp = competitors.find((c: { homeAway: string }) => c.homeAway === 'home')
       if (!awayComp || !homeComp) continue
 
       const espnAway = normalizeTeam(awayComp.team.abbreviation)
       const espnHome = normalizeTeam(homeComp.team.abbreviation)
+      const awayScore = parseInt(awayComp.score) || 0
+      const homeScore = parseInt(homeComp.score) || 0
 
       // Find matching game in our DB
       const ourGame = ourGames.find(
@@ -145,10 +147,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         continue
       }
 
-      // Update games.winning_team
+      // Update games.winning_team and scores
       await supabase
         .from('games')
-        .update({ winning_team: ourWinner })
+        .update({ winning_team: ourWinner, away_score: awayScore, home_score: homeScore })
         .eq('id', ourGame.id)
 
       // Upsert scores for every user who picked this game

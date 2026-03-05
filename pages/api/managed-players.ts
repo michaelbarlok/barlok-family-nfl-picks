@@ -239,6 +239,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ success: true })
       }
 
+      // Rename any user
+      if (action === 'rename_user') {
+        const { userId, newName } = req.body
+        if (!userId || !newName || typeof newName !== 'string' || newName.trim().length === 0) {
+          return res.status(400).json({ error: 'userId and newName are required' })
+        }
+        const { error } = await supabase
+          .from('users')
+          .update({ name: newName.trim() })
+          .eq('id', userId)
+        if (error) throw error
+        return res.status(200).json({ success: true })
+      }
+
       return res.status(400).json({ error: 'Unknown action' })
     } catch (err) {
       console.error('managed-players PATCH error:', err)

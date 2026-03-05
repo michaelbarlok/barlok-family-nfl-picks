@@ -128,6 +128,8 @@ export default function AdminPage() {
   const [newPlayerManagers, setNewPlayerManagers] = useState<Set<string>>(new Set())
   const [creatingPlayer, setCreatingPlayer] = useState(false)
   const [playersLoading, setPlayersLoading] = useState(false)
+  const [editingNameId, setEditingNameId] = useState<string | null>(null)
+  const [editingNameValue, setEditingNameValue] = useState('')
 
   // Auth guard — allow admin and managers
   useEffect(() => {
@@ -333,6 +335,27 @@ export default function AdminPage() {
       if (!res.ok) throw new Error('Failed to remove manager')
       await loadManagedPlayersData()
       setMessage({ type: 'success', text: 'Manager removed.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Rename a user
+  const handleRenameUser = async (userId: string) => {
+    if (!editingNameValue.trim()) return
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'rename_user', userId, newName: editingNameValue.trim() }),
+      })
+      if (!res.ok) throw new Error('Failed to rename user')
+      setEditingNameId(null)
+      setEditingNameValue('')
+      await loadManagedPlayersData()
+      setMessage({ type: 'success', text: 'Name updated.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
     }
@@ -934,8 +957,31 @@ export default function AdminPage() {
                         key={u.id}
                         className={`flex items-center justify-between px-4 py-3 ${idx > 0 ? 'border-t border-white/[0.04]' : ''}`}
                       >
-                        <div>
-                          <p className="text-sm font-medium text-white">{u.name}</p>
+                        <div className="flex-1 min-w-0">
+                          {editingNameId === u.id ? (
+                            <form onSubmit={e => { e.preventDefault(); handleRenameUser(u.id) }} className="flex items-center gap-2">
+                              <input
+                                autoFocus
+                                value={editingNameValue}
+                                onChange={e => setEditingNameValue(e.target.value)}
+                                className="text-sm font-medium text-white bg-white/[0.06] border border-white/[0.12] rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/30 w-40"
+                              />
+                              <button type="submit" className="text-xs text-emerald-400 hover:text-emerald-300">Save</button>
+                              <button type="button" onClick={() => setEditingNameId(null)} className="text-xs text-slate-500 hover:text-slate-300">Cancel</button>
+                            </form>
+                          ) : (
+                            <p className="text-sm font-medium text-white">
+                              {u.name}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => { setEditingNameId(u.id); setEditingNameValue(u.name) }}
+                                  className="text-xs text-slate-500 hover:text-blue-400 transition ml-2"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </p>
+                          )}
                           <p className="text-xs text-slate-500">{u.email ?? 'No email'}</p>
                           {u.email && (
                             <p className="text-xs text-slate-600 mt-0.5">
@@ -947,7 +993,7 @@ export default function AdminPage() {
                         </div>
                         <button
                           onClick={() => handleToggleManager(u.id, !u.is_manager)}
-                          className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                          className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition shrink-0 ${
                             u.is_manager
                               ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
                               : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-blue-500/30'
@@ -979,15 +1025,36 @@ export default function AdminPage() {
                       return (
                         <div key={player.id} className="glass-card rounded-xl p-4">
                           <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="text-xs bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium shrink-0">
                                 Managed
                               </span>
-                              <p className="text-sm font-semibold text-white">{player.name}</p>
+                              {editingNameId === player.id ? (
+                                <form onSubmit={e => { e.preventDefault(); handleRenameUser(player.id) }} className="flex items-center gap-2">
+                                  <input
+                                    autoFocus
+                                    value={editingNameValue}
+                                    onChange={e => setEditingNameValue(e.target.value)}
+                                    className="text-sm font-semibold text-white bg-white/[0.06] border border-white/[0.12] rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/30 w-40"
+                                  />
+                                  <button type="submit" className="text-xs text-emerald-400 hover:text-emerald-300">Save</button>
+                                  <button type="button" onClick={() => setEditingNameId(null)} className="text-xs text-slate-500 hover:text-slate-300">Cancel</button>
+                                </form>
+                              ) : (
+                                <p className="text-sm font-semibold text-white">
+                                  {player.name}
+                                  <button
+                                    onClick={() => { setEditingNameId(player.id); setEditingNameValue(player.name) }}
+                                    className="text-xs text-slate-500 hover:text-blue-400 transition ml-2 font-medium"
+                                  >
+                                    Edit
+                                  </button>
+                                </p>
+                              )}
                             </div>
                             <button
                               onClick={() => handleDeleteManagedPlayer(player.id, player.name)}
-                              className="text-xs text-red-400 hover:text-red-300 transition px-2 py-1"
+                              className="text-xs text-red-400 hover:text-red-300 transition px-2 py-1 shrink-0"
                             >
                               Delete
                             </button>

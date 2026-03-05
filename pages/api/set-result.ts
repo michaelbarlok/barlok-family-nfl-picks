@@ -53,12 +53,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (picksError) throw picksError
 
     // Upsert a score row for every user who picked this game
+    const isTie = winningTeam === 'TIE'
     let updated = 0
     for (const pick of picks ?? []) {
       await supabase.from('scores').upsert({
         user_id: pick.user_id,
         game_id: gameId,
-        is_correct: pick.picked_team === winningTeam,
+        is_correct: isTie ? null : pick.picked_team === winningTeam,
         week,
         season,
       })

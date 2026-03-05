@@ -74,7 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           await supabase.from('scores').upsert({
             user_id: userId,
             game_id: gameId,
-            is_correct: pickedTeam === game.winning_team,
+            is_correct: game.winning_team === 'TIE' ? null : pickedTeam === game.winning_team,
             week,
             season,
           })

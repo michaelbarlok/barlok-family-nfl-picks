@@ -80,11 +80,6 @@ interface PickMap {
   [gameId: string]: string | null
 }
 
-interface ThreeBestMap {
-  pick_1: string
-  pick_2: string
-  pick_3: string
-}
 
 export default function AdminPage() {
   const router = useRouter()
@@ -113,7 +108,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserRow[]>([])
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [overridePicks, setOverridePicks] = useState<PickMap>({})
-  const [overrideThreeBest, setOverrideThreeBest] = useState<ThreeBestMap>({ pick_1: '', pick_2: '', pick_3: '' })
+  const [overrideBestGames, setOverrideBestGames] = useState<Set<string>>(new Set())
   const [savingOverride, setSavingOverride] = useState(false)
   const [loadingUserPicks, setLoadingUserPicks] = useState(false)
 
@@ -193,16 +188,20 @@ export default function AdminPage() {
       }
       setOverridePicks(pickMap)
 
-      // Load three best
+      // Load three best — convert team abbreviations to game IDs
       const { data: tb } = await supabase
         .from('three_best').select('pick_1, pick_2, pick_3')
         .eq('user_id', selectedUserId).eq('week', selectedWeek).eq('season', CURRENT_SEASON)
         .maybeSingle()
-      setOverrideThreeBest({
-        pick_1: tb?.pick_1 ?? '',
-        pick_2: tb?.pick_2 ?? '',
-        pick_3: tb?.pick_3 ?? '',
-      })
+      const bestGameIds = new Set<string>()
+      if (tb) {
+        const bestTeams = [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)
+        bestTeams.forEach(team => {
+          const gameId = Object.entries(pickMap).find(([, picked]) => picked === team)?.[0]
+          if (gameId) bestGameIds.add(gameId)
+        })
+      }
+      setOverrideBestGames(bestGameIds)
       setLoadingUserPicks(false)
     }
     fetchUserPicks()
@@ -482,12 +481,27 @@ export default function AdminPage() {
     setMessage({ type: 'success', text: pickedTeam ? `Pick updated to ${pickedTeam}.` : 'Pick cleared.' })
   }
 
-  // Save three best overrides
+  // Toggle a game as a best pick
+  const toggleBestGame = (gameId: string) => {
+    setOverrideBestGames(prev => {
+      const next = new Set(prev)
+      if (next.has(gameId)) next.delete(gameId)
+      else if (next.size < 3) next.add(gameId)
+      return next
+    })
+  }
+
+  // Save three best overrides — convert game IDs to team abbreviations
   const handleSaveThreeBest = async () => {
     if (!selectedUserId || !selectedWeek) return
+    if (overrideBestGames.size !== 3) {
+      setMessage({ type: 'error', text: `Select exactly 3 best picks (you have ${overrideBestGames.size}).` })
+      return
+    }
     setSavingOverride(true)
     setMessage(null)
     try {
+      const bestTeams = Array.from(overrideBestGames).map(gid => overridePicks[gid] ?? '')
       const token = await getToken()
       const res = await fetch('/api/admin-override-pick', {
         method: 'POST',
@@ -496,7 +510,7 @@ export default function AdminPage() {
           userId: selectedUserId,
           week: selectedWeek,
           season: CURRENT_SEASON,
-          threeBest: overrideThreeBest,
+          threeBest: { pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '' },
         }),
       })
       const json = await res.json()
@@ -797,37 +811,59 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   <>
+                    {/* Best picks counter */}
+                    <div className="flex items-center justify-between mb-3">
+                      <p className={`text-xs font-medium ${overrideBestGames.size === 3 ? 'text-amber-400' : 'text-slate-500'}`}>
+                        ⭐ {overrideBestGames.size}/3 best picks selected
+                      </p>
+                      <button
+                        onClick={handleSaveThreeBest}
+                        disabled={savingOverride || overrideBestGames.size !== 3}
+                        className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      >
+                        {savingOverride ? 'Saving...' : 'Save Best 3'}
+                      </button>
+                    </div>
+
                     <div className="space-y-2 mb-5">
                       {games.map(game => {
                         const away = getTeam(game.away_team)
                         const home = getTeam(game.home_team)
                         const currentPick = overridePicks[game.id] ?? null
+                        const isStarred = overrideBestGames.has(game.id)
+                        const canStar = !!currentPick
+                        const starDisabled = !canStar || (!isStarred && overrideBestGames.size >= 3)
 
                         return (
-                          <div key={game.id} className="glass-card rounded-xl overflow-hidden">
+                          <div key={game.id} className={`glass-card rounded-xl overflow-hidden ${isStarred ? 'ring-1 ring-amber-500/30' : ''}`}>
                             <div className="flex items-center justify-between px-4 pt-3 pb-2">
                               <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
-                              {currentPick ? (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
-                                    Picked: {currentPick}
+                              <div className="flex items-center gap-2">
+                                {currentPick ? (
+                                  <>
+                                    <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                                      Picked: {currentPick}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        handleOverridePick(game.id, null)
+                                        setOverrideBestGames(prev => { const next = new Set(prev); next.delete(game.id); return next })
+                                      }}
+                                      className="text-xs text-red-400 hover:text-red-600 transition"
+                                      title="Clear pick"
+                                    >
+                                      ✕ Clear
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2 py-0.5 rounded-full">
+                                    No pick
                                   </span>
-                                  <button
-                                    onClick={() => handleOverridePick(game.id, null)}
-                                    className="text-xs text-red-400 hover:text-red-600 transition"
-                                    title="Clear pick"
-                                  >
-                                    ✕ Clear
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2 py-0.5 rounded-full">
-                                  No pick
-                                </span>
-                              )}
+                                )}
+                              </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 px-3 pb-3">
+                            <div className="grid grid-cols-2 gap-2 px-3 pb-1">
                               {[
                                 { abbr: game.away_team, info: away, label: 'Away' },
                                 { abbr: game.home_team, info: home, label: 'Home' },
@@ -861,39 +897,29 @@ export default function AdminPage() {
                                 )
                               })}
                             </div>
+                            {/* Star / Best Pick toggle */}
+                            {currentPick && (
+                              <div className="px-3 pb-3">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleBestGame(game.id)}
+                                  disabled={starDisabled}
+                                  className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs font-medium transition ${
+                                    isStarred
+                                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                                      : starDisabled
+                                      ? 'border-white/[0.04] text-slate-600 cursor-not-allowed'
+                                      : 'border-white/[0.06] text-slate-400 hover:border-amber-500/30 hover:text-amber-400'
+                                  }`}
+                                >
+                                  <span>{isStarred ? '⭐' : '☆'}</span>
+                                  <span>{isStarred ? 'Best Pick' : 'Mark as Best Pick'}</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
-                    </div>
-
-                    {/* Three Best override */}
-                    <div className="glass-card rounded-xl p-4">
-                      <p className="text-sm font-semibold text-slate-200 mb-1">Override Best 3 Picks</p>
-                      <p className="text-xs text-slate-500 mb-3">
-                        Enter team abbreviations (e.g. KC, BUF, PHI). Leave blank to clear.
-                      </p>
-                      <div className="grid grid-cols-3 gap-3 mb-4">
-                        {(['pick_1', 'pick_2', 'pick_3'] as const).map((key, i) => (
-                          <div key={key}>
-                            <label className="block text-xs font-semibold text-slate-400 mb-1">Best #{i + 1}</label>
-                            <input
-                              type="text"
-                              value={overrideThreeBest[key]}
-                              onChange={e => setOverrideThreeBest(prev => ({ ...prev, [key]: e.target.value.toUpperCase() }))}
-                              maxLength={3}
-                              placeholder="e.g. KC"
-                              className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono uppercase"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <button
-                        onClick={handleSaveThreeBest}
-                        disabled={savingOverride}
-                        className="w-full py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
-                      >
-                        {savingOverride ? 'Saving...' : 'Save Best 3 Picks'}
-                      </button>
                     </div>
                   </>
                 )}

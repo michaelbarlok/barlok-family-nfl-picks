@@ -46,6 +46,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .delete()
           .eq('user_id', userId)
           .eq('game_id', gameId)
+        // Also remove the score row so standings stay consistent
+        await supabase
+          .from('scores')
+          .delete()
+          .eq('user_id', userId)
+          .eq('game_id', gameId)
       } else {
         // Upsert the pick
         const { error } = await supabase.from('picks').upsert({
@@ -56,6 +62,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           season,
         })
         if (error) throw error
+
+        // If this game already has a result, update the score row too
+        const { data: game } = await supabase
+          .from('games')
+          .select('winning_team')
+          .eq('id', gameId)
+          .single()
+
+        if (game?.winning_team) {
+          await supabase.from('scores').upsert({
+            user_id: userId,
+            game_id: gameId,
+            is_correct: pickedTeam === game.winning_team,
+            week,
+            season,
+          })
+        }
       }
       return res.status(200).json({ success: true, type: 'pick', userId, gameId, pickedTeam })
     }

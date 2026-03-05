@@ -44,23 +44,44 @@ const centerH: Partial<Alignment> = { horizontal: 'center' }
 const lightBlueFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFB4C6E7' } }
 const yellowFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFF00' } }
 
+const thinBorder: Partial<Borders> = {
+  top: { style: 'thin' as const, color: { argb: 'FF000000' } },
+  bottom: { style: 'thin' as const, color: { argb: 'FF000000' } },
+  left: { style: 'thin' as const, color: { argb: 'FF000000' } },
+  right: { style: 'thin' as const, color: { argb: 'FF000000' } },
+}
+
 // --- Place ranking ---
 function computePlaces(
   userIds: string[],
   totalW: Map<string, number>,
   totalL: Map<string, number>,
+  bestTotalW: Map<string, number>,
+  bestTotalL: Map<string, number>,
 ): Map<string, string> {
   const sorted = [...userIds].sort((a, b) => {
     const wa = totalW.get(a) ?? 0, wb = totalW.get(b) ?? 0
     if (wb !== wa) return wb - wa
-    return (totalL.get(a) ?? 0) - (totalL.get(b) ?? 0)
+    const la = totalL.get(a) ?? 0, lb = totalL.get(b) ?? 0
+    if (la !== lb) return la - lb
+    // Tiebreaker: Best 3 total record (more wins first, then fewer losses)
+    const bwa = bestTotalW.get(a) ?? 0, bwb = bestTotalW.get(b) ?? 0
+    if (bwb !== bwa) return bwb - bwa
+    return (bestTotalL.get(a) ?? 0) - (bestTotalL.get(b) ?? 0)
   })
   const places = new Map<string, string>()
   let i = 0
   while (i < sorted.length) {
     const w = totalW.get(sorted[i]) ?? 0, l = totalL.get(sorted[i]) ?? 0
+    const bw = bestTotalW.get(sorted[i]) ?? 0, bl = bestTotalL.get(sorted[i]) ?? 0
     let j = i
-    while (j < sorted.length && (totalW.get(sorted[j]) ?? 0) === w && (totalL.get(sorted[j]) ?? 0) === l) j++
+    while (
+      j < sorted.length &&
+      (totalW.get(sorted[j]) ?? 0) === w &&
+      (totalL.get(sorted[j]) ?? 0) === l &&
+      (bestTotalW.get(sorted[j]) ?? 0) === bw &&
+      (bestTotalL.get(sorted[j]) ?? 0) === bl
+    ) j++
     const pos = i + 1, count = j - i
     let label: string
     if (count === 1) { label = `${pos}` }
@@ -144,7 +165,7 @@ export async function generateWeeklyPicksSpreadsheet(
     })
   })
 
-  const places = computePlaces(userIds, totalW, totalL)
+  const places = computePlaces(userIds, totalW, totalL, bestTotalW, bestTotalL)
 
   // ---------- Group games by day ----------
   const dayOrder: string[] = []
@@ -188,10 +209,10 @@ export async function generateWeeklyPicksSpreadsheet(
   ws.getCell(row, 1).alignment = centerH
   ws.getCell(row, 1).font = dayLabelFont // base font for the cell
 
-  // Place values: RED text, light blue fill, centered
+  // Place values: RED text, light blue fill, centered (blank for week 1)
   userIds.forEach((uid: string, idx: number) => {
     const cell = ws.getCell(row, playerStartCol + idx)
-    cell.value = places.get(uid) || ''
+    cell.value = week === 1 ? null : (places.get(uid) || '')
     cell.font = { ...baseFont, color: { argb: 'FFFF0000' } }
     cell.fill = lightBlueFill
     cell.alignment = centerH
@@ -260,15 +281,15 @@ export async function generateWeeklyPicksSpreadsheet(
   row++
 
   // --- 3 BEST header row ---
-  // A:B merged (empty), C:lastPlayerCol merged with "3 BEST"
+  // Each player column gets its own "3 BEST" cell (matching original)
   ws.mergeCells(row, 1, row, 2)
-  if (lastPlayerCol > playerStartCol) {
-    ws.mergeCells(row, playerStartCol, row, lastPlayerCol)
-  }
-  ws.getCell(row, playerStartCol).value = '3 BEST'
-  ws.getCell(row, playerStartCol).font = { ...baseFont, bold: true, size: 14 }
-  ws.getCell(row, playerStartCol).fill = lightBlueFill
-  ws.getCell(row, playerStartCol).alignment = centerH
+  userIds.forEach((_uid: string, idx: number) => {
+    const cell = ws.getCell(row, playerStartCol + idx)
+    cell.value = '3 BEST'
+    cell.font = { ...baseFont, bold: true, size: 14 }
+    cell.fill = lightBlueFill
+    cell.alignment = centerH
+  })
   row++
 
   // Player names row for 3 BEST
@@ -305,6 +326,14 @@ export async function generateWeeklyPicksSpreadsheet(
   userIds.forEach((_: string, idx: number) => {
     ws.getColumn(playerStartCol + idx).width = 7.5
   })
+
+  // --- Apply thin borders to all player column cells (row 2 through last used row) ---
+  const lastRow = row - 1
+  for (let r = 2; r <= lastRow; r++) {
+    for (let c = playerStartCol; c <= lastPlayerCol; c++) {
+      ws.getCell(r, c).border = thinBorder
+    }
+  }
 
   return workbook
 }

@@ -5,6 +5,7 @@ interface User {
   id: string
   email: string
   name: string
+  is_manager?: boolean
 }
 
 interface AuthContextType {

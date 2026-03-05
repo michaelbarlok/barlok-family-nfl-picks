@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
 
-const tabs = [
+const baseTabs = [
   { label: 'My Picks', icon: '🏈', href: '/picks' },
   { label: 'Standings', icon: '🏆', href: '/standings' },
   { label: 'Sheets', icon: '📊', href: '/spreadsheets' },
@@ -12,6 +12,12 @@ const tabs = [
 export default function Nav() {
   const router = useRouter()
   const { user, signOut } = useAuth()
+
+  const isAdmin = user?.email === ADMIN_EMAIL
+  const isManager = user?.is_manager === true
+  const tabs = isAdmin || isManager
+    ? [...baseTabs, { label: 'Admin', icon: '🔧', href: '/admin' }]
+    : baseTabs
 
   const handleSignOut = async () => {
     await signOut()

@@ -95,7 +95,7 @@ export default function SpreadsheetsPage() {
   if (!user) return null
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-surface pb-20">
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">

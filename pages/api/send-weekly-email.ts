@@ -88,9 +88,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to fetch users or no users found' })
     }
 
-    const recipients = users
-      .map((u: { email: string | null }) => u.email)
-      .filter((e: string | null): e is string => !!e)
+    // For now, only send to Michael
+    const recipients = ['barlokmichael@gmail.com']
 
     if (recipients.length === 0) {
       return res.status(400).json({ error: 'No users with email addresses found' })

@@ -20,19 +20,26 @@ const TEAM_NAMES: Record<string, string> = {
 }
 function teamName(abbr: string): string { return TEAM_NAMES[abbr] || abbr }
 
-// --- Day label from kickoff time ---
+// --- Parse Supabase timestamps as UTC ---
+function parseUTC(iso: string): Date {
+  const normalized = iso.replace(' ', 'T')
+  const timepart = normalized.split('T')[1] || ''
+  const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
+  return new Date(hasOffset ? normalized : normalized + 'Z')
+}
+
+// --- Day label + date from kickoff time (e.g. "Thurs 9/4") ---
 function getDayLabel(kickoffTime: string): string {
-  const d = new Date(kickoffTime)
-  const et = new Date(d.getTime() - 5 * 60 * 60 * 1000)
-  const day = et.getDay()
-  switch (day) {
-    case 4: return 'Thurs'
-    case 5: return 'Friday'
-    case 6: return 'Saturday'
-    case 0: return 'Sunday'
-    case 1: return 'Monday'
-    default: return ['Sun', 'Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat'][day]
-  }
+  const d = parseUTC(kickoffTime)
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat']
+  // Format in Eastern time
+  const etDay = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(d)
+  const etMonth = new Intl.DateTimeFormat('en-US', { month: 'numeric', timeZone: 'America/New_York' }).format(d)
+  const etDate = new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: 'America/New_York' }).format(d)
+  // Map short weekday to our preferred abbreviations
+  const dayMap: Record<string, string> = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thurs', Fri: 'Friday', Sat: 'Saturday' }
+  const dayLabel = dayMap[etDay] || etDay
+  return `${dayLabel} ${etMonth}/${etDate}`
 }
 
 // --- Shared font definitions (Calibri, matching the original) ---

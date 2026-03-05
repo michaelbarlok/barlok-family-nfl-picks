@@ -49,6 +49,7 @@ const dayLabelFont = { ...baseFont, bold: true, italic: true, size: 9 }
 const centerH: Partial<Alignment> = { horizontal: 'center' }
 
 const lightBlueFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFB4C6E7' } }
+const blackFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF000000' } }
 const yellowFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFF00' } }
 
 const thinBorder: Partial<Borders> = {
@@ -234,9 +235,9 @@ export async function generateWeeklyPicksSpreadsheet(
       ws.getCell(row, 1).value = day
       ws.getCell(row, 1).font = dayLabelFont
       ws.getCell(row, 1).alignment = { horizontal: 'left' }
-      // Light blue fill across user columns on date rows
+      // Black fill across user columns on date rows
       for (let c = playerStartCol; c <= lastPlayerCol; c++) {
-        ws.getCell(row, c).fill = lightBlueFill
+        ws.getCell(row, c).fill = blackFill
       }
       row++
     }
@@ -266,9 +267,9 @@ export async function generateWeeklyPicksSpreadsheet(
     })
   }
 
-  // --- Blank row (light blue fill) ---
+  // --- Blank row (black fill) ---
   for (let c = playerStartCol; c <= lastPlayerCol; c++) {
-    ws.getCell(row, c).fill = lightBlueFill
+    ws.getCell(row, c).fill = blackFill
   }
   row++
 
@@ -321,9 +322,9 @@ export async function generateWeeklyPicksSpreadsheet(
     row++
   }
 
-  // --- Blank row (light blue fill) ---
+  // --- Blank row (black fill) ---
   for (let c = playerStartCol; c <= lastPlayerCol; c++) {
-    ws.getCell(row, c).fill = lightBlueFill
+    ws.getCell(row, c).fill = blackFill
   }
   row++
 
@@ -340,13 +341,10 @@ export async function generateWeeklyPicksSpreadsheet(
   })
 
   // --- Page setup: landscape, fit to one page ---
-  ws.pageSetup = {
-    orientation: 'landscape',
-    fitToPage: true,
-    fitToWidth: 1,
-    fitToHeight: 1,
-    paperSize: undefined,
-  }
+  ws.pageSetup.orientation = 'landscape'
+  ws.pageSetup.fitToPage = true
+  ws.pageSetup.fitToWidth = 1
+  ws.pageSetup.fitToHeight = 1
 
   // --- Apply thin borders to all player column cells (row 2 through last used row) ---
   const lastRow = row - 1

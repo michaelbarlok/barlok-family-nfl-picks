@@ -1,11 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
-
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 function getAdminClient() {
   return createClient(
@@ -100,18 +98,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Generate spreadsheet
     const workbook = await generateWeeklyPicksSpreadsheet(week, season, LEAGUE_NAME)
-    const buffer = await workbook.xlsx.writeBuffer()
-    const base64 = Buffer.from(buffer).toString('base64')
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer())
 
-    // Send as a single group email so everyone is on the same thread
-    // and can reply-all. First recipient in "to", rest in "cc".
-    const [primaryRecipient, ...ccRecipients] = recipients
+    // Send via Gmail SMTP as a single group email.
+    // All recipients in "to" so everyone sees each other and can reply-all.
+    const gmailAddress = process.env.GMAIL_ADDRESS
+    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD
 
-    const { data: emailData, error: emailError } = await resend.emails.send({
-      from: 'Barlok Family NFL Picks <picks@barlokfamily.com>',
-      to: [primaryRecipient],
-      ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
-      replyTo: primaryRecipient,
+    if (!gmailAddress || !gmailAppPassword) {
+      return res.status(500).json({ error: 'Gmail credentials not configured (GMAIL_ADDRESS, GMAIL_APP_PASSWORD)' })
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: gmailAddress,
+        pass: gmailAppPassword,
+      },
+    })
+
+    const info = await transporter.sendMail({
+      from: `Barlok Family NFL Picks <${gmailAddress}>`,
+      to: recipients.join(', '),
       subject: `${LEAGUE_NAME} — Week ${week} Picks`,
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -130,19 +138,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       attachments: [
         {
           filename: `Week_${week}_Picks_${season}.xlsx`,
-          content: base64,
+          content: buffer,
         },
       ],
     })
-
-    if (emailError) throw new Error(emailError.message)
 
     return res.status(200).json({
       success: true,
       week,
       season,
       recipients: recipients.length,
-      messageId: emailData?.id,
+      messageId: info.messageId,
       message: `Week ${week} spreadsheet emailed to ${recipients.length} participants.`,
     })
   } catch (err) {

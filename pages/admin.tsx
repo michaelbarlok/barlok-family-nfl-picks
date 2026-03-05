@@ -44,8 +44,15 @@ function getTeam(abbr: string) {
   return NFL_TEAMS[abbr] ?? { city: abbr, name: '', logo: '' }
 }
 
+function parseUTC(iso: string): Date {
+  if (!iso.endsWith('Z') && !iso.includes('+') && !/\d{2}:\d{2}$/.test(iso.slice(-6))) {
+    return new Date(iso + 'Z')
+  }
+  return new Date(iso)
+}
+
 function formatKickoff(iso: string) {
-  const d = new Date(iso)
+  const d = parseUTC(iso)
   return d.toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -635,7 +642,7 @@ export default function AdminPage() {
                   const home = getTeam(game.home_team)
                   const winner = game.winning_team
                   const isSettingThis = settingResult === game.id
-                  const kickedOff = new Date(game.kickoff_time) < new Date()
+                  const kickedOff = parseUTC(game.kickoff_time) < new Date()
 
                   return (
                     <div key={game.id} className="glass-card rounded-xl overflow-hidden">

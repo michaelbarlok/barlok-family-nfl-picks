@@ -62,8 +62,16 @@ function getTeam(abbr: string) {
   return NFL_TEAMS[abbr] ?? { city: abbr, name: '', logo: '' }
 }
 
+function parseUTC(iso: string): Date {
+  // Supabase may return timestamps without Z/offset — ensure UTC parsing
+  if (!iso.endsWith('Z') && !iso.includes('+') && !/\d{2}:\d{2}$/.test(iso.slice(-6))) {
+    return new Date(iso + 'Z')
+  }
+  return new Date(iso)
+}
+
 function formatKickoff(iso: string) {
-  const d = new Date(iso)
+  const d = parseUTC(iso)
   return d.toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -75,7 +83,7 @@ function formatKickoff(iso: string) {
 // We find the Thursday on or before the first game, then set 8:15 PM ET.
 function computeLockTime(games: Game[]): Date | null {
   if (games.length === 0) return null
-  const kickoffs = games.map(g => new Date(g.kickoff_time))
+  const kickoffs = games.map(g => parseUTC(g.kickoff_time))
   const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
 
   // Walk back to Thursday (day 4)

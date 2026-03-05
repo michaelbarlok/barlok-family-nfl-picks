@@ -54,9 +54,16 @@ interface AllPicksData {
   threeBests: { user_id: string; pick_1: string; pick_2: string; pick_3: string }[]
 }
 
+function parseUTC(iso: string): Date {
+  if (!iso.endsWith('Z') && !iso.includes('+') && !/\d{2}:\d{2}$/.test(iso.slice(-6))) {
+    return new Date(iso + 'Z')
+  }
+  return new Date(iso)
+}
+
 function computeLockTime(games: Game[]): Date | null {
   if (games.length === 0) return null
-  const kickoffs = games.map(g => new Date(g.kickoff_time))
+  const kickoffs = games.map(g => parseUTC(g.kickoff_time))
   const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
   const thursday = new Date(earliest)
   const dow = thursday.getUTCDay()

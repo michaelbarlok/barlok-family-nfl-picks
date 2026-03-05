@@ -345,7 +345,7 @@ export async function generateWeeklyPicksSpreadsheet(
     fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 1,
-    paperSize: 1, // Letter
+    paperSize: undefined,
   }
 
   // --- Apply thin borders to all player column cells (row 2 through last used row) ---

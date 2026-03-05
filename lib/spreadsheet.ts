@@ -129,9 +129,11 @@ export async function generateWeeklyPicksSpreadsheet(
   const picksMap = new Map(picks?.map(p => [`${p.user_id}-${p.game_id}`, p]) || [])
   const threeBestMap = new Map(threeBest?.map(tb => [tb.user_id, tb]) || [])
 
-  // ---------- Compute W-L records ----------
+  // ---------- Compute W-L-T records ----------
   const init = () => new Map<string, number>(userIds.map(id => [id, 0]))
-  const totalW = init(), totalL = init(), weekW = init(), weekL = init(), prevW = init(), prevL = init()
+  const totalW = init(), totalL = init(), totalT = init()
+  const weekW = init(), weekL = init(), weekT = init()
+  const prevW = init(), prevL = init(), prevT = init()
 
   allScores?.forEach(s => {
     if (s.is_correct === true) {
@@ -142,14 +144,18 @@ export async function generateWeeklyPicksSpreadsheet(
       totalL.set(s.user_id, (totalL.get(s.user_id) ?? 0) + 1)
       if (s.week === week) weekL.set(s.user_id, (weekL.get(s.user_id) ?? 0) + 1)
       if (s.week === week - 1) prevL.set(s.user_id, (prevL.get(s.user_id) ?? 0) + 1)
+    } else {
+      totalT.set(s.user_id, (totalT.get(s.user_id) ?? 0) + 1)
+      if (s.week === week) weekT.set(s.user_id, (weekT.get(s.user_id) ?? 0) + 1)
+      if (s.week === week - 1) prevT.set(s.user_id, (prevT.get(s.user_id) ?? 0) + 1)
     }
   })
 
   // ---------- Compute 3 BEST W-L ----------
   const allScoresMap = new Map((allScores ?? []).map(s => [`${s.user_id}-${s.game_id}`, s]))
-  const bestTotalW = init(), bestTotalL = init()
-  const bestWeekW = init(), bestWeekL = init()
-  const bestPrevW = init(), bestPrevL = init()
+  const bestTotalW = init(), bestTotalL = init(), bestTotalT = init()
+  const bestWeekW = init(), bestWeekL = init(), bestWeekT = init()
+  const bestPrevW = init(), bestPrevL = init(), bestPrevT = init()
 
   allThreeBest?.forEach(tb => {
     [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean).forEach(team => {
@@ -165,6 +171,10 @@ export async function generateWeeklyPicksSpreadsheet(
         bestTotalL.set(tb.user_id, (bestTotalL.get(tb.user_id) ?? 0) + 1)
         if (tb.week === week) bestWeekL.set(tb.user_id, (bestWeekL.get(tb.user_id) ?? 0) + 1)
         if (tb.week === week - 1) bestPrevL.set(tb.user_id, (bestPrevL.get(tb.user_id) ?? 0) + 1)
+      } else {
+        bestTotalT.set(tb.user_id, (bestTotalT.get(tb.user_id) ?? 0) + 1)
+        if (tb.week === week) bestWeekT.set(tb.user_id, (bestWeekT.get(tb.user_id) ?? 0) + 1)
+        if (tb.week === week - 1) bestPrevT.set(tb.user_id, (bestPrevT.get(tb.user_id) ?? 0) + 1)
       }
     })
   })
@@ -273,22 +283,22 @@ export async function generateWeeklyPicksSpreadsheet(
   }
   row++
 
-  // --- W-L Records: Last Week / This Week / Total ---
-  const writeWL = (label: string, wins: Map<string, number>, losses: Map<string, number>) => {
+  // --- W-L-T Records: Last Week / This Week / Total ---
+  const writeWLT = (label: string, wins: Map<string, number>, losses: Map<string, number>, ties: Map<string, number>) => {
     ws.getCell(row, 2).value = label
     ws.getCell(row, 2).font = baseFont
     userIds.forEach((uid: string, idx: number) => {
-      const w = wins.get(uid) ?? 0, l = losses.get(uid) ?? 0
-      ws.getCell(row, playerStartCol + idx).value = `${w}-${l}`
+      const w = wins.get(uid) ?? 0, l = losses.get(uid) ?? 0, t = ties.get(uid) ?? 0
+      ws.getCell(row, playerStartCol + idx).value = t > 0 ? `${w}-${l}-${t}` : `${w}-${l}`
       ws.getCell(row, playerStartCol + idx).font = baseFont
       ws.getCell(row, playerStartCol + idx).alignment = centerH
     })
     row++
   }
 
-  writeWL('Last Week', prevW, prevL)
-  writeWL('This Week', weekW, weekL)
-  writeWL('Total', totalW, totalL)
+  writeWLT('Last Week', prevW, prevL, prevT)
+  writeWLT('This Week', weekW, weekL, weekT)
+  writeWLT('Total', totalW, totalL, totalT)
 
   // --- Blank row before 3 BEST ---
   row++
@@ -328,10 +338,10 @@ export async function generateWeeklyPicksSpreadsheet(
   }
   row++
 
-  // --- 3 BEST W-L Records ---
-  writeWL('Last Week', bestPrevW, bestPrevL)
-  writeWL('This Week', bestWeekW, bestWeekL)
-  writeWL('Total', bestTotalW, bestTotalL)
+  // --- 3 BEST W-L-T Records ---
+  writeWLT('Last Week', bestPrevW, bestPrevL, bestPrevT)
+  writeWLT('This Week', bestWeekW, bestWeekL, bestWeekT)
+  writeWLT('Total', bestTotalW, bestTotalL, bestTotalT)
 
   // --- Column widths (matching original) ---
   ws.getColumn(1).width = 14

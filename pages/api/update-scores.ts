@@ -123,12 +123,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const competitors: { homeAway: string; team: { abbreviation: string }; winner: boolean; score: string }[] =
         competition.competitors ?? []
 
-      const winnerComp = competitors.find((c) => c.winner === true)
-      if (!winnerComp) continue
-
-      const espnWinner = winnerComp.team.abbreviation
-      const ourWinner = normalizeTeam(espnWinner)
-
       const awayComp = competitors.find((c: { homeAway: string }) => c.homeAway === 'away')
       const homeComp = competitors.find((c: { homeAway: string }) => c.homeAway === 'home')
       if (!awayComp || !homeComp) continue
@@ -137,6 +131,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const espnHome = normalizeTeam(homeComp.team.abbreviation)
       const awayScore = parseInt(awayComp.score) || 0
       const homeScore = parseInt(homeComp.score) || 0
+
+      // Detect tie: completed game where no competitor has winner === true
+      const winnerComp = competitors.find((c) => c.winner === true)
+      const isTie = !winnerComp
+      const ourWinner = isTie ? 'TIE' : normalizeTeam(winnerComp.team.abbreviation)
 
       // Find matching game in our DB
       const ourGame = ourGames.find(
@@ -160,7 +159,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await supabase.from('scores').upsert({
           user_id: pick.user_id,
           game_id: ourGame.id,
-          is_correct: pick.picked_team === ourWinner,
+          is_correct: isTie ? null : pick.picked_team === ourWinner,
           week,
           season,
         })

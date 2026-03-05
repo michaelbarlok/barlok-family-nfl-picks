@@ -216,7 +216,7 @@ export default function AllPicksPage() {
 
   // Compute records per user
   const computeRecords = (userId: string) => {
-    if (!seasonData || !selectedWeek) return { priorW: 0, priorL: 0, weekW: 0, weekL: 0, totalW: 0, totalL: 0, priorB3W: 0, priorB3L: 0, weekB3W: 0, weekB3L: 0, totalB3W: 0, totalB3L: 0 }
+    if (!seasonData || !selectedWeek) return { priorW: 0, priorL: 0, priorT: 0, weekW: 0, weekL: 0, weekT: 0, totalW: 0, totalL: 0, totalT: 0, priorB3W: 0, priorB3L: 0, priorB3T: 0, weekB3W: 0, weekB3L: 0, weekB3T: 0, totalB3W: 0, totalB3L: 0, totalB3T: 0 }
 
     const gameMap = new Map(seasonData.games.map(g => [g.id, g]))
     const userPicks = seasonData.picks.filter(p => p.user_id === userId)
@@ -225,31 +225,34 @@ export default function AllPicksPage() {
       userThreeBests.set(tb.week, new Set([tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)))
     })
 
-    let priorW = 0, priorL = 0, weekW = 0, weekL = 0
-    let priorB3W = 0, priorB3L = 0, weekB3W = 0, weekB3L = 0
+    let priorW = 0, priorL = 0, priorT = 0, weekW = 0, weekL = 0, weekT = 0
+    let priorB3W = 0, priorB3L = 0, priorB3T = 0, weekB3W = 0, weekB3L = 0, weekB3T = 0
 
     for (const pick of userPicks) {
       const game = gameMap.get(pick.game_id)
       if (!game || !game.winning_team) continue
 
-      const won = pick.picked_team === game.winning_team
+      const isTie = game.winning_team === 'TIE'
+      const won = !isTie && pick.picked_team === game.winning_team
       const tbSet = userThreeBests.get(pick.week)
       const isBest3 = tbSet?.has(pick.picked_team) ?? false
 
       if (game.week < selectedWeek) {
-        if (won) { priorW++; if (isBest3) priorB3W++ }
+        if (isTie) { priorT++; if (isBest3) priorB3T++ }
+        else if (won) { priorW++; if (isBest3) priorB3W++ }
         else { priorL++; if (isBest3) priorB3L++ }
       } else if (game.week === selectedWeek) {
-        if (won) { weekW++; if (isBest3) weekB3W++ }
+        if (isTie) { weekT++; if (isBest3) weekB3T++ }
+        else if (won) { weekW++; if (isBest3) weekB3W++ }
         else { weekL++; if (isBest3) weekB3L++ }
       }
     }
 
     return {
-      priorW, priorL, weekW, weekL,
-      totalW: priorW + weekW, totalL: priorL + weekL,
-      priorB3W, priorB3L, weekB3W, weekB3L,
-      totalB3W: priorB3W + weekB3W, totalB3L: priorB3L + weekB3L,
+      priorW, priorL, priorT, weekW, weekL, weekT,
+      totalW: priorW + weekW, totalL: priorL + weekL, totalT: priorT + weekT,
+      priorB3W, priorB3L, priorB3T, weekB3W, weekB3L, weekB3T,
+      totalB3W: priorB3W + weekB3W, totalB3L: priorB3L + weekB3L, totalB3T: priorB3T + weekB3T,
     }
   }
 
@@ -348,10 +351,11 @@ export default function AllPicksPage() {
                             {away && <img src={away.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                             <span className="text-slate-300 text-xs font-medium">
                               {game.away_team}
-                              {game.away_score != null && <span className={`ml-1 ${game.winning_team === game.away_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
+                              {game.away_score != null && <span className={`ml-1 ${game.winning_team === 'TIE' ? 'text-slate-400' : game.winning_team === game.away_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
                               {' @ '}
                               {game.home_team}
-                              {game.home_score != null && <span className={`ml-1 ${game.winning_team === game.home_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
+                              {game.home_score != null && <span className={`ml-1 ${game.winning_team === 'TIE' ? 'text-slate-400' : game.winning_team === game.home_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
+                              {game.winning_team === 'TIE' && <span className="ml-1.5 text-slate-500 text-[10px]">TIE</span>}
                             </span>
                             {home && <img src={home.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                           </div>
@@ -361,13 +365,15 @@ export default function AllPicksPage() {
                           const bestSet = threeBestLookup.get(u.id)
                           const isBest = picked && bestSet?.has(picked)
                           const winner = gameResultLookup.get(game.id)
-                          const isWin = picked && winner && picked === winner
-                          const isLoss = picked && winner && picked !== winner
+                          const isTie = winner === 'TIE'
+                          const isWin = picked && winner && !isTie && picked === winner
+                          const isLoss = picked && winner && !isTie && picked !== winner
                           return (
                             <td key={u.id} className="px-2 py-2.5 text-center">
                               {picked ? (
                                 <span className={`text-xs font-medium ${
-                                  isWin ? (isBest ? 'text-emerald-300' : 'text-emerald-400')
+                                  isTie ? (isBest ? 'text-slate-300' : 'text-slate-400')
+                                  : isWin ? (isBest ? 'text-emerald-300' : 'text-emerald-400')
                                   : isLoss ? (isBest ? 'text-red-300' : 'text-red-400')
                                   : (isBest ? 'text-amber-400' : 'text-slate-300')
                                 }`}>
@@ -410,10 +416,11 @@ export default function AllPicksPage() {
                             {userRecords.map((rec, i) => {
                               const w = r.key === 'prior' ? rec.priorW : r.key === 'week' ? rec.weekW : rec.totalW
                               const l = r.key === 'prior' ? rec.priorL : r.key === 'week' ? rec.weekL : rec.totalL
+                              const t = r.key === 'prior' ? rec.priorT : r.key === 'week' ? rec.weekT : rec.totalT
                               return (
                                 <td key={allPicksData!.users[i].id} className="px-2 py-2 text-center">
                                   <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-white' : 'text-slate-300'}`}>
-                                    {w}-{l}
+                                    {w}-{l}{t > 0 ? `-${t}` : ''}
                                   </span>
                                 </td>
                               )
@@ -433,10 +440,11 @@ export default function AllPicksPage() {
                             {userRecords.map((rec, i) => {
                               const w = r.key === 'prior' ? rec.priorB3W : r.key === 'week' ? rec.weekB3W : rec.totalB3W
                               const l = r.key === 'prior' ? rec.priorB3L : r.key === 'week' ? rec.weekB3L : rec.totalB3L
+                              const t = r.key === 'prior' ? rec.priorB3T : r.key === 'week' ? rec.weekB3T : rec.totalB3T
                               return (
                                 <td key={allPicksData!.users[i].id} className="px-2 py-2 text-center">
                                   <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-amber-400' : 'text-slate-300'}`}>
-                                    {w}-{l}
+                                    {w}-{l}{t > 0 ? `-${t}` : ''}
                                   </span>
                                 </td>
                               )

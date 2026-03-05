@@ -448,7 +448,7 @@ export default function AdminPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to set result')
-      setMessage({ type: 'success', text: `Set ${winningTeam} as winner — ${json.updated} scores updated.` })
+      setMessage({ type: 'success', text: winningTeam === 'TIE' ? `Set as tie — ${json.updated} scores updated.` : `Set ${winningTeam} as winner — ${json.updated} scores updated.` })
       await loadGames()
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
@@ -672,7 +672,11 @@ export default function AdminPage() {
                       <div className="flex items-center justify-between px-4 pt-3 pb-2">
                         <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
                         <div className="flex items-center gap-2">
-                          {winner ? (
+                          {winner === 'TIE' ? (
+                            <span className="text-xs font-semibold text-slate-300 bg-slate-500/10 border border-slate-500/20 px-2 py-0.5 rounded-full">
+                              Tie
+                            </span>
+                          ) : winner ? (
                             <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                               ✓ {winner} won
                             </span>
@@ -688,12 +692,13 @@ export default function AdminPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 px-3 pb-3">
+                      <div className="grid grid-cols-2 gap-2 px-3 pb-1">
                         {[
                           { abbr: game.away_team, info: away, label: 'Away' },
                           { abbr: game.home_team, info: home, label: 'Home' },
                         ].map(({ abbr, info, label }) => {
                           const isWinner = winner === abbr
+                          const isTie = winner === 'TIE'
                           return (
                             <button
                               key={abbr}
@@ -703,6 +708,8 @@ export default function AdminPage() {
                               className={`flex items-center gap-3 py-3 px-4 rounded-lg border-2 transition text-left ${
                                 isWinner
                                   ? 'border-emerald-500/60 bg-emerald-500/15 text-white glow-green'
+                                  : isTie
+                                  ? 'border-slate-500/30 bg-slate-500/10 text-slate-400'
                                   : winner && !isWinner
                                   ? 'border-white/[0.03] bg-white/[0.02] text-slate-600'
                                   : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'
@@ -710,7 +717,7 @@ export default function AdminPage() {
                             >
                               <img
                                 src={info.logo} alt={abbr}
-                                className={`w-8 h-8 object-contain flex-shrink-0 ${winner && !isWinner ? 'opacity-30' : ''}`}
+                                className={`w-8 h-8 object-contain flex-shrink-0 ${winner && !isWinner && !isTie ? 'opacity-30' : ''}`}
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                               />
                               <div className="min-w-0">
@@ -722,6 +729,20 @@ export default function AdminPage() {
                             </button>
                           )
                         })}
+                      </div>
+                      <div className="px-3 pb-3">
+                        <button
+                          type="button"
+                          onClick={() => handleSetResult(game, 'TIE')}
+                          disabled={isSettingThis}
+                          className={`w-full py-2 rounded-lg border-2 text-xs font-semibold transition ${
+                            winner === 'TIE'
+                              ? 'border-slate-400/60 bg-slate-500/15 text-white'
+                              : 'border-white/[0.06] bg-white/[0.02] text-slate-500 hover:border-slate-400/30 hover:bg-slate-500/5'
+                          } disabled:cursor-wait`}
+                        >
+                          {winner === 'TIE' ? '✓ Tie' : 'Set as Tie'}
+                        </button>
                       </div>
 
                       {isSettingThis && (

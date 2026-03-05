@@ -15,16 +15,20 @@ interface WeekRecord {
   week: number
   wins: number
   losses: number
+  ties: number
   bestWins: number
   bestLosses: number
+  bestTies: number
 }
 
 interface UserStanding {
   user: User
   wins: number
   losses: number
+  ties: number
   bestWins: number
   bestLosses: number
+  bestTies: number
   totalPicks: number
   weekRecords: WeekRecord[]
 }
@@ -82,12 +86,13 @@ export default function StandingsPage() {
         if (!users) return
 
         const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p.picked_team]))
-        const scoresMap = new Map((scores || []).map(s => [`${s.user_id}-${s.game_id}`, s.is_correct]))
+        // Store the full score object so we can distinguish "tie" (row exists, is_correct=null) from "no score"
+        const scoresMap = new Map((scores || []).map(s => [`${s.user_id}-${s.game_id}`, s]))
 
-        // Get all weeks that have scores
-        const scoredWeeks = [...new Set((scores || []).filter(s => s.is_correct !== null).map(s => s.week))].sort((a, b) => a - b)
+        // Get all weeks that have scores (any row in scores table = game has been decided)
+        const scoredWeeks = [...new Set((scores || []).map(s => s.week))].sort((a, b) => a - b)
 
-        const scored = (scores || []).filter(s => s.is_correct !== null)
+        const scored = (scores || [])
         if (scored.length > 0) {
           setLastUpdated(new Date(Math.max(...scored.map((s: { created_at: string }) => new Date(s.created_at).getTime()))).toLocaleString('en-US', {
             month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -96,12 +101,13 @@ export default function StandingsPage() {
         }
 
         const result: UserStanding[] = users.map(u => {
-          let wins = 0, losses = 0, bestWins = 0, bestLosses = 0
+          let wins = 0, losses = 0, ties = 0, bestWins = 0, bestLosses = 0, bestTies = 0
 
           ;(scores || []).forEach(s => {
             if (s.user_id !== u.id) return
             if (s.is_correct === true) wins++
             else if (s.is_correct === false) losses++
+            else ties++
           })
 
           ;(threeBests || []).filter(tb => tb.user_id === u.id).forEach(tb => {
@@ -113,19 +119,22 @@ export default function StandingsPage() {
                 picksMap.get(`${u.id}-${g.id}`) === team
               )
               if (!game) return
-              const isCorrect = scoresMap.get(`${u.id}-${game.id}`)
-              if (isCorrect === true) bestWins++
-              else if (isCorrect === false) bestLosses++
+              const score = scoresMap.get(`${u.id}-${game.id}`)
+              if (!score) return
+              if (score.is_correct === true) bestWins++
+              else if (score.is_correct === false) bestLosses++
+              else bestTies++
             })
           })
 
           // Build per-week records
           const weekRecords: WeekRecord[] = scoredWeeks.map(week => {
-            let ww = 0, wl = 0, bw = 0, bl = 0
+            let ww = 0, wl = 0, wt = 0, bw = 0, bl = 0, bt = 0
             ;(scores || []).forEach(s => {
               if (s.user_id !== u.id || s.week !== week) return
               if (s.is_correct === true) ww++
               else if (s.is_correct === false) wl++
+              else wt++
             })
             const tb = (threeBests || []).find(t => t.user_id === u.id && t.week === week)
             if (tb) {
@@ -137,16 +146,18 @@ export default function StandingsPage() {
                   picksMap.get(`${u.id}-${g.id}`) === team
                 )
                 if (!game) return
-                const isCorrect = scoresMap.get(`${u.id}-${game.id}`)
-                if (isCorrect === true) bw++
-                else if (isCorrect === false) bl++
+                const score = scoresMap.get(`${u.id}-${game.id}`)
+                if (!score) return
+                if (score.is_correct === true) bw++
+                else if (score.is_correct === false) bl++
+                else bt++
               })
             }
-            return { week, wins: ww, losses: wl, bestWins: bw, bestLosses: bl }
+            return { week, wins: ww, losses: wl, ties: wt, bestWins: bw, bestLosses: bl, bestTies: bt }
           })
 
-          const totalPicks = wins + losses
-          return { user: u, wins, losses, bestWins, bestLosses, totalPicks, weekRecords }
+          const totalPicks = wins + losses + ties
+          return { user: u, wins, losses, ties, bestWins, bestLosses, bestTies, totalPicks, weekRecords }
         })
 
         result.sort((a, b) => {
@@ -277,26 +288,28 @@ export default function StandingsPage() {
                       )}
                     </div>
 
-                    {/* Overall W-L */}
+                    {/* Overall W-L-T */}
                     <div className="col-span-3 text-center">
                       {s.totalPicks > 0 ? (
                         <p className="text-sm font-bold text-white">
                           <span className="text-emerald-400">{s.wins}</span>
                           <span className="text-slate-500 mx-0.5">&ndash;</span>
                           <span className="text-red-400">{s.losses}</span>
+                          {s.ties > 0 && <><span className="text-slate-500 mx-0.5">&ndash;</span><span className="text-slate-400">{s.ties}</span></>}
                         </p>
                       ) : (
                         <p className="text-sm text-slate-600">&mdash;</p>
                       )}
                     </div>
 
-                    {/* Best 3 W-L */}
+                    {/* Best 3 W-L-T */}
                     <div className="col-span-3 text-center">
-                      {s.bestWins + s.bestLosses > 0 ? (
+                      {s.bestWins + s.bestLosses + s.bestTies > 0 ? (
                         <p className="text-sm font-bold">
                           <span className="text-amber-400">{s.bestWins}</span>
                           <span className="text-slate-500 mx-0.5">&ndash;</span>
                           <span className="text-amber-600">{s.bestLosses}</span>
+                          {s.bestTies > 0 && <><span className="text-slate-500 mx-0.5">&ndash;</span><span className="text-slate-400">{s.bestTies}</span></>}
                         </p>
                       ) : (
                         <p className="text-sm text-slate-600">&mdash;</p>
@@ -321,13 +334,15 @@ export default function StandingsPage() {
                             <span className="text-emerald-400">{wr.wins}</span>
                             <span className="text-slate-600 mx-0.5">-</span>
                             <span className="text-red-400">{wr.losses}</span>
+                            {wr.ties > 0 && <><span className="text-slate-600 mx-0.5">-</span><span className="text-slate-400">{wr.ties}</span></>}
                           </div>
                           <div className="col-span-3 text-center">
-                            {wr.bestWins + wr.bestLosses > 0 ? (
+                            {wr.bestWins + wr.bestLosses + wr.bestTies > 0 ? (
                               <>
                                 <span className="text-amber-400">{wr.bestWins}</span>
                                 <span className="text-slate-600 mx-0.5">-</span>
                                 <span className="text-amber-600">{wr.bestLosses}</span>
+                                {wr.bestTies > 0 && <><span className="text-slate-600 mx-0.5">-</span><span className="text-slate-400">{wr.bestTies}</span></>}
                               </>
                             ) : (
                               <span className="text-slate-600">&mdash;</span>

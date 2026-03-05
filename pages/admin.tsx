@@ -112,7 +112,7 @@ export default function AdminPage() {
   const [managerLinks, setManagerLinks] = useState<ManagerLink[]>([])
   const [allUsers, setAllUsers] = useState<FullUser[]>([])
   const [newPlayerName, setNewPlayerName] = useState('')
-  const [newPlayerManager, setNewPlayerManager] = useState('')
+  const [newPlayerManagers, setNewPlayerManagers] = useState<Set<string>>(new Set())
   const [creatingPlayer, setCreatingPlayer] = useState(false)
   const [playersLoading, setPlayersLoading] = useState(false)
 
@@ -229,16 +229,17 @@ export default function AdminPage() {
     setMessage(null)
     try {
       const token = await getToken()
+      const managerIds = Array.from(newPlayerManagers)
       const res = await fetch('/api/managed-players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: newPlayerName.trim(), managerId: newPlayerManager || undefined }),
+        body: JSON.stringify({ name: newPlayerName.trim(), managerIds }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to create player')
       setMessage({ type: 'success', text: `Created "${newPlayerName.trim()}" as a managed player.` })
       setNewPlayerName('')
-      setNewPlayerManager('')
+      setNewPlayerManagers(new Set())
       await loadManagedPlayersData()
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
@@ -284,19 +285,38 @@ export default function AdminPage() {
     }
   }
 
-  // Reassign managed player to a different manager
-  const handleReassign = async (playerId: string, newManagerId: string) => {
+  // Add a manager to a managed player
+  const handleAddManager = async (playerId: string, managerId: string) => {
     setMessage(null)
     try {
       const token = await getToken()
       const res = await fetch('/api/managed-players', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'reassign', playerId, newManagerId }),
+        body: JSON.stringify({ action: 'add_manager', playerId, managerId }),
       })
-      if (!res.ok) throw new Error('Failed to reassign')
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to add manager')
       await loadManagedPlayersData()
-      setMessage({ type: 'success', text: 'Manager reassigned.' })
+      setMessage({ type: 'success', text: 'Manager added.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Remove a manager from a managed player
+  const handleRemoveManager = async (playerId: string, managerId: string) => {
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'remove_manager', playerId, managerId }),
+      })
+      if (!res.ok) throw new Error('Failed to remove manager')
+      await loadManagedPlayersData()
+      setMessage({ type: 'success', text: 'Manager removed.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
     }
@@ -790,28 +810,45 @@ export default function AdminPage() {
                   <p className="text-xs text-slate-500 mb-3">
                     Add a player who doesn&apos;t need their own account. Someone else will pick for them.
                   </p>
-                  <div className="flex gap-3 mb-3">
+                  <div className="mb-3">
                     <input
                       type="text"
                       value={newPlayerName}
                       onChange={e => setNewPlayerName(e.target.value)}
                       placeholder="Player name (e.g. Grandpa Joe)"
-                      className="flex-1 px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     />
-                    <select
-                      value={newPlayerManager}
-                      onChange={e => setNewPlayerManager(e.target.value)}
-                      className="px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    >
-                      <option value="">Assign manager...</option>
-                      {allUsers.filter(u => !u.is_managed).map(u => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
-                      ))}
-                    </select>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-2">Assign manager(s):</p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {allUsers.filter(u => !u.is_managed).map(u => {
+                      const selected = newPlayerManagers.has(u.id)
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => {
+                            setNewPlayerManagers(prev => {
+                              const next = new Set(prev)
+                              if (next.has(u.id)) next.delete(u.id)
+                              else next.add(u.id)
+                              return next
+                            })
+                          }}
+                          className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                            selected
+                              ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                              : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-blue-500/30'
+                          }`}
+                        >
+                          {selected ? '✓ ' : ''}{u.name}
+                        </button>
+                      )
+                    })}
                   </div>
                   <button
                     onClick={handleCreateManagedPlayer}
-                    disabled={creatingPlayer || !newPlayerName.trim() || !newPlayerManager}
+                    disabled={creatingPlayer || !newPlayerName.trim() || newPlayerManagers.size === 0}
                     className="w-full py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
                   >
                     {creatingPlayer ? 'Creating...' : 'Create Player'}
@@ -862,8 +899,9 @@ export default function AdminPage() {
                 ) : (
                   <div className="space-y-2">
                     {managedPlayers.map(player => {
-                      const link = managerLinks.find(l => l.player_id === player.id)
-                      const manager = allUsers.find(u => u.id === link?.manager_id)
+                      const links = managerLinks.filter(l => l.player_id === player.id)
+                      const managers = links.map(l => allUsers.find(u => u.id === l.manager_id)).filter(Boolean) as FullUser[]
+                      const availableManagers = allUsers.filter(u => !u.is_managed && !links.some(l => l.manager_id === u.id))
 
                       return (
                         <div key={player.id} className="glass-card rounded-xl p-4">
@@ -881,19 +919,34 @@ export default function AdminPage() {
                               Delete
                             </button>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs text-slate-500">Managed by:</span>
-                            <select
-                              value={link?.manager_id ?? ''}
-                              onChange={e => handleReassign(player.id, e.target.value)}
-                              className="text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                            >
-                              {allUsers.filter(u => !u.is_managed).map(u => (
-                                <option key={u.id} value={u.id}>{u.name}</option>
-                              ))}
-                            </select>
-                            {manager && (
-                              <span className="text-xs text-slate-500">({manager.email ?? 'no email'})</span>
+                            {managers.map(m => (
+                              <span key={m.id} className="inline-flex items-center gap-1 text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full font-medium">
+                                {m.name}
+                                <button
+                                  onClick={() => handleRemoveManager(player.id, m.id)}
+                                  className="text-emerald-400/60 hover:text-red-400 transition ml-0.5"
+                                  title={`Remove ${m.name} as manager`}
+                                >
+                                  &times;
+                                </button>
+                              </span>
+                            ))}
+                            {managers.length === 0 && (
+                              <span className="text-xs text-amber-400">No managers assigned</span>
+                            )}
+                            {availableManagers.length > 0 && (
+                              <select
+                                value=""
+                                onChange={e => { if (e.target.value) handleAddManager(player.id, e.target.value) }}
+                                className="text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                              >
+                                <option value="">+ Add manager</option>
+                                {availableManagers.map(u => (
+                                  <option key={u.id} value={u.id}>{u.name}</option>
+                                ))}
+                              </select>
                             )}
                           </div>
                         </div>

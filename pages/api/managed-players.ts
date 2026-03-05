@@ -83,7 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // POST: Create a new managed player (requires manager or admin)
   if (req.method === 'POST') {
-    const { name, managerId } = req.body
+    const { name, managerId, managerIds } = req.body
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Player name is required' })
@@ -113,17 +113,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (createError) throw createError
 
-      // The manager is either the specified managerId (admin assigning) or the caller
-      const effectiveManagerId = isAdmin && managerId ? managerId : authUser.id
+      // Support multiple manager IDs or a single one
+      const ids: string[] = Array.isArray(managerIds) && managerIds.length > 0
+        ? managerIds
+        : managerId
+          ? [managerId]
+          : isAdmin ? [] : [authUser.id]
 
-      // Link manager to player
-      const { error: linkError } = await supabase
-        .from('player_managers')
-        .insert({ manager_id: effectiveManagerId, player_id: newPlayer.id })
+      if (ids.length > 0) {
+        const links = ids.map((mid: string) => ({ manager_id: mid, player_id: newPlayer.id }))
+        const { error: linkError } = await supabase
+          .from('player_managers')
+          .insert(links)
+        if (linkError) throw linkError
+      }
 
-      if (linkError) throw linkError
-
-      return res.status(201).json({ player: newPlayer, managerId: effectiveManagerId })
+      return res.status(201).json({ player: newPlayer, managerIds: ids })
     } catch (err) {
       console.error('managed-players POST error:', err)
       return res.status(500).json({ error: 'Failed to create managed player' })
@@ -171,7 +176,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ success: true })
       }
 
-      // Reassign a managed player to a different manager
+      // Reassign a managed player to a different manager (legacy, kept for compat)
       if (action === 'reassign') {
         const { playerId, newManagerId } = req.body
         if (!playerId || !newManagerId) return res.status(400).json({ error: 'playerId and newManagerId are required' })
@@ -182,6 +187,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .from('player_managers')
           .insert({ manager_id: newManagerId, player_id: playerId })
         if (error) throw error
+        return res.status(200).json({ success: true })
+      }
+
+      // Add an additional manager to a managed player
+      if (action === 'add_manager') {
+        const { playerId, managerId: newMgrId } = req.body
+        if (!playerId || !newMgrId) return res.status(400).json({ error: 'playerId and managerId are required' })
+
+        const { error } = await supabase
+          .from('player_managers')
+          .insert({ manager_id: newMgrId, player_id: playerId })
+        if (error) {
+          if (error.code === '23505') return res.status(409).json({ error: 'This user is already a manager for this player' })
+          throw error
+        }
+        return res.status(200).json({ success: true })
+      }
+
+      // Remove a specific manager from a managed player
+      if (action === 'remove_manager') {
+        const { playerId, managerId: rmMgrId } = req.body
+        if (!playerId || !rmMgrId) return res.status(400).json({ error: 'playerId and managerId are required' })
+
+        await supabase.from('player_managers').delete()
+          .eq('manager_id', rmMgrId).eq('player_id', playerId)
         return res.status(200).json({ success: true })
       }
 

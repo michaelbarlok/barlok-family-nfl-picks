@@ -64,7 +64,7 @@ function getTeam(abbr: string) {
 
 function formatKickoff(iso: string) {
   const d = new Date(iso)
-  return d.toLocaleDateString('en-US', {
+  return d.toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
     timeZone: 'America/New_York',

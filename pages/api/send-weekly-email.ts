@@ -125,7 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #1d4ed8;">🏈 ${LEAGUE_NAME}</h2>
           <p>Week ${week} picks are locked! The spreadsheet with everyone's picks is attached.</p>
-          ${customMessage ? `<p style="margin: 16px 0; padding: 12px 16px; background-color: #f0f9ff; border-left: 4px solid #1d4ed8; color: #1e3a5f; font-size: 14px;">${customMessage.replace(/\n/g, '<br>')}</p>` : ''}
+          ${customMessage ? `<p style="margin: 16px 0; padding: 12px 16px; background-color: #f0f9ff; border-left: 4px solid #1d4ed8; color: #1e3a5f; font-size: 14px;">${customMessage.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '<br>')}</p>` : ''}
           <p style="color: #6b7280; font-size: 14px;">
             Good luck this week! Results will be updated in the standings once games complete.
           </p>

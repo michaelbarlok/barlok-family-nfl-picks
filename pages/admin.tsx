@@ -95,6 +95,7 @@ export default function AdminPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Results tab state
+  const [syncingSchedule, setSyncingSchedule] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [emailing, setEmailing] = useState(false)
   const [settingResult, setSettingResult] = useState<string | null>(null)
@@ -137,7 +138,9 @@ export default function AdminPage() {
       if (data) {
         const weeks = [...new Set(data.map((g: { week: number }) => g.week))].sort((a, b) => a - b)
         setAvailableWeeks(weeks)
-        if (weeks.length > 0) setSelectedWeek(weeks[weeks.length - 1])
+        setSelectedWeek(weeks.length > 0 ? weeks[weeks.length - 1] : 1)
+      } else {
+        setSelectedWeek(1)
       }
       setDataLoading(false)
     }
@@ -324,6 +327,35 @@ export default function AdminPage() {
       setMessage({ type: 'success', text: 'Manager removed.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Sync schedule from ESPN (load games for a week)
+  const handleSyncSchedule = async () => {
+    if (!selectedWeek) return
+    setSyncingSchedule(true)
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`/api/sync-schedule?week=${selectedWeek}&season=${CURRENT_SEASON}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Sync schedule failed')
+      setMessage({ type: 'success', text: json.message ?? 'Schedule synced.' })
+      await loadGames()
+      // Refresh available weeks
+      const { data } = await supabase
+        .from('games').select('week').eq('season', CURRENT_SEASON).order('week')
+      if (data) {
+        const weeks = [...new Set(data.map((g: { week: number }) => g.week))].sort((a, b) => a - b)
+        setAvailableWeeks(weeks)
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync schedule failed' })
+    } finally {
+      setSyncingSchedule(false)
     }
   }
 
@@ -515,35 +547,47 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Week selector (shared) */}
-        {availableWeeks.length > 0 && (
-          <div className="mb-5">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Week</p>
-            <div className="flex flex-wrap gap-2">
-              {availableWeeks.map(w => (
-                <button
-                  key={w}
-                  onClick={() => setSelectedWeek(w)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
-                    selectedWeek === w
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-blue-500/30'
-                  }`}
-                >
-                  Week {w}
-                </button>
-              ))}
-            </div>
+        {/* Week selector (shared) — show all 18 weeks so new weeks can be synced */}
+        <div className="mb-5">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Week</p>
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: 18 }, (_, i) => i + 1).map(w => (
+              <button
+                key={w}
+                onClick={() => setSelectedWeek(w)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
+                  selectedWeek === w
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : availableWeeks.includes(w)
+                      ? 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-blue-500/30'
+                      : 'bg-white/[0.02] text-slate-500 border-white/[0.05] hover:border-blue-500/30'
+                }`}
+              >
+                {w}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
         {/* ── GAME RESULTS TAB ── */}
         {activeTab === 'results' && selectedWeek && (
           <>
             {/* Action buttons row */}
-            <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="grid grid-cols-3 gap-3 mb-5">
               <div className="p-4 glass-card rounded-xl">
-                <p className="text-sm font-semibold text-slate-200 mb-1">Sync from ESPN</p>
+                <p className="text-sm font-semibold text-slate-200 mb-1">Sync Schedule</p>
+                <p className="text-xs text-slate-500 mb-3">Pull Week {selectedWeek} games & times from ESPN.</p>
+                <button
+                  onClick={handleSyncSchedule}
+                  disabled={syncingSchedule}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+                >
+                  {syncingSchedule ? <><span className="animate-spin">⏳</span> Syncing...</> : <><span>📅</span> Load Games</>}
+                </button>
+              </div>
+
+              <div className="p-4 glass-card rounded-xl">
+                <p className="text-sm font-semibold text-slate-200 mb-1">Sync Results</p>
                 <p className="text-xs text-slate-500 mb-3">Pull completed game results & update all scores.</p>
                 <button
                   onClick={handleSync}

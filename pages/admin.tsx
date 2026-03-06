@@ -51,6 +51,20 @@ function parseUTC(iso: string): Date {
   return new Date(hasOffset ? normalized : normalized + 'Z')
 }
 
+function computeLockTime(games: Game[]): Date | null {
+  if (games.length === 0) return null
+  const kickoffs = games.map(g => parseUTC(g.kickoff_time))
+  const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
+  const thursday = new Date(earliest)
+  const dow = thursday.getUTCDay()
+  const daysBack = dow >= 4 ? dow - 4 : dow + 3
+  thursday.setUTCDate(thursday.getUTCDate() - daysBack)
+  const month = thursday.getUTCMonth()
+  const utcOffset = month >= 10 ? 5 : 4
+  thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
+  return thursday
+}
+
 function formatKickoff(iso: string) {
   const d = parseUTC(iso)
   return d.toLocaleString('en-US', {
@@ -915,7 +929,20 @@ export default function AdminPage() {
         )}
 
         {/* ── OVERRIDE PICKS TAB ── */}
-        {activeTab === 'override' && selectedWeek && (
+        {activeTab === 'override' && selectedWeek && (() => {
+          const weekLockTime = computeLockTime(games)
+          const weekLocked = weekLockTime ? new Date() >= weekLockTime : false
+          return !weekLocked ? (
+            <div className="glass-card rounded-xl p-8 text-center">
+              <p className="text-3xl mb-3">🔒</p>
+              <p className="text-white font-medium">Picks not yet locked</p>
+              <p className="text-slate-500 text-sm mt-1.5">
+                Override is available after picks lock{weekLockTime
+                  ? ` on ${weekLockTime.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York' })}`
+                  : ''}.
+              </p>
+            </div>
+          ) : (
           <>
             {/* User selector */}
             <div className="mb-5">
@@ -1063,7 +1090,8 @@ export default function AdminPage() {
               </>
             )}
           </>
-        )}
+          )
+        })()}
 
         {/* ── MANAGE PLAYERS TAB ── */}
         {activeTab === 'players' && (

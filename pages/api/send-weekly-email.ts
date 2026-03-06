@@ -71,25 +71,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const season = req.query.season ? parseInt(req.query.season as string) : CURRENT_SEASON
 
-  // Parse custom message from request body (may be empty for cron/GET requests)
+  // Parse custom message and recipient list from request body
   let customMessage = ''
+  let selectedRecipients: string[] | null = null
   if (req.method === 'POST' && req.body) {
-    customMessage = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body).customMessage || ''
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
+    customMessage = body.customMessage || ''
+    if (Array.isArray(body.recipients) && body.recipients.length > 0) {
+      selectedRecipients = body.recipients
+    }
   }
 
   try {
     // Get all user emails
     const { data: users, error: usersError } = await supabase
       .from('users')
-      .select('email, name')
+      .select('email, name, email_recipient')
       .order('name')
 
     if (usersError || !users || users.length === 0) {
       return res.status(500).json({ error: 'Failed to fetch users or no users found' })
     }
 
-    // For now, only send to Michael
-    const recipients = ['barlokmichael@gmail.com']
+    // Use explicitly selected recipients, or fall back to users with email_recipient flag
+    let recipients: string[]
+    if (selectedRecipients) {
+      recipients = selectedRecipients.filter(e => typeof e === 'string' && e.includes('@'))
+    } else {
+      recipients = users
+        .filter((u: any) => u.email && u.email_recipient === true)
+        .map((u: any) => u.email)
+    }
 
     if (recipients.length === 0) {
       return res.status(400).json({ error: 'No users with email addresses found' })

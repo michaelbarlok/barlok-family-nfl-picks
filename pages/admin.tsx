@@ -103,6 +103,7 @@ export default function AdminPage() {
   const [emailing, setEmailing] = useState(false)
   const [settingResult, setSettingResult] = useState<string | null>(null)
   const [customMessage, setCustomMessage] = useState('')
+  const [emailRecipientOverrides, setEmailRecipientOverrides] = useState<Record<string, boolean>>({})
 
   // Override tab state
   const [users, setUsers] = useState<UserRow[]>([])
@@ -115,7 +116,7 @@ export default function AdminPage() {
   // Manage Players tab state
   interface ManagedPlayer { id: string; name: string }
   interface ManagerLink { manager_id: string; player_id: string }
-  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; is_admin?: boolean; last_sign_in_at: string | null }
+  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; is_admin?: boolean; email_recipient?: boolean; last_sign_in_at: string | null }
   const [sendingResetFor, setSendingResetFor] = useState<string | null>(null)
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [managerLinks, setManagerLinks] = useState<ManagerLink[]>([])
@@ -235,7 +236,7 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'players' && hasAccess) {
+    if ((activeTab === 'players' || activeTab === 'results') && hasAccess) {
       loadManagedPlayersData()
     }
   }, [activeTab, user, loadManagedPlayersData])
@@ -340,6 +341,25 @@ export default function AdminPage() {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to send reset email' })
     } finally {
       setSendingResetFor(null)
+    }
+  }
+
+  // Toggle email recipient flag on a user (persisted)
+  const handleToggleEmailRecipient = async (userId: string, emailRecipient: boolean) => {
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'toggle_email_recipient', userId, emailRecipient }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update')
+      await loadManagedPlayersData()
+      setMessage({ type: 'success', text: emailRecipient ? 'Added to email recipients.' : 'Removed from email recipients.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
     }
   }
 
@@ -455,6 +475,18 @@ export default function AdminPage() {
   // Email spreadsheet manually
   const handleEmail = async () => {
     if (!selectedWeek) return
+    // Build recipient list: use overrides if any, otherwise use users with email_recipient flag
+    const emailUsers = allUsers.filter(u => u.email && !u.is_managed)
+    const recipients = emailUsers
+      .filter(u => {
+        if (u.id in emailRecipientOverrides) return emailRecipientOverrides[u.id]
+        return u.email_recipient === true
+      })
+      .map(u => u.email!)
+    if (recipients.length === 0) {
+      setMessage({ type: 'error', text: 'No recipients selected. Toggle at least one user below.' })
+      return
+    }
     setEmailing(true)
     setMessage(null)
     try {
@@ -462,12 +494,16 @@ export default function AdminPage() {
       const res = await fetch(`/api/send-weekly-email?week=${selectedWeek}&season=${CURRENT_SEASON}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ customMessage: customMessage.trim() || undefined }),
+        body: JSON.stringify({
+          customMessage: customMessage.trim() || undefined,
+          recipients,
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Email failed')
       setMessage({ type: 'success', text: json.message ?? 'Email sent!' })
       setCustomMessage('')
+      setEmailRecipientOverrides({})
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Email failed' })
     } finally {
@@ -680,24 +716,95 @@ export default function AdminPage() {
                 </button>
               </div>
 
-              <div className="p-4 glass-card rounded-xl">
-                <p className="text-sm font-semibold text-slate-200 mb-1">Email Spreadsheet</p>
-                <p className="text-xs text-slate-500 mb-3">Send Week {selectedWeek} picks sheet to all players.</p>
-                <textarea
-                  value={customMessage}
-                  onChange={e => setCustomMessage(e.target.value)}
-                  placeholder="Add an optional message to include in the email..."
-                  rows={3}
-                  className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 mb-3 resize-none"
-                />
+            </div>
+
+            {/* Email Spreadsheet — full width with recipient selection */}
+            <div className="p-4 glass-card rounded-xl mb-5">
+              <p className="text-sm font-semibold text-slate-200 mb-1">Email Spreadsheet</p>
+              <p className="text-xs text-slate-500 mb-3">Send Week {selectedWeek} picks sheet to selected recipients.</p>
+
+              {/* Recipient toggles */}
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Recipients</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {allUsers.filter(u => u.email && !u.is_managed).map(u => {
+                  const isSelected = u.id in emailRecipientOverrides
+                    ? emailRecipientOverrides[u.id]
+                    : u.email_recipient === true
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => setEmailRecipientOverrides(prev => ({ ...prev, [u.id]: !isSelected }))}
+                      className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                        isSelected
+                          ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-500 hover:border-indigo-500/30'
+                      }`}
+                    >
+                      {isSelected ? '✓ ' : ''}{u.name}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex gap-2 mb-3">
                 <button
-                  onClick={handleEmail}
-                  disabled={emailing}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
+                  type="button"
+                  onClick={() => {
+                    const overrides: Record<string, boolean> = {}
+                    allUsers.filter(u => u.email && !u.is_managed).forEach(u => { overrides[u.id] = true })
+                    setEmailRecipientOverrides(overrides)
+                  }}
+                  className="text-xs text-slate-500 hover:text-blue-400 transition"
                 >
-                  {emailing ? <><span className="animate-spin">⏳</span> Sending...</> : <><span>📧</span> Email Now</>}
+                  Select all
+                </button>
+                <span className="text-xs text-slate-600">·</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const overrides: Record<string, boolean> = {}
+                    allUsers.filter(u => u.email && !u.is_managed).forEach(u => { overrides[u.id] = false })
+                    setEmailRecipientOverrides(overrides)
+                  }}
+                  className="text-xs text-slate-500 hover:text-blue-400 transition"
+                >
+                  Select none
+                </button>
+                <span className="text-xs text-slate-600">·</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    // Save current selection as defaults
+                    const emailUsers = allUsers.filter(u => u.email && !u.is_managed)
+                    for (const u of emailUsers) {
+                      const shouldReceive = u.id in emailRecipientOverrides ? emailRecipientOverrides[u.id] : u.email_recipient === true
+                      if (shouldReceive !== (u.email_recipient === true)) {
+                        await handleToggleEmailRecipient(u.id, shouldReceive)
+                      }
+                    }
+                    setEmailRecipientOverrides({})
+                    setMessage({ type: 'success', text: 'Default recipients saved.' })
+                  }}
+                  className="text-xs text-slate-500 hover:text-emerald-400 transition"
+                >
+                  Save as default
                 </button>
               </div>
+
+              <textarea
+                value={customMessage}
+                onChange={e => setCustomMessage(e.target.value)}
+                placeholder="Add an optional message to include in the email..."
+                rows={2}
+                className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 mb-3 resize-none"
+              />
+              <button
+                onClick={handleEmail}
+                disabled={emailing}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
+              >
+                {emailing ? <><span className="animate-spin">⏳</span> Sending...</> : <><span>📧</span> Email Now</>}
+              </button>
             </div>
 
             {/* Games list */}

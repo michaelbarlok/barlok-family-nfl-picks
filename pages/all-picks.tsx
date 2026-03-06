@@ -70,18 +70,11 @@ function parseUTC(iso: string): Date {
   return new Date(hasOffset ? normalized : normalized + 'Z')
 }
 
+// Lock time = earliest kickoff of the week
 function computeLockTime(games: Game[]): Date | null {
   if (games.length === 0) return null
   const kickoffs = games.map(g => parseUTC(g.kickoff_time))
-  const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
-  const thursday = new Date(earliest)
-  const dow = thursday.getUTCDay()
-  const daysBack = dow >= 4 ? dow - 4 : dow + 3
-  thursday.setUTCDate(thursday.getUTCDate() - daysBack)
-  const month = thursday.getUTCMonth()
-  const utcOffset = month >= 10 ? 5 : 4
-  thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
-  return thursday
+  return new Date(Math.min(...kickoffs.map(d => d.getTime())))
 }
 
 function AllPicksSkeleton() {

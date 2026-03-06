@@ -1,43 +1,55 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { createClient } from '@supabase/supabase-js'
+import { CURRENT_SEASON } from '@/lib/constants'
 
 /**
- * Unified cron handler — runs every hour and dispatches to the right
- * task based on the current day/time in Eastern Time.
+ * Unified cron handler — runs every hour and dispatches tasks dynamically
+ * based on the upcoming week's first kickoff time.
  *
- * Schedule (all times ET):
- *   Tue/Wed/Thu 12:00 PM, 7:00 PM  → Pick reminder emails (incomplete only)
- *   Thu 8:00 PM                     → Lock warning email (all recipients)
- *   Fri 10:00 PM                    → Weekly spreadsheet email
- *   Fri/Mon/Tue 12:00 AM           → Update scores
- *
- * Vercel cron calls this every hour. The handler checks the current
- * ET hour and day-of-week to decide what to run.
+ * - Reminders: noon & 7 PM ET on each of the 3 days before lock
+ * - Lock warning: the last hourly run before the first kickoff
+ * - Spreadsheet email: the first hourly run after lock
+ * - Score updates: Fri/Mon/Tue at midnight ET (fixed)
  */
 
 function getETTime(): { day: number; hour: number } {
   const now = new Date()
   const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false })
-  // Parse "M/D/YYYY, HH:MM:SS"
   const [, timePart] = etStr.split(', ')
   const hour = parseInt(timePart.split(':')[0])
-  // Get day-of-week in ET
   const etDayStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short' })
   const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
   const day = dayMap[etDayStr] ?? now.getUTCDay()
   return { day, hour }
 }
 
+async function getFirstKickoff(): Promise<Date | null> {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+  // Find the next upcoming week's earliest kickoff
+  const { data } = await supabase
+    .from('games')
+    .select('kickoff_time')
+    .eq('season', CURRENT_SEASON)
+    .gt('kickoff_time', new Date().toISOString())
+    .order('kickoff_time', { ascending: true })
+    .limit(1)
+
+  if (!data || data.length === 0) return null
+  return new Date(data[0].kickoff_time)
+}
+
 async function callInternal(req: NextApiRequest, path: string): Promise<{ status: number; body: any }> {
-  // Build the internal URL
   const protocol = req.headers['x-forwarded-proto'] || 'https'
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000'
   const baseUrl = `${protocol}://${host}`
 
-  const authHeader = req.headers.authorization ?? ''
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
-      Authorization: authHeader,
+      Authorization: req.headers.authorization ?? '',
       'Content-Type': 'application/json',
     },
   })
@@ -46,36 +58,44 @@ async function callInternal(req: NextApiRequest, path: string): Promise<{ status
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Only allow cron secret
   const authHeader = req.headers.authorization ?? ''
   if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(403).json({ error: 'Unauthorized' })
   }
 
+  const now = new Date()
   const { day, hour } = getETTime()
   const tasks: string[] = []
   const results: Record<string, any> = {}
 
-  // Pick reminder emails: Tue(2), Wed(3), Thu(4) at noon(12) and 7PM(19)
-  if ([2, 3, 4].includes(day) && [12, 19].includes(hour)) {
-    tasks.push('reminder')
-    results.reminder = await callInternal(req, '/api/send-reminder-email?type=reminder')
+  // --- Dynamic tasks based on upcoming kickoff ---
+  const kickoff = await getFirstKickoff()
+
+  if (kickoff) {
+    const msUntilKickoff = kickoff.getTime() - now.getTime()
+    const hoursUntilKickoff = msUntilKickoff / (1000 * 60 * 60)
+
+    // Lock warning: last hourly run before kickoff (0-1 hours away)
+    if (hoursUntilKickoff > 0 && hoursUntilKickoff <= 1) {
+      tasks.push('lock_warning')
+      results.lock_warning = await callInternal(req, '/api/send-reminder-email?type=lock_warning')
+    }
+
+    // Reminders: noon (12) and 7 PM (19) ET, within 3 days before lock
+    if (hoursUntilKickoff > 1 && hoursUntilKickoff <= 72 && [12, 19].includes(hour)) {
+      tasks.push('reminder')
+      results.reminder = await callInternal(req, '/api/send-reminder-email?type=reminder')
+    }
+
+    // Spreadsheet email: first run after lock (kickoff was 0-1 hours ago)
+    if (hoursUntilKickoff <= 0 && hoursUntilKickoff > -1) {
+      tasks.push('spreadsheet')
+      results.spreadsheet = await callInternal(req, '/api/send-weekly-email')
+    }
   }
 
-  // Lock warning: Thu(4) at 8PM(20) — 15 min before typical 8:15 lock
-  if (day === 4 && hour === 20) {
-    tasks.push('lock_warning')
-    results.lock_warning = await callInternal(req, '/api/send-reminder-email?type=lock_warning')
-  }
-
-  // Weekly spreadsheet email: Fri(5) at 10PM(22)
-  // (After lock, gives time for all picks to be visible)
-  if (day === 5 && hour === 22) {
-    tasks.push('spreadsheet')
-    results.spreadsheet = await callInternal(req, '/api/send-weekly-email')
-  }
-
-  // Update scores: Fri(5), Mon(1), Tue(2) at midnight(0)
+  // --- Fixed schedule: score updates ---
+  // Fri(5), Mon(1), Tue(2) at midnight(0) ET
   if ([1, 2, 5].includes(day) && hour === 0) {
     tasks.push('scores')
     results.scores = await callInternal(req, '/api/update-scores')
@@ -87,6 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       day,
       hour,
       tz: 'America/New_York',
+      nextKickoff: kickoff?.toISOString() ?? null,
     })
   }
 
@@ -96,5 +117,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     day,
     hour,
     tz: 'America/New_York',
+    nextKickoff: kickoff?.toISOString() ?? null,
   })
 }

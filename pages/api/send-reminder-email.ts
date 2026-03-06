@@ -28,6 +28,7 @@ async function isAuthorized(req: NextApiRequest): Promise<boolean> {
   } catch { return false }
 }
 
+// Lock time = earliest kickoff of the week
 function computeLockTime(games: { kickoff_time: string }[]): Date | null {
   if (games.length === 0) return null
   const kickoffs = games.map(g => {
@@ -36,15 +37,7 @@ function computeLockTime(games: { kickoff_time: string }[]): Date | null {
     const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
     return new Date(hasOffset ? normalized : normalized + 'Z')
   })
-  const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
-  const thursday = new Date(earliest)
-  const dow = thursday.getUTCDay()
-  const daysBack = dow >= 4 ? dow - 4 : dow + 3
-  thursday.setUTCDate(thursday.getUTCDate() - daysBack)
-  const month = thursday.getUTCMonth()
-  const utcOffset = month >= 10 ? 5 : 4
-  thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
-  return thursday
+  return new Date(Math.min(...kickoffs.map(d => d.getTime())))
 }
 
 // Find the upcoming week: the next week whose lock time hasn't passed yet

@@ -584,7 +584,8 @@ export default function AdminPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to save')
-      setMessage({ type: 'success', text: 'Best 3 picks saved.' })
+      const count = bestGameIds.size
+      setMessage({ type: 'success', text: count === 0 ? 'Best picks cleared.' : `Best ${count === 3 ? '3' : count + '/3'} pick${count === 1 ? '' : 's'} saved.` })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
     } finally {
@@ -592,13 +593,13 @@ export default function AdminPage() {
     }
   }
 
-  // Toggle a game as a best pick — auto-saves when exactly 3 are selected
+  // Toggle a game as a best pick — saves immediately on every change
   const toggleBestGame = (gameId: string) => {
     setOverrideBestGames(prev => {
       const next = new Set(prev)
       if (next.has(gameId)) next.delete(gameId)
       else if (next.size < 3) next.add(gameId)
-      if (next.size === 3) saveBestPicks(next)
+      saveBestPicks(next)
       return next
     })
   }
@@ -978,7 +979,7 @@ export default function AdminPage() {
                     {/* Best picks counter */}
                     <div className="mb-3">
                       <p className={`text-xs font-medium ${overrideBestGames.size === 3 ? 'text-amber-400' : 'text-slate-500'}`}>
-                        ⭐ {overrideBestGames.size}/3 best picks {savingOverride ? '— saving...' : overrideBestGames.size === 3 ? '— saved' : ''}
+                        ⭐ {overrideBestGames.size}/3 best picks {savingOverride ? '— saving...' : overrideBestGames.size > 0 ? '— saved' : ''}
                       </p>
                     </div>
 

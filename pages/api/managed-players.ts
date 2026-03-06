@@ -59,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const { data: allUsers } = await supabase
           .from('users')
-          .select('id, name, email, is_manager, is_managed, is_admin')
+          .select('id, name, email, is_manager, is_managed, is_admin, email_recipient')
           .order('name')
 
         // Fetch last_sign_in_at from Supabase Auth for users with logins
@@ -267,6 +267,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .update({ name: newName.trim() })
           .eq('id', userId)
         if (error) throw error
+        return res.status(200).json({ success: true })
+      }
+
+      // Toggle email_recipient flag on a user
+      if (action === 'toggle_email_recipient') {
+        const { userId, emailRecipient } = req.body
+        if (!userId) return res.status(400).json({ error: 'userId is required' })
+        const { error } = await supabase
+          .from('users')
+          .update({ email_recipient: emailRecipient })
+          .eq('id', userId)
+        if (error) {
+          if (error.message?.includes('email_recipient')) {
+            return res.status(400).json({
+              error: 'The email_recipient column does not exist yet. Run this SQL in Supabase: ALTER TABLE users ADD COLUMN email_recipient boolean DEFAULT false;'
+            })
+          }
+          throw error
+        }
         return res.status(200).json({ success: true })
       }
 

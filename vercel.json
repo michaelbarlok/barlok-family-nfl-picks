@@ -1,48 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/send-weekly-email",
-      "schedule": "0 2 * * 5"
-    },
-    {
-      "path": "/api/update-scores",
-      "schedule": "0 4 * * 5"
-    },
-    {
-      "path": "/api/update-scores",
-      "schedule": "0 4 * * 1"
-    },
-    {
-      "path": "/api/update-scores",
-      "schedule": "0 4 * * 2"
-    },
-    {
-      "path": "/api/send-reminder-email?type=reminder",
-      "schedule": "0 16 * * 2"
-    },
-    {
-      "path": "/api/send-reminder-email?type=reminder",
-      "schedule": "0 23 * * 2"
-    },
-    {
-      "path": "/api/send-reminder-email?type=reminder",
-      "schedule": "0 16 * * 3"
-    },
-    {
-      "path": "/api/send-reminder-email?type=reminder",
-      "schedule": "0 23 * * 3"
-    },
-    {
-      "path": "/api/send-reminder-email?type=reminder",
-      "schedule": "0 16 * * 4"
-    },
-    {
-      "path": "/api/send-reminder-email?type=reminder",
-      "schedule": "0 23 * * 4"
-    },
-    {
-      "path": "/api/send-reminder-email?type=lock_warning",
-      "schedule": "0 0 * * 5"
+      "path": "/api/cron",
+      "schedule": "0 * * * *"
     }
   ]
 }

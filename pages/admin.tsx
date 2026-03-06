@@ -85,7 +85,7 @@ export default function AdminPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
 
-  const isAdmin = user?.email === ADMIN_EMAIL
+  const isAdmin = user?.email === ADMIN_EMAIL || (user as any)?.is_admin === true
   const isManager = (user as any)?.is_manager === true
   const hasAccess = isAdmin || isManager
 
@@ -115,7 +115,8 @@ export default function AdminPage() {
   // Manage Players tab state
   interface ManagedPlayer { id: string; name: string }
   interface ManagerLink { manager_id: string; player_id: string }
-  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; last_sign_in_at: string | null }
+  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; is_admin?: boolean; last_sign_in_at: string | null }
+  const [sendingResetFor, setSendingResetFor] = useState<string | null>(null)
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [managerLinks, setManagerLinks] = useState<ManagerLink[]>([])
   const [allUsers, setAllUsers] = useState<FullUser[]>([])
@@ -299,6 +300,46 @@ export default function AdminPage() {
       setMessage({ type: 'success', text: isManager ? 'Manager status granted.' : 'Manager status revoked.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Toggle admin status
+  const handleToggleAdmin = async (userId: string, newAdminStatus: boolean) => {
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'toggle_admin', userId, isAdmin: newAdminStatus }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update')
+      await loadManagedPlayersData()
+      setMessage({ type: 'success', text: newAdminStatus ? 'Admin status granted.' : 'Admin status revoked.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Send password reset email to a user
+  const handleSendResetEmail = async (email: string) => {
+    setSendingResetFor(email)
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/managed-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'send_reset_email', email }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to send reset email')
+      setMessage({ type: 'success', text: `Password reset email sent to ${email}.` })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to send reset email' })
+    } finally {
+      setSendingResetFor(null)
     }
   }
 
@@ -977,68 +1018,105 @@ export default function AdminPage() {
                   </button>
                 </div>
 
-                {/* Manager permissions */}
+                {/* User roles & access */}
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                  Manager Permissions
+                  User Roles &amp; Access
                 </p>
                 <p className="text-xs text-slate-600 mb-3">
-                  Managers can access this Admin page and make picks for managed players.
+                  Admins have full access. Managers can make picks for managed players.
                 </p>
                 <div className="glass-card rounded-xl overflow-hidden mb-5">
                   {allUsers.filter(u => !u.is_managed).length === 0 ? (
                     <div className="p-6 text-center text-slate-500 text-sm">No users found.</div>
                   ) : (
-                    allUsers.filter(u => !u.is_managed).map((u, idx) => (
-                      <div
-                        key={u.id}
-                        className={`flex items-center justify-between px-4 py-3 ${idx > 0 ? 'border-t border-white/[0.04]' : ''}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          {editingNameId === u.id ? (
-                            <form onSubmit={e => { e.preventDefault(); handleRenameUser(u.id) }} className="flex items-center gap-2">
-                              <input
-                                autoFocus
-                                value={editingNameValue}
-                                onChange={e => setEditingNameValue(e.target.value)}
-                                className="text-sm font-medium text-white bg-white/[0.06] border border-white/[0.12] rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/30 w-40"
-                              />
-                              <button type="submit" className="text-xs text-emerald-400 hover:text-emerald-300">Save</button>
-                              <button type="button" onClick={() => setEditingNameId(null)} className="text-xs text-slate-500 hover:text-slate-300">Cancel</button>
-                            </form>
-                          ) : (
-                            <p className="text-sm font-medium text-white">
-                              {u.name}
-                              {isAdmin && (
+                    allUsers.filter(u => !u.is_managed).map((u, idx) => {
+                      const isSuperAdmin = u.email === ADMIN_EMAIL
+                      return (
+                        <div
+                          key={u.id}
+                          className={`px-4 py-3 ${idx > 0 ? 'border-t border-white/[0.04]' : ''}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              {editingNameId === u.id ? (
+                                <form onSubmit={e => { e.preventDefault(); handleRenameUser(u.id) }} className="flex items-center gap-2">
+                                  <input
+                                    autoFocus
+                                    value={editingNameValue}
+                                    onChange={e => setEditingNameValue(e.target.value)}
+                                    className="text-sm font-medium text-white bg-white/[0.06] border border-white/[0.12] rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/30 w-40"
+                                  />
+                                  <button type="submit" className="text-xs text-emerald-400 hover:text-emerald-300">Save</button>
+                                  <button type="button" onClick={() => setEditingNameId(null)} className="text-xs text-slate-500 hover:text-slate-300">Cancel</button>
+                                </form>
+                              ) : (
+                                <p className="text-sm font-medium text-white">
+                                  {u.name}
+                                  {isAdmin && (
+                                    <button
+                                      onClick={() => { setEditingNameId(u.id); setEditingNameValue(u.name) }}
+                                      className="text-xs text-slate-500 hover:text-blue-400 transition ml-2"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                </p>
+                              )}
+                              <p className="text-xs text-slate-500">{u.email ?? 'No email'}</p>
+                              {u.email && (
+                                <p className="text-xs text-slate-600 mt-0.5">
+                                  Last Active: {u.last_sign_in_at
+                                    ? new Date(u.last_sign_in_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                                    : 'Never'}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Admin toggle */}
+                              {isSuperAdmin ? (
+                                <span className="text-xs font-medium px-3 py-1.5 rounded-full border bg-red-500/15 border-red-500/30 text-red-400">
+                                  Owner
+                                </span>
+                              ) : (
                                 <button
-                                  onClick={() => { setEditingNameId(u.id); setEditingNameValue(u.name) }}
-                                  className="text-xs text-slate-500 hover:text-blue-400 transition ml-2"
+                                  onClick={() => handleToggleAdmin(u.id, !u.is_admin)}
+                                  className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                                    u.is_admin
+                                      ? 'bg-red-500/15 border-red-500/30 text-red-400'
+                                      : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-red-500/30'
+                                  }`}
                                 >
-                                  Edit
+                                  {u.is_admin ? '✓ Admin' : 'Admin'}
                                 </button>
                               )}
-                            </p>
-                          )}
-                          <p className="text-xs text-slate-500">{u.email ?? 'No email'}</p>
+                              {/* Manager toggle */}
+                              <button
+                                onClick={() => handleToggleManager(u.id, !u.is_manager)}
+                                className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                                  u.is_manager
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                    : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-blue-500/30'
+                                }`}
+                              >
+                                {u.is_manager ? '✓ Manager' : 'Manager'}
+                              </button>
+                            </div>
+                          </div>
+                          {/* Reset password button */}
                           {u.email && (
-                            <p className="text-xs text-slate-600 mt-0.5">
-                              Last Active: {u.last_sign_in_at
-                                ? new Date(u.last_sign_in_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-                                : 'Never'}
-                            </p>
+                            <div className="mt-2">
+                              <button
+                                onClick={() => handleSendResetEmail(u.email!)}
+                                disabled={sendingResetFor === u.email}
+                                className="text-xs text-slate-500 hover:text-blue-400 transition disabled:opacity-50"
+                              >
+                                {sendingResetFor === u.email ? 'Sending...' : 'Send password reset email'}
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <button
-                          onClick={() => handleToggleManager(u.id, !u.is_manager)}
-                          className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition shrink-0 ${
-                            u.is_manager
-                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                              : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-blue-500/30'
-                          }`}
-                        >
-                          {u.is_manager ? '✓ Manager' : 'Make Manager'}
-                        </button>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
 

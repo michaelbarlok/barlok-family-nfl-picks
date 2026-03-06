@@ -19,7 +19,7 @@ export default function Nav() {
   const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const menuRef = useRef<HTMLDivElement>(null)
 
-  const isAdmin = user?.email === ADMIN_EMAIL
+  const isAdmin = user?.email === ADMIN_EMAIL || user?.is_admin === true
   const isManager = user?.is_manager === true
   const tabs = isAdmin || isManager
     ? [...baseTabs, { label: 'Admin', icon: '🔧', href: '/admin' }]
@@ -187,7 +187,7 @@ export default function Nav() {
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">Role</span>
                   <span className="text-slate-300">
-                    {user.email === ADMIN_EMAIL ? 'Admin' : user.is_manager ? 'Manager' : 'Player'}
+                    {isAdmin ? 'Admin' : user.is_manager ? 'Manager' : 'Player'}
                   </span>
                 </div>
               </div>

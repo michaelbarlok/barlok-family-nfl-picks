@@ -59,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const { data: allUsers } = await supabase
           .from('users')
-          .select('id, name, email, is_manager, is_managed')
+          .select('id, name, email, is_manager, is_managed, is_admin')
           .order('name')
 
         // Fetch last_sign_in_at from Supabase Auth for users with logins
@@ -161,7 +161,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // DELETE: Remove a managed player (admin only)
   if (req.method === 'DELETE') {
-    const isAdmin = authUser.email === ADMIN_EMAIL
+    let isAdmin = authUser.email === ADMIN_EMAIL
+    if (!isAdmin) {
+      const { data: callerRow } = await supabase
+        .from('users')
+        .select('is_admin')
+        .eq('id', authUser.id)
+        .single()
+      isAdmin = callerRow?.is_admin === true
+    }
     if (!isAdmin) return res.status(403).json({ error: 'Admin only' })
 
     const { playerId } = req.body
@@ -180,9 +188,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  // PATCH: Admin operations (toggle manager status, reassign manager)
+  // PATCH: Admin operations (toggle manager status, reassign manager, toggle admin, send reset email)
   if (req.method === 'PATCH') {
-    const isAdmin = authUser.email === ADMIN_EMAIL
+    // Check admin: ADMIN_EMAIL or is_admin flag in DB
+    let isAdmin = authUser.email === ADMIN_EMAIL
+    if (!isAdmin) {
+      const { data: callerRow } = await supabase
+        .from('users')
+        .select('is_admin')
+        .eq('id', authUser.id)
+        .single()
+      isAdmin = callerRow?.is_admin === true
+    }
     if (!isAdmin) return res.status(403).json({ error: 'Admin only' })
 
     const { action } = req.body
@@ -250,6 +267,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .update({ name: newName.trim() })
           .eq('id', userId)
         if (error) throw error
+        return res.status(200).json({ success: true })
+      }
+
+      // Toggle is_admin flag on a user
+      if (action === 'toggle_admin') {
+        const { userId, isAdmin: newAdminStatus } = req.body
+        if (!userId) return res.status(400).json({ error: 'userId is required' })
+        const { error } = await supabase
+          .from('users')
+          .update({ is_admin: newAdminStatus })
+          .eq('id', userId)
+        if (error) {
+          // Column might not exist yet
+          if (error.message?.includes('is_admin')) {
+            return res.status(400).json({
+              error: 'The is_admin column does not exist yet. Run this SQL in Supabase: ALTER TABLE users ADD COLUMN is_admin boolean DEFAULT false;'
+            })
+          }
+          throw error
+        }
+        return res.status(200).json({ success: true })
+      }
+
+      // Send a password reset email to a user (using service role to bypass rate limits)
+      if (action === 'send_reset_email') {
+        const { email } = req.body
+        if (!email) return res.status(400).json({ error: 'email is required' })
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+        const emailRes = await fetch(`${url}/auth/v1/recover`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': serviceKey,
+            'Authorization': `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ email }),
+        })
+        if (!emailRes.ok) {
+          const body = await emailRes.json().catch(() => ({}))
+          return res.status(500).json({ error: body.msg || 'Failed to send reset email' })
+        }
         return res.status(200).json({ success: true })
       }
 

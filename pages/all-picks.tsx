@@ -70,18 +70,11 @@ function parseUTC(iso: string): Date {
   return new Date(hasOffset ? normalized : normalized + 'Z')
 }
 
+// Lock time = earliest kickoff of the week
 function computeLockTime(games: Game[]): Date | null {
   if (games.length === 0) return null
   const kickoffs = games.map(g => parseUTC(g.kickoff_time))
-  const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
-  const thursday = new Date(earliest)
-  const dow = thursday.getUTCDay()
-  const daysBack = dow >= 4 ? dow - 4 : dow + 3
-  thursday.setUTCDate(thursday.getUTCDate() - daysBack)
-  const month = thursday.getUTCMonth()
-  const utcOffset = month >= 10 ? 5 : 4
-  thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
-  return thursday
+  return new Date(Math.min(...kickoffs.map(d => d.getTime())))
 }
 
 function AllPicksSkeleton() {
@@ -114,7 +107,10 @@ export default function AllPicksPage() {
   const [dataLoading, setDataLoading] = useState(true)
   const [picksLoading, setPicksLoading] = useState(false)
   const [isLocked, setIsLocked] = useState(false)
+  const [lockTime, setLockTime] = useState<Date | null>(null)
   const [seasonData, setSeasonData] = useState<SeasonData | null>(null)
+  const [submissionStatus, setSubmissionStatus] = useState<{ userId: string; name: string; pickCount: number; hasThreeBest: boolean }[]>([])
+  const [totalGames, setTotalGames] = useState(0)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -153,11 +149,34 @@ export default function AllPicksPage() {
     const weekGames = gamesData ?? []
     setGames(weekGames)
 
-    const lockTime = computeLockTime(weekGames)
-    const locked = lockTime ? new Date() >= lockTime : false
+    const lt = computeLockTime(weekGames)
+    const locked = lt ? new Date() >= lt : false
     setIsLocked(locked)
+    setLockTime(lt)
+    setTotalGames(weekGames.length)
 
     if (!locked) {
+      // Fetch submission status (pick counts per user) without revealing actual picks
+      const [{ data: usersData }, { data: pickCounts }, { data: threeBestRows }] = await Promise.all([
+        supabase.from('users').select('id, name').order('name'),
+        supabase.from('picks').select('user_id, game_id')
+          .eq('week', week).eq('season', CURRENT_SEASON),
+        supabase.from('three_best').select('user_id')
+          .eq('week', week).eq('season', CURRENT_SEASON),
+      ])
+      const countMap = new Map<string, number>()
+      for (const p of pickCounts ?? []) {
+        countMap.set(p.user_id, (countMap.get(p.user_id) || 0) + 1)
+      }
+      const tbSet = new Set((threeBestRows ?? []).map((r: any) => r.user_id))
+      setSubmissionStatus(
+        (usersData ?? []).map((u: any) => ({
+          userId: u.id,
+          name: u.name,
+          pickCount: countMap.get(u.id) || 0,
+          hasThreeBest: tbSet.has(u.id),
+        }))
+      )
       setPicksLoading(false)
       return
     }
@@ -317,12 +336,44 @@ export default function AllPicksPage() {
             <p className="text-slate-400 text-sm">Loading picks...</p>
           </div>
         ) : !isLocked ? (
-          <div className="glass-card rounded-2xl p-10 text-center">
-            <p className="text-3xl mb-3">🔒</p>
-            <p className="text-white font-medium">Picks not yet locked</p>
-            <p className="text-slate-500 text-sm mt-1.5">
-              Week {selectedWeek} picks will be visible here after the Thursday deadline.
-            </p>
+          <div className="glass-card rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">🔒</span>
+                <p className="text-white font-medium">Picks not yet locked</p>
+              </div>
+              <p className="text-slate-500 text-sm">
+                Week {selectedWeek} picks will be revealed {lockTime
+                  ? `on ${lockTime.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York' })}`
+                  : 'after the Thursday deadline'}.
+              </p>
+            </div>
+            {submissionStatus.length > 0 && (
+              <div className="divide-y divide-white/[0.04]">
+                {submissionStatus.map(s => {
+                  const complete = s.pickCount >= totalGames && s.hasThreeBest
+                  const partial = s.pickCount > 0
+                  return (
+                    <div key={s.userId} className="flex items-center justify-between px-5 py-3">
+                      <span className="text-sm text-slate-300">{s.name}</span>
+                      {complete ? (
+                        <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+                          Submitted
+                        </span>
+                      ) : partial ? (
+                        <span className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                          In progress
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2.5 py-1 rounded-full">
+                          Not started
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         ) : allPicksData && allPicksData.users.length > 0 ? (
           <div className="glass-card rounded-2xl overflow-hidden">

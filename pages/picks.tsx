@@ -80,25 +80,11 @@ function formatKickoff(iso: string) {
   })
 }
 
-// Compute lock time: Thursday 8:15 PM ET of the current NFL week.
-// We find the Thursday on or before the first game, then set 8:15 PM ET.
+// Lock time = earliest kickoff of the week
 function computeLockTime(games: Game[]): Date | null {
   if (games.length === 0) return null
   const kickoffs = games.map(g => parseUTC(g.kickoff_time))
-  const earliest = new Date(Math.min(...kickoffs.map(d => d.getTime())))
-
-  // Walk back to Thursday (day 4)
-  const thursday = new Date(earliest)
-  const dow = thursday.getUTCDay()
-  const daysBack = dow >= 4 ? dow - 4 : dow + 3
-  thursday.setUTCDate(thursday.getUTCDate() - daysBack)
-
-  // NFL season: EDT (UTC-4) Sep–Oct, EST (UTC-5) Nov onwards
-  const month = thursday.getUTCMonth() // 0-indexed
-  const utcOffset = month >= 10 ? 5 : 4  // Nov (10) = EST
-  // 8:15 PM ET = 20:15 local = (20 + utcOffset):15 UTC
-  thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
-  return thursday
+  return new Date(Math.min(...kickoffs.map(d => d.getTime())))
 }
 
 // Skeleton loading component

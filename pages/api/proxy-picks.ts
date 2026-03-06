@@ -50,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ error: 'You are not a manager for this player' })
   }
 
-  // Enforce lock time: find the earliest kickoff for this week, lock at Thursday 8:15 PM ET
+  // Enforce lock time: picks lock at the earliest kickoff of the week
   const { data: games } = await supabase
     .from('games')
     .select('kickoff_time')
@@ -61,15 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (games && games.length > 0) {
     const earliest = new Date(games[0].kickoff_time)
-    const thursday = new Date(earliest)
-    const dow = thursday.getUTCDay()
-    const daysBack = dow >= 4 ? dow - 4 : dow + 3
-    thursday.setUTCDate(thursday.getUTCDate() - daysBack)
-    const month = thursday.getUTCMonth()
-    const utcOffset = month >= 10 ? 5 : 4
-    thursday.setUTCHours(20 + utcOffset, 15, 0, 0)
-
-    if (new Date() >= thursday) {
+    if (new Date() >= earliest) {
       return res.status(400).json({ error: 'Picks are locked for this week' })
     }
   }

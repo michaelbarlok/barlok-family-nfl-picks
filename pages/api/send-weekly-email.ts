@@ -29,7 +29,11 @@ async function isAuthorized(req: NextApiRequest): Promise<boolean> {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
     const { data: { user } } = await anon.auth.getUser(token)
-    return user?.email === ADMIN_EMAIL
+    if (!user) return false
+    if (user.email === ADMIN_EMAIL) return true
+    const admin = getAdminClient()
+    const { data } = await admin.from('users').select('is_admin').eq('id', user.id).single()
+    return data?.is_admin === true
   } catch {
     return false
   }

@@ -1023,7 +1023,7 @@ export default function AdminPage() {
                   User Roles &amp; Access
                 </p>
                 <p className="text-xs text-slate-600 mb-3">
-                  Admins have full access. Managers can make picks for managed players.
+                  Admins have full access. Assign pickers to let someone make picks on another user&apos;s behalf.
                 </p>
                 <div className="glass-card rounded-xl overflow-hidden mb-5">
                   {allUsers.filter(u => !u.is_managed).length === 0 ? (
@@ -1114,6 +1114,44 @@ export default function AdminPage() {
                               </button>
                             </div>
                           )}
+                          {/* Picker assignment — who can make picks for this user */}
+                          {(() => {
+                            const pickerLinks = managerLinks.filter(l => l.player_id === u.id)
+                            const pickers = pickerLinks.map(l => allUsers.find(au => au.id === l.manager_id)).filter(Boolean) as FullUser[]
+                            const availablePickers = allUsers.filter(au => !au.is_managed && au.id !== u.id && !pickerLinks.some(l => l.manager_id === au.id))
+                            return (
+                              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                <span className="text-xs text-slate-600">Pickers:</span>
+                                {pickers.map(p => (
+                                  <span key={p.id} className="inline-flex items-center gap-1 text-xs bg-blue-500/10 border border-blue-500/20 text-blue-400 px-2 py-1 rounded-full font-medium">
+                                    {p.name}
+                                    <button
+                                      onClick={() => handleRemoveManager(u.id, p.id)}
+                                      className="text-blue-400/60 hover:text-red-400 transition ml-0.5"
+                                      title={`Remove ${p.name} as picker`}
+                                    >
+                                      &times;
+                                    </button>
+                                  </span>
+                                ))}
+                                {pickers.length === 0 && (
+                                  <span className="text-xs text-slate-600 italic">Self only</span>
+                                )}
+                                {availablePickers.length > 0 && (
+                                  <select
+                                    value=""
+                                    onChange={e => { if (e.target.value) handleAddManager(u.id, e.target.value) }}
+                                    className="text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                                  >
+                                    <option value="">+ Add picker</option>
+                                    {availablePickers.map(au => (
+                                      <option key={au.id} value={au.id}>{au.name}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </div>
                       )
                     })

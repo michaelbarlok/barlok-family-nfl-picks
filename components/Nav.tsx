@@ -9,6 +9,7 @@ const baseTabs = [
   { label: 'All Picks', icon: '📋', href: '/all-picks' },
   { label: 'Standings', icon: '🏆', href: '/standings' },
   { label: 'Sheets', icon: '📊', href: '/spreadsheets' },
+  { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 
 export default function Nav() {

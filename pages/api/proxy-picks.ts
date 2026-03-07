@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { validateThreeBest, isValidOrigin } from '@/lib/validation'
+import { getWeekLockTime } from '@/lib/lockTime'
 
 function getServiceClient() {
   return createClient(
@@ -53,19 +54,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Enforce lock time: picks lock at the earliest kickoff of the week
-  const { data: games } = await supabase
-    .from('games')
-    .select('kickoff_time')
-    .eq('week', week)
-    .eq('season', season)
-    .order('kickoff_time', { ascending: true })
-    .limit(1)
-
-  if (games && games.length > 0) {
-    const earliest = new Date(games[0].kickoff_time)
-    if (new Date() >= earliest) {
-      return res.status(400).json({ error: 'Picks are locked for this week' })
-    }
+  const lockTime = await getWeekLockTime(supabase, week, season)
+  if (lockTime && new Date() >= lockTime) {
+    return res.status(400).json({ error: 'Picks are locked for this week' })
   }
 
   try {

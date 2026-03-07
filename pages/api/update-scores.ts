@@ -166,6 +166,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updated++
       }
 
+      // Create loss rows for users who have ANY picks this week but skipped this game
+      // (unpicked game = automatic loss; ties still count as ties)
+      const usersWithPicks = new Set((allPicks ?? []).map(p => p.user_id))
+      const usersWhoPicked = new Set(gamePicks.map(p => p.user_id))
+      for (const userId of usersWithPicks) {
+        if (!usersWhoPicked.has(userId)) {
+          await supabase.from('scores').upsert({
+            user_id: userId,
+            game_id: ourGame.id,
+            is_correct: isTie ? null : false,
+            week,
+            season,
+          }, { onConflict: 'user_id,game_id' })
+          updated++
+        }
+      }
+
       results.push({ game: `${espnAway} @ ${espnHome}`, winner: ourWinner, updated })
     }
 

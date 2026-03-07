@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { parseUTC, computeLockTime } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
 
 const NFL_TEAMS: Record<string, { city: string; name: string; logo: string }> = {
@@ -63,19 +64,7 @@ interface SeasonData {
   threeBests: { user_id: string; week: number; pick_1: string; pick_2: string; pick_3: string }[]
 }
 
-function parseUTC(iso: string): Date {
-  const normalized = iso.replace(' ', 'T')
-  const timepart = normalized.split('T')[1] || ''
-  const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
-  return new Date(hasOffset ? normalized : normalized + 'Z')
-}
-
-// Lock time = earliest kickoff of the week
-function computeLockTime(games: Game[]): Date | null {
-  if (games.length === 0) return null
-  const kickoffs = games.map(g => parseUTC(g.kickoff_time))
-  return new Date(Math.min(...kickoffs.map(d => d.getTime())))
-}
+// parseUTC and computeLockTime imported from @/lib/lockTime
 
 function AllPicksSkeleton() {
   return (
@@ -233,28 +222,33 @@ export default function AllPicksPage() {
   const gameResultLookup = new Map<string, string | null>()
   games.forEach(g => gameResultLookup.set(g.id, g.winning_team))
 
-  // Compute records per user
+  // Compute records per user (unpicked games with results count as losses)
   const computeRecords = (userId: string) => {
     if (!seasonData || !selectedWeek) return { priorW: 0, priorL: 0, priorT: 0, weekW: 0, weekL: 0, weekT: 0, totalW: 0, totalL: 0, totalT: 0, priorB3W: 0, priorB3L: 0, priorB3T: 0, weekB3W: 0, weekB3L: 0, weekB3T: 0, totalB3W: 0, totalB3L: 0, totalB3T: 0 }
 
-    const gameMap = new Map(seasonData.games.map(g => [g.id, g]))
-    const userPicks = seasonData.picks.filter(p => p.user_id === userId)
+    const userPicksByGame = new Map(seasonData.picks.filter(p => p.user_id === userId).map(p => [p.game_id, p]))
     const userThreeBests = new Map<number, Set<string>>()
     seasonData.threeBests.filter(tb => tb.user_id === userId).forEach(tb => {
       userThreeBests.set(tb.week, new Set([tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)))
     })
 
+    // Determine which weeks the user participated in (has at least 1 pick)
+    const userWeeks = new Set(seasonData.picks.filter(p => p.user_id === userId).map(p => p.week))
+
     let priorW = 0, priorL = 0, priorT = 0, weekW = 0, weekL = 0, weekT = 0
     let priorB3W = 0, priorB3L = 0, priorB3T = 0, weekB3W = 0, weekB3L = 0, weekB3T = 0
 
-    for (const pick of userPicks) {
-      const game = gameMap.get(pick.game_id)
-      if (!game || !game.winning_team) continue
+    // Iterate ALL decided games — unpicked games in participated weeks count as losses
+    for (const game of seasonData.games) {
+      if (!game.winning_team) continue
+      if (game.week > selectedWeek) continue
+      if (!userWeeks.has(game.week)) continue
 
+      const pick = userPicksByGame.get(game.id)
       const isTie = game.winning_team === 'TIE'
-      const won = !isTie && pick.picked_team === game.winning_team
-      const tbSet = userThreeBests.get(pick.week)
-      const isBest3 = tbSet?.has(pick.picked_team) ?? false
+      const won = pick && !isTie && pick.picked_team === game.winning_team
+      const tbSet = userThreeBests.get(game.week)
+      const isBest3 = pick ? (tbSet?.has(pick.picked_team) ?? false) : false
 
       if (game.week < selectedWeek) {
         if (isTie) { priorT++; if (isBest3) priorB3T++ }

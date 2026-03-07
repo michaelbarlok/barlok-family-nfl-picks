@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { detectUpcomingWeek } from '@/lib/lockTime'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
 
@@ -28,42 +29,7 @@ async function isAuthorized(req: NextApiRequest): Promise<boolean> {
   } catch { return false }
 }
 
-// Lock time = earliest kickoff of the week
-function computeLockTime(games: { kickoff_time: string }[]): Date | null {
-  if (games.length === 0) return null
-  const kickoffs = games.map(g => {
-    const normalized = g.kickoff_time.replace(' ', 'T')
-    const timepart = normalized.split('T')[1] || ''
-    const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
-    return new Date(hasOffset ? normalized : normalized + 'Z')
-  })
-  return new Date(Math.min(...kickoffs.map(d => d.getTime())))
-}
-
-// Find the upcoming week: the next week whose lock time hasn't passed yet
-async function detectUpcomingWeek(supabase: any): Promise<{ week: number; lockTime: Date; games: any[] } | null> {
-  const { data: allGames } = await supabase
-    .from('games')
-    .select('id, week, kickoff_time')
-    .eq('season', CURRENT_SEASON)
-    .order('week')
-
-  if (!allGames || allGames.length === 0) return null
-
-  const weekSet = new Set<number>(allGames.map((g: any) => g.week))
-  const weeks = [...weekSet].sort((a, b) => a - b)
-  const now = new Date()
-
-  for (const week of weeks) {
-    const weekGames = allGames.filter((g: any) => g.week === week)
-    const lockTime = computeLockTime(weekGames)
-    if (lockTime && now < lockTime) {
-      return { week, lockTime, games: weekGames }
-    }
-  }
-
-  return null
-}
+// computeLockTime and detectUpcomingWeek imported from @/lib/lockTime
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST' && req.method !== 'GET') {

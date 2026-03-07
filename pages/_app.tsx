@@ -9,6 +9,7 @@ export default function App({ Component, pageProps }: AppProps) {
     <AuthProvider>
       <Head>
         <title>Barlok Family NFL Picks {CURRENT_SEASON}</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </Head>
       <Component {...pageProps} />
     </AuthProvider>

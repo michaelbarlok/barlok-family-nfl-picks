@@ -30,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const authUser = await getAuthUser(req)
   if (!authUser) return res.status(401).json({ error: 'Unauthorized' })
 
-  const { playerId, week, season, picks, bestPicks } = req.body
+  const { playerId, week, season, picks, bestPicks, gameId, pickedTeam, threeBest } = req.body
 
   if (!playerId || !week || !season) {
     return res.status(400).json({ error: 'Missing required fields: playerId, week, season' })
@@ -67,12 +67,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Save picks
-    if (picks && typeof picks === 'object') {
-      const picksArray = Object.entries(picks).map(([gameId, pickedTeam]) => ({
+    // Single pick save (auto-save mode)
+    if (gameId && pickedTeam !== undefined) {
+      const { error: pickError } = await supabase.from('picks').upsert({
         user_id: playerId,
         game_id: gameId,
-        picked_team: pickedTeam as string,
+        picked_team: pickedTeam,
+        week,
+        season,
+      }, { onConflict: 'user_id,game_id' })
+      if (pickError) throw pickError
+      return res.status(200).json({ success: true, type: 'pick' })
+    }
+
+    // Single three-best save (auto-save mode)
+    if (threeBest) {
+      const { error: bestError } = await supabase.from('three_best').upsert({
+        user_id: playerId,
+        week,
+        season,
+        pick_1: threeBest.pick_1 ?? '',
+        pick_2: threeBest.pick_2 ?? '',
+        pick_3: threeBest.pick_3 ?? '',
+      }, { onConflict: 'user_id,week,season' })
+      if (bestError) throw bestError
+      return res.status(200).json({ success: true, type: 'three_best' })
+    }
+
+    // Bulk save picks (legacy)
+    if (picks && typeof picks === 'object') {
+      const picksArray = Object.entries(picks).map(([gid, pt]) => ({
+        user_id: playerId,
+        game_id: gid,
+        picked_team: pt as string,
         week,
         season,
       }))
@@ -83,7 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Save best picks
+    // Bulk save best picks (legacy)
     if (bestPicks && Array.isArray(bestPicks) && bestPicks.length === 3) {
       const { error: bestError } = await supabase.from('three_best').upsert({
         user_id: playerId,

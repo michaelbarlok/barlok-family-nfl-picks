@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { validateThreeBest, isValidOrigin } from '@/lib/validation'
 
 function getServiceClient() {
   return createClient(
@@ -26,6 +27,7 @@ async function getAuthUser(req: NextApiRequest) {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
 
   const authUser = await getAuthUser(req)
   if (!authUser) return res.status(401).json({ error: 'Unauthorized' })
@@ -82,6 +84,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Single three-best save (auto-save mode)
     if (threeBest) {
+      const validationError = validateThreeBest(threeBest)
+      if (validationError) return res.status(400).json({ error: validationError })
       const { error: bestError } = await supabase.from('three_best').upsert({
         user_id: playerId,
         week,

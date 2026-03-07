@@ -58,12 +58,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Send lock warning on game day morning (kickoff within 12 hours)
   if (hoursUntilKickoff > 0 && hoursUntilKickoff <= 12) {
-    const result = await callInternal(req, '/api/send-reminder-email?type=lock_warning')
-    return res.status(200).json({
-      task: 'lock_warning',
-      result,
-      nextKickoff: kickoff.toISOString(),
-    })
+    try {
+      const result = await callInternal(req, '/api/send-reminder-email?type=lock_warning')
+      if (result.status >= 400) {
+        console.error('Cron: lock_warning call failed', result)
+        return res.status(200).json({
+          task: 'lock_warning',
+          error: `Internal call returned ${result.status}`,
+          result,
+          nextKickoff: kickoff.toISOString(),
+        })
+      }
+      return res.status(200).json({
+        task: 'lock_warning',
+        result,
+        nextKickoff: kickoff.toISOString(),
+      })
+    } catch (err) {
+      console.error('Cron: lock_warning call threw', err)
+      return res.status(200).json({
+        task: 'lock_warning',
+        error: err instanceof Error ? err.message : 'Internal call failed',
+        nextKickoff: kickoff.toISOString(),
+      })
+    }
   }
 
   return res.status(200).json({

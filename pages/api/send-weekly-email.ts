@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { isValidEmail } from '@/lib/validation'
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
 
 function getAdminClient() {
@@ -100,7 +101,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Use explicitly selected recipients, or fall back to users with email_recipient flag
     let recipients: string[]
     if (selectedRecipients) {
-      recipients = selectedRecipients.filter(e => typeof e === 'string' && e.includes('@'))
+      recipients = selectedRecipients.filter(e => isValidEmail(e))
     } else {
       recipients = users
         .filter((u: any) => u.email && u.email_recipient === true)

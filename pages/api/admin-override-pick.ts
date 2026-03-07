@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { ADMIN_EMAIL } from '@/lib/constants'
+import { validateThreeBest, isValidOrigin } from '@/lib/validation'
 
 function getAdminClient() {
   return createClient(
@@ -26,6 +27,7 @@ async function isAdmin(req: NextApiRequest): Promise<boolean> {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
   if (!(await isAdmin(req))) return res.status(403).json({ error: 'Unauthorized' })
 
   const { userId, week, season, gameId, pickedTeam, threeBest } = req.body
@@ -85,6 +87,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Override three best picks
     if (threeBest) {
+      const validationError = validateThreeBest(threeBest)
+      if (validationError) return res.status(400).json({ error: validationError })
       const { pick_1, pick_2, pick_3 } = threeBest
       const { error } = await supabase.from('three_best').upsert({
         user_id: userId,

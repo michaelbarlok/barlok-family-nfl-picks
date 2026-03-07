@@ -273,7 +273,12 @@ export default function PicksPage() {
   const saveBestPicks = async (bestGameIds: Set<string>, picksOverride?: UserPick) => {
     if (!user || currentWeek === null) return
     const currentPicks = picksOverride ?? picks
-    const bestTeams = Array.from(bestGameIds).map(gid => currentPicks[gid] ?? '')
+    const bestTeams = Array.from(bestGameIds).map(gid => currentPicks[gid] ?? '').filter(Boolean)
+    // Validate no duplicate teams in best picks
+    if (bestTeams.length > 0 && new Set(bestTeams).size !== bestTeams.length) {
+      setError('Best picks must be 3 different teams')
+      return
+    }
     const threeBest = { pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '' }
     try {
       if (activePlayerId) {

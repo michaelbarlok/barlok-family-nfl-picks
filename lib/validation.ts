@@ -64,17 +64,15 @@ export function isValidEmail(email: unknown): email is string {
 }
 
 /**
- * Validates that three-best picks contain exactly 3 distinct team abbreviations.
+ * Validates that three-best picks contain distinct team abbreviations.
+ * Allows partial saves (0-3 picks) for auto-save support.
  * Returns an error message string if invalid, or null if valid.
  */
 export function validateThreeBest(threeBest: { pick_1?: string; pick_2?: string; pick_3?: string }): string | null {
   const picks = [threeBest.pick_1, threeBest.pick_2, threeBest.pick_3].filter(Boolean)
-  if (picks.length > 0 && picks.length !== 3) {
-    return 'Exactly 3 best picks are required'
-  }
   const unique = new Set(picks)
   if (unique.size !== picks.length) {
-    return 'Best picks must be 3 different teams'
+    return 'Best picks must be different teams'
   }
   return null
 }

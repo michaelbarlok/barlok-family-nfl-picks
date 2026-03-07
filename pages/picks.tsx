@@ -330,7 +330,7 @@ export default function PicksPage() {
     <div className="min-h-screen bg-surface">
       <Nav />
 
-      <main className="max-w-3xl mx-auto px-4 py-6 pb-20 animate-fade-in">
+      <main className="max-w-3xl mx-auto px-4 py-6 pb-24 animate-fade-in">
         {/* Managed player tabs */}
         {managedPlayers.length > 0 && (
           <div className="mb-5">

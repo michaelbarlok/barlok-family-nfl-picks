@@ -127,17 +127,12 @@ export default function PicksPage() {
   const [games, setGames] = useState<Game[]>([])
   const [picks, setPicks] = useState<UserPick>({})
   const [bestPicks, setBestPicks] = useState<Set<string>>(new Set())
-  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
   const [dataLoading, setDataLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [now, setNow] = useState(new Date())
-  const [toastVisible, setToastVisible] = useState(false)
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
-  const [savedPicks, setSavedPicks] = useState<UserPick>({}) // track what's been saved
-  const [savedBestPicks, setSavedBestPicks] = useState<Set<string>>(new Set())
 
   // Keep clock ticking so lock state stays live
   useEffect(() => {
@@ -200,7 +195,6 @@ export default function PicksPage() {
       const picksMap: UserPick = {}
       picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
       setPicks(picksMap)
-      setSavedPicks({ ...picksMap })
 
       const { data: threeBestData } = await supabase
         .from('three_best').select('*')
@@ -212,10 +206,8 @@ export default function PicksPage() {
         const bestGameIds = new Set<string>()
         picksData?.forEach(p => { if (bestTeams.has(p.picked_team)) bestGameIds.add(p.game_id) })
         setBestPicks(bestGameIds)
-        setSavedBestPicks(new Set(bestGameIds))
       } else {
         setBestPicks(new Set())
-        setSavedBestPicks(new Set())
       }
     } catch (err) {
       console.error('Error fetching picks:', err)
@@ -249,25 +241,71 @@ export default function PicksPage() {
   const lockTime = computeLockTime(games)
   const isLocked = lockTime ? now >= lockTime : false
 
-  // Track unsaved changes
-  const hasUnsavedChanges = !isLocked && games.length > 0 && (
-    JSON.stringify(picks) !== JSON.stringify(savedPicks) ||
-    JSON.stringify([...bestPicks].sort()) !== JSON.stringify([...savedBestPicks].sort())
-  )
+  const getToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? ''
+  }
 
-  useEffect(() => {
-    if (!hasUnsavedChanges) return
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
+  // Save a single game pick to the DB immediately
+  const savePick = async (gameId: string, team: string) => {
+    if (!user || currentWeek === null) return
+    try {
+      if (activePlayerId) {
+        const token = await getToken()
+        const res = await fetch('/api/proxy-picks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: CURRENT_SEASON, gameId, pickedTeam: team }),
+        })
+        if (!res.ok) { const json = await res.json(); throw new Error(json.error ?? 'Failed') }
+      } else {
+        const { error } = await supabase.from('picks').upsert({
+          user_id: user.id, game_id: gameId, picked_team: team, week: currentWeek, season: CURRENT_SEASON,
+        }, { onConflict: 'user_id,game_id' })
+        if (error) throw error
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save pick')
     }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [hasUnsavedChanges])
+  }
+
+  // Save best picks to the DB immediately
+  const saveBestPicks = async (bestGameIds: Set<string>, picksOverride?: UserPick) => {
+    if (!user || currentWeek === null) return
+    const currentPicks = picksOverride ?? picks
+    const bestTeams = Array.from(bestGameIds).map(gid => currentPicks[gid] ?? '')
+    const threeBest = { pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '' }
+    try {
+      if (activePlayerId) {
+        const token = await getToken()
+        const res = await fetch('/api/proxy-picks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: CURRENT_SEASON, threeBest }),
+        })
+        if (!res.ok) { const json = await res.json(); throw new Error(json.error ?? 'Failed') }
+      } else {
+        const { error } = await supabase.from('three_best').upsert({
+          user_id: user.id, week: currentWeek, season: CURRENT_SEASON, ...threeBest,
+        }, { onConflict: 'user_id,week,season' })
+        if (error) throw error
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save best picks')
+    }
+  }
 
   const handlePickChange = (gameId: string, team: string) => {
     if (isLocked) return
-    setPicks(prev => ({ ...prev, [gameId]: team }))
+    setPicks(prev => {
+      const next = { ...prev, [gameId]: team }
+      // If this game is a best pick, re-save best picks with new team name
+      if (bestPicks.has(gameId)) {
+        saveBestPicks(bestPicks, next)
+      }
+      return next
+    })
+    savePick(gameId, team)
   }
 
   const toggleBestPick = (gameId: string) => {
@@ -276,74 +314,11 @@ export default function PicksPage() {
       const next = new Set(prev)
       if (next.has(gameId)) { next.delete(gameId) }
       else if (next.size < MAX_BEST_PICKS) { next.add(gameId) }
+      saveBestPicks(next)
       return next
     })
   }
 
-  const showToast = (msg: string) => {
-    setSuccess(msg)
-    setToastVisible(true)
-    setTimeout(() => setToastVisible(false), 3500)
-    setTimeout(() => setSuccess(''), 4000)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!user || isLocked || currentWeek === null) return
-    if (bestPicks.size !== MAX_BEST_PICKS) {
-      setError(`Please star exactly 3 Best Picks (you have ${bestPicks.size}).`)
-      return
-    }
-    setSubmitting(true); setError('')
-    try {
-      if (activePlayerId) {
-        // Proxy submission for managed player — use API
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token ?? ''
-        const bestTeams = Array.from(bestPicks).map(id => picks[id])
-        const res = await fetch('/api/proxy-picks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            playerId: activePlayerId,
-            week: currentWeek,
-            season: CURRENT_SEASON,
-            picks,
-            bestPicks: bestTeams,
-          }),
-        })
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error ?? 'Failed to save picks')
-        const playerName = managedPlayers.find(p => p.id === activePlayerId)?.name ?? 'Player'
-        showToast(`${playerName}'s picks saved!`)
-        setSavedPicks({ ...picks })
-        setSavedBestPicks(new Set(bestPicks))
-      } else {
-        // Direct submission for self
-        const picksArray = Object.entries(picks).map(([gameId, pickedTeam]) => ({
-          user_id: user.id, game_id: gameId, picked_team: pickedTeam,
-          week: currentWeek, season: CURRENT_SEASON,
-        }))
-        const { error: picksError } = await supabase.from('picks').upsert(picksArray)
-        if (picksError) throw new Error(`Failed to save picks: ${picksError.message}`)
-
-        const bestTeams = Array.from(bestPicks).map(id => picks[id])
-        const { error: bestError } = await supabase.from('three_best').upsert({
-          user_id: user.id, week: currentWeek, season: CURRENT_SEASON,
-          pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '',
-        })
-        if (bestError) throw new Error(`Failed to save best picks: ${bestError.message}`)
-
-        showToast('Picks saved!')
-        setSavedPicks({ ...picks })
-        setSavedBestPicks(new Set(bestPicks))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit picks')
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   if (loading || dataLoading) return <PicksSkeleton />
   if (!user) return null
@@ -355,7 +330,7 @@ export default function PicksPage() {
     <div className="min-h-screen bg-surface">
       <Nav />
 
-      <main className="max-w-3xl mx-auto px-4 py-6 pb-36 sm:pb-28 animate-fade-in">
+      <main className="max-w-3xl mx-auto px-4 py-6 pb-24 animate-fade-in">
         {/* Managed player tabs */}
         {managedPlayers.length > 0 && (
           <div className="mb-5">
@@ -455,19 +430,11 @@ export default function PicksPage() {
           </div>
         )}
 
-        {/* Unsaved changes warning */}
-        {hasUnsavedChanges && (
-          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center gap-2.5 text-blue-400 text-xs">
-            <span>💾</span>
-            <span>You have <strong>unsaved changes</strong> — don&apos;t forget to save!</span>
-          </div>
-        )}
-
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm animate-slide-up">{error}</div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <div>
           <div className="mb-6">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
               Week {currentWeek} Games
@@ -608,43 +575,11 @@ export default function PicksPage() {
               </div>
             </div>
           )}
-        </form>
+        </div>
 
         </>
       </main>
 
-      {/* Sticky bottom save bar — sits above the mobile nav */}
-      {!isLocked && (
-        <div className="fixed bottom-14 sm:bottom-0 left-0 right-0 z-20 safe-bottom">
-          <div className="bg-surface/90 backdrop-blur-xl border-t border-white/[0.06]">
-            <div className="max-w-3xl mx-auto px-4 py-3">
-              <button
-                type="button"
-                onClick={handleSubmit as any}
-                disabled={submitting}
-                className="press w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold py-3.5 rounded-xl hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 focus:ring-offset-surface disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg shadow-blue-600/20"
-              >
-                {submitting ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Saving...
-                  </span>
-                ) : activePlayerId ? `Save ${managedPlayers.find(p => p.id === activePlayerId)?.name}'s Picks` : 'Save Picks'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Floating toast */}
-      {success && (
-        <div className={`fixed bottom-32 sm:bottom-24 left-1/2 -translate-x-1/2 z-30 ${toastVisible ? 'animate-toast-in' : 'animate-toast-out'}`}>
-          <div className="flex items-center gap-2 px-5 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-full text-sm font-medium backdrop-blur-xl shadow-lg glow-green">
-            <span className="w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-xs">✓</span>
-            {success}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

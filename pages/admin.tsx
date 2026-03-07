@@ -561,16 +561,34 @@ export default function AdminPage() {
       return
     }
     // Update local state
-    setOverridePicks(prev => ({ ...prev, [gameId]: pickedTeam }))
+    setOverridePicks(prev => {
+      const next = { ...prev, [gameId]: pickedTeam }
+      // If this game is starred as a best pick, re-save best picks with the updated team name
+      if (overrideBestGames.has(gameId)) {
+        if (pickedTeam === null) {
+          // Pick was cleared — remove from best games too
+          setOverrideBestGames(bg => {
+            const nextBg = new Set(bg)
+            nextBg.delete(gameId)
+            saveBestPicks(nextBg, next)
+            return nextBg
+          })
+        } else {
+          saveBestPicks(overrideBestGames, next)
+        }
+      }
+      return next
+    })
     setMessage({ type: 'success', text: pickedTeam ? `Pick updated to ${pickedTeam}.` : 'Pick cleared.' })
   }
 
-  // Save three best to the API
-  const saveBestPicks = async (bestGameIds: Set<string>) => {
+  // Save three best to the API (picksOverride lets callers pass updated picks before state settles)
+  const saveBestPicks = async (bestGameIds: Set<string>, picksOverride?: Record<string, string | null>) => {
     if (!selectedUserId || !selectedWeek) return
     setSavingOverride(true)
     try {
-      const bestTeams = Array.from(bestGameIds).map(gid => overridePicks[gid] ?? '')
+      const picks = picksOverride ?? overridePicks
+      const bestTeams = Array.from(bestGameIds).map(gid => picks[gid] ?? '')
       const token = await getToken()
       const res = await fetch('/api/admin-override-pick', {
         method: 'POST',

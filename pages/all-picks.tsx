@@ -349,20 +349,39 @@ export default function AllPicksPage() {
                   const partial = s.pickCount > 0
                   return (
                     <div key={s.userId} className="flex items-center justify-between px-5 py-3">
-                      <span className="text-sm text-slate-300">{s.name}</span>
-                      {complete ? (
-                        <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-                          Submitted
-                        </span>
-                      ) : partial ? (
-                        <span className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
-                          In progress
-                        </span>
-                      ) : (
-                        <span className="text-xs font-medium text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2.5 py-1 rounded-full">
-                          Not started
-                        </span>
-                      )}
+                      <div className="flex items-center gap-3">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                          complete
+                            ? 'bg-emerald-500/20 border border-emerald-500/30'
+                            : partial
+                            ? 'bg-amber-500/20 border border-amber-500/30'
+                            : 'bg-white/[0.04] border border-white/[0.08]'
+                        }`}>
+                          {complete ? (
+                            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : partial ? (
+                            <span className="text-amber-400 text-xs font-bold">{s.pickCount}</span>
+                          ) : (
+                            <svg className="w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-sm text-slate-300">{s.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!complete && partial && (
+                          <span className="text-[11px] text-slate-500">{s.pickCount}/{totalGames}{!s.hasThreeBest ? ' + B3' : ''}</span>
+                        )}
+                        {!complete && !partial && (
+                          <span className="text-[11px] text-slate-600">0/{totalGames}</span>
+                        )}
+                        {complete && (
+                          <span className="text-[11px] text-emerald-500/70">{totalGames}/{totalGames}</span>
+                        )}
+                      </div>
                     </div>
                   )
                 })}

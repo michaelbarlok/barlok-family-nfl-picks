@@ -35,6 +35,8 @@ module.exports = {
         'toast-in': 'toastIn 0.4s ease-out',
         'toast-out': 'toastOut 0.3s ease-in forwards',
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
+        'pick-pop': 'pickPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        'check-in': 'checkIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
       },
       keyframes: {
         shimmer: {
@@ -60,6 +62,15 @@ module.exports = {
         pulseGlow: {
           '0%, 100%': { opacity: '0.6' },
           '50%': { opacity: '1' },
+        },
+        pickPop: {
+          '0%': { transform: 'scale(1)' },
+          '40%': { transform: 'scale(1.04)' },
+          '100%': { transform: 'scale(1)' },
+        },
+        checkIn: {
+          '0%': { opacity: '0', transform: 'scale(0) rotate(-45deg)' },
+          '100%': { opacity: '1', transform: 'scale(1) rotate(0deg)' },
         },
       },
     },

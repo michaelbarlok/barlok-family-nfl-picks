@@ -12,7 +12,11 @@ const baseTabs = [
   { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 
-export default function Nav() {
+interface NavProps {
+  incompleteCount?: number
+}
+
+export default function Nav({ incompleteCount }: NavProps = {}) {
   const router = useRouter()
   const { user, signOut, resetPassword } = useAuth()
   const [showMenu, setShowMenu] = useState(false)
@@ -124,11 +128,12 @@ export default function Nav() {
           <div className="hidden sm:flex gap-1 pb-3">
             {tabs.map(tab => {
               const isActive = router.pathname === tab.href
+              const showBadge = tab.href === '/picks' && incompleteCount && incompleteCount > 0
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all ${
+                  className={`relative flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all ${
                     isActive
                       ? 'bg-white/[0.10] text-white shadow-sm'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
@@ -136,6 +141,11 @@ export default function Nav() {
                 >
                   <span className="text-xs">{tab.icon}</span>
                   {tab.label}
+                  {showBadge && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1 shadow-lg shadow-red-500/30 animate-pulse-glow">
+                      {incompleteCount}
+                    </span>
+                  )}
                 </Link>
               )
             })}
@@ -237,11 +247,12 @@ export default function Nav() {
         <div className="flex justify-around items-center px-1 pt-1.5 pb-1">
           {tabs.map(tab => {
             const isActive = router.pathname === tab.href
+            const showBadge = tab.href === '/picks' && incompleteCount && incompleteCount > 0
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 flex-1 ${
+                className={`relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 flex-1 ${
                   isActive
                     ? 'text-blue-400'
                     : 'text-slate-500 active:text-slate-300'
@@ -249,6 +260,11 @@ export default function Nav() {
               >
                 <span className={`text-lg leading-none ${isActive ? 'scale-110' : ''} transition-transform`}>{tab.icon}</span>
                 <span className={`text-[10px] font-medium truncate w-full text-center ${isActive ? 'text-blue-400' : ''}`}>{tab.label}</span>
+                {showBadge && (
+                  <span className="absolute -top-0.5 right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white px-0.5 shadow-lg shadow-red-500/30">
+                    {incompleteCount}
+                  </span>
+                )}
               </Link>
             )
           })}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
@@ -133,10 +133,12 @@ export default function PicksPage() {
   const [now, setNow] = useState(new Date())
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
+  const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
+  const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keep clock ticking so lock state stays live
   useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 10_000)
+    const interval = setInterval(() => setNow(new Date()), 30_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -273,7 +275,12 @@ export default function PicksPage() {
   const saveBestPicks = async (bestGameIds: Set<string>, picksOverride?: UserPick) => {
     if (!user || currentWeek === null) return
     const currentPicks = picksOverride ?? picks
-    const bestTeams = Array.from(bestGameIds).map(gid => currentPicks[gid] ?? '')
+    const bestTeams = Array.from(bestGameIds).map(gid => currentPicks[gid] ?? '').filter(Boolean)
+    // Validate no duplicate teams in best picks
+    if (bestTeams.length > 0 && new Set(bestTeams).size !== bestTeams.length) {
+      setError('Best picks must be 3 different teams')
+      return
+    }
     const threeBest = { pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '' }
     try {
       if (activePlayerId) {
@@ -297,6 +304,11 @@ export default function PicksPage() {
 
   const handlePickChange = (gameId: string, team: string) => {
     if (isLocked) return
+    // Trigger pick animation
+    if (pickAnimTimeout.current) clearTimeout(pickAnimTimeout.current)
+    setJustPicked(`${gameId}:${team}`)
+    pickAnimTimeout.current = setTimeout(() => setJustPicked(null), 400)
+
     setPicks(prev => {
       const next = { ...prev, [gameId]: team }
       // If this game is a best pick, re-save best picks with new team name
@@ -325,10 +337,11 @@ export default function PicksPage() {
 
   const pickedCount = Object.keys(picks).length
   const totalGames = games.length
+  const remaining = !isLocked && totalGames > 0 ? (totalGames - pickedCount) + (bestPicks.size < MAX_BEST_PICKS ? 1 : 0) : 0
 
   return (
     <div className="min-h-screen bg-surface">
-      <Nav />
+      <Nav incompleteCount={remaining} />
 
       <main className="max-w-3xl mx-auto px-4 py-6 pb-24 animate-fade-in">
         {/* Managed player tabs */}
@@ -397,12 +410,26 @@ export default function PicksPage() {
         )}
 
         {/* Lock countdown */}
-        {!isLocked && lockTime && (
-          <div className="mb-5 p-3 glass-card rounded-2xl flex items-center gap-2.5 text-amber-400 text-xs">
-            <span className="animate-pulse-glow">⏰</span>
-            <span>Picks lock at <strong>{formatKickoff(lockTime.toISOString())}</strong> — Thursday 8:15 PM ET</span>
-          </div>
-        )}
+        {!isLocked && lockTime && (() => {
+          const diff = lockTime.getTime() - now.getTime()
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+          const hours = Math.floor((diff / (1000 * 60 * 60)) % 24)
+          const minutes = Math.floor((diff / (1000 * 60)) % 60)
+          const urgent = diff < 1000 * 60 * 60 * 2 // under 2 hours
+          const parts: string[] = []
+          if (days > 0) parts.push(`${days}d`)
+          if (hours > 0) parts.push(`${hours}h`)
+          parts.push(`${minutes}m`)
+          return (
+            <div className={`mb-5 p-3 glass-card rounded-2xl flex items-center gap-2.5 text-xs ${urgent ? 'text-red-400 border-red-500/30' : 'text-amber-400'}`}>
+              <span className="animate-pulse-glow">{urgent ? '🚨' : '⏰'}</span>
+              <span>
+                Picks lock at <strong>{formatKickoff(lockTime.toISOString())}</strong>
+                {' '}— <strong>{parts.join(' ')}</strong> remaining
+              </span>
+            </div>
+          )
+        })()}
 
         {/* Progress */}
         {totalGames > 0 && (
@@ -493,6 +520,8 @@ export default function PicksPage() {
                           onClick={() => handlePickChange(game.id, game.away_team)}
                           disabled={isLocked}
                           className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${
+                            justPicked === `${game.id}:${game.away_team}` ? 'animate-pick-pop' : ''
+                          } ${
                             pickedTeam === game.away_team
                               ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue'
                               : isLocked
@@ -502,7 +531,9 @@ export default function PicksPage() {
                         >
                           <img
                             src={away.logo} alt={game.away_team}
-                            className={`w-10 h-10 object-contain flex-shrink-0 ${isLocked && pickedTeam !== game.away_team ? 'opacity-30' : ''}`}
+                            className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+                              pickedTeam === game.away_team ? 'scale-110' : ''
+                            } ${isLocked && pickedTeam !== game.away_team ? 'opacity-30' : ''}`}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                           />
                           <div className="min-w-0">
@@ -511,7 +542,7 @@ export default function PicksPage() {
                             <p className={`text-[11px] mt-0.5 ${pickedTeam === game.away_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Away</p>
                           </div>
                           {pickedTeam === game.away_team && (
-                            <span className="ml-auto text-blue-400 text-sm">✓</span>
+                            <span className={`ml-auto text-blue-400 text-sm ${justPicked === `${game.id}:${game.away_team}` ? 'animate-check-in' : ''}`}>✓</span>
                           )}
                         </button>
 
@@ -526,6 +557,8 @@ export default function PicksPage() {
                           onClick={() => handlePickChange(game.id, game.home_team)}
                           disabled={isLocked}
                           className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${
+                            justPicked === `${game.id}:${game.home_team}` ? 'animate-pick-pop' : ''
+                          } ${
                             pickedTeam === game.home_team
                               ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue'
                               : isLocked
@@ -535,7 +568,9 @@ export default function PicksPage() {
                         >
                           <img
                             src={home.logo} alt={game.home_team}
-                            className={`w-10 h-10 object-contain flex-shrink-0 ${isLocked && pickedTeam !== game.home_team ? 'opacity-30' : ''}`}
+                            className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+                              pickedTeam === game.home_team ? 'scale-110' : ''
+                            } ${isLocked && pickedTeam !== game.home_team ? 'opacity-30' : ''}`}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                           />
                           <div className="min-w-0">
@@ -544,7 +579,7 @@ export default function PicksPage() {
                             <p className={`text-[11px] mt-0.5 ${pickedTeam === game.home_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Home</p>
                           </div>
                           {pickedTeam === game.home_team && (
-                            <span className="ml-auto text-blue-400 text-sm">✓</span>
+                            <span className={`ml-auto text-blue-400 text-sm ${justPicked === `${game.id}:${game.home_team}` ? 'animate-check-in' : ''}`}>✓</span>
                           )}
                         </button>
                       </div>

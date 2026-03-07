@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { ADMIN_EMAIL } from '@/lib/constants'
+import { isValidOrigin } from '@/lib/validation'
 
 function getAdminClient() {
   return createClient(
@@ -26,6 +27,7 @@ async function isAdmin(req: NextApiRequest): Promise<boolean> {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
   if (!(await isAdmin(req))) return res.status(403).json({ error: 'Unauthorized' })
 
   const { gameId, winningTeam, week, season } = req.body

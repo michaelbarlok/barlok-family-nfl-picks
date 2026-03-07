@@ -2,6 +2,9 @@ import { Workbook, Borders, Alignment } from 'exceljs'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 function getSupabaseClient(): SupabaseClient {
+  if (typeof window !== 'undefined') {
+    throw new Error('getSupabaseClient (service role) must only be called server-side')
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   return createClient(url, key)

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { ADMIN_EMAIL } from '@/lib/constants'
+import { isValidOrigin } from '@/lib/validation'
 
 function getServiceClient() {
   return createClient(
@@ -25,6 +26,8 @@ async function getAuthUser(req: NextApiRequest) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
+
   const authUser = await getAuthUser(req)
   if (!authUser) return res.status(401).json({ error: 'Unauthorized' })
 
@@ -128,10 +131,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      // Create the managed player in users table
+      // Create the managed player in users table (email is explicitly null — managed players don't have accounts)
       const { data: newPlayer, error: createError } = await supabase
         .from('users')
-        .insert({ name: name.trim(), is_managed: true })
+        .insert({ name: name.trim(), email: null, is_managed: true })
         .select('id, name')
         .single()
 

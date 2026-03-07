@@ -68,6 +68,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       updated++
     }
 
+    // Create loss rows for users who have ANY picks this week but skipped this game
+    const { data: weekPicks } = await supabase.from('picks').select('user_id').eq('week', week).eq('season', season)
+    const usersWithPicks = new Set((weekPicks ?? []).map(p => p.user_id))
+    const usersWhoPicked = new Set((picks ?? []).map(p => p.user_id))
+    for (const userId of usersWithPicks) {
+      if (!usersWhoPicked.has(userId)) {
+        await supabase.from('scores').upsert({
+          user_id: userId,
+          game_id: gameId,
+          is_correct: isTie ? null : false,
+          week,
+          season,
+        }, { onConflict: 'user_id,game_id' })
+        updated++
+      }
+    }
+
     return res.status(200).json({ success: true, winningTeam, updated })
   } catch (err) {
     console.error('set-result error:', err)

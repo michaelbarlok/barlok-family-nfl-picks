@@ -119,7 +119,7 @@ export async function generateWeeklyPicksSpreadsheet(
   const { data: games } = await db.from('games').select('*').eq('week', week).eq('season', season).order('kickoff_time')
   const { data: picks } = await db.from('picks').select('*').eq('week', week).eq('season', season)
   const { data: threeBest } = await db.from('three_best').select('*').eq('week', week).eq('season', season)
-  const { data: allScores } = await db.from('scores').select('*').eq('season', season)
+  const { data: allGames } = await db.from('games').select('id, away_team, home_team, week, season, winning_team').eq('season', season)
   const { data: allPicks } = await db.from('picks').select('*').eq('season', season)
   const { data: allThreeBest } = await db.from('three_best').select('*').eq('season', season)
 
@@ -132,53 +132,77 @@ export async function generateWeeklyPicksSpreadsheet(
   const picksMap = new Map(picks?.map(p => [`${p.user_id}-${p.game_id}`, p]) || [])
   const threeBestMap = new Map(threeBest?.map(tb => [tb.user_id, tb]) || [])
 
-  // ---------- Compute W-L-T records ----------
+  // ---------- Compute W-L-T records (unpicked games in participated weeks = loss) ----------
   const init = () => new Map<string, number>(userIds.map(id => [id, 0]))
   const totalW = init(), totalL = init(), totalT = init()
   const weekW = init(), weekL = init(), weekT = init()
   const prevW = init(), prevL = init(), prevT = init()
 
-  allScores?.forEach(s => {
-    if (s.is_correct === true) {
-      totalW.set(s.user_id, (totalW.get(s.user_id) ?? 0) + 1)
-      if (s.week === week) weekW.set(s.user_id, (weekW.get(s.user_id) ?? 0) + 1)
-      if (s.week === week - 1) prevW.set(s.user_id, (prevW.get(s.user_id) ?? 0) + 1)
-    } else if (s.is_correct === false) {
-      totalL.set(s.user_id, (totalL.get(s.user_id) ?? 0) + 1)
-      if (s.week === week) weekL.set(s.user_id, (weekL.get(s.user_id) ?? 0) + 1)
-      if (s.week === week - 1) prevL.set(s.user_id, (prevL.get(s.user_id) ?? 0) + 1)
-    } else {
-      totalT.set(s.user_id, (totalT.get(s.user_id) ?? 0) + 1)
-      if (s.week === week) weekT.set(s.user_id, (weekT.get(s.user_id) ?? 0) + 1)
-      if (s.week === week - 1) prevT.set(s.user_id, (prevT.get(s.user_id) ?? 0) + 1)
-    }
+  // Build user participation: which weeks each user has any picks
+  const userWeeks = new Map<string, Set<number>>()
+  ;(allPicks ?? []).forEach((p: any) => {
+    if (!userWeeks.has(p.user_id)) userWeeks.set(p.user_id, new Set())
+    userWeeks.get(p.user_id)!.add(p.week)
   })
 
-  // ---------- Compute 3 BEST W-L ----------
-  const allScoresMap = new Map((allScores ?? []).map(s => [`${s.user_id}-${s.game_id}`, s]))
+  // Build picks lookup
+  const allPicksMap = new Map((allPicks ?? []).map((p: any) => [`${p.user_id}-${p.game_id}`, p]))
+
+  // Decided games
+  const decidedGames = (allGames ?? []).filter((g: any) => g.winning_team)
+
+  // Compute records by iterating decided games
+  for (const game of decidedGames) {
+    const isTie = game.winning_team === 'TIE'
+    for (const uid of userIds) {
+      const weeks = userWeeks.get(uid)
+      if (!weeks || !weeks.has(game.week)) continue
+      const pick = allPicksMap.get(`${uid}-${game.id}`)
+      let result: 'w' | 'l' | 't'
+      if (!pick) {
+        result = isTie ? 't' : 'l'
+      } else if (isTie) {
+        result = 't'
+      } else if (pick.picked_team === game.winning_team) {
+        result = 'w'
+      } else {
+        result = 'l'
+      }
+      const maps = result === 'w' ? [totalW, weekW, prevW] : result === 'l' ? [totalL, weekL, prevL] : [totalT, weekT, prevT]
+      maps[0].set(uid, (maps[0].get(uid) ?? 0) + 1)
+      if (game.week === week) maps[1].set(uid, (maps[1].get(uid) ?? 0) + 1)
+      if (game.week === week - 1) maps[2].set(uid, (maps[2].get(uid) ?? 0) + 1)
+    }
+  }
+
+  // ---------- Compute 3 BEST W-L (unpicked best = loss) ----------
   const bestTotalW = init(), bestTotalL = init(), bestTotalT = init()
   const bestWeekW = init(), bestWeekL = init(), bestWeekT = init()
   const bestPrevW = init(), bestPrevL = init(), bestPrevT = init()
 
   allThreeBest?.forEach(tb => {
     [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean).forEach(team => {
-      const matchPick = allPicks?.find(p => p.user_id === tb.user_id && p.week === tb.week && p.picked_team === team)
-      if (!matchPick) return
-      const score = allScoresMap.get(`${tb.user_id}-${matchPick.game_id}`)
-      if (!score) return
-      if (score.is_correct === true) {
-        bestTotalW.set(tb.user_id, (bestTotalW.get(tb.user_id) ?? 0) + 1)
-        if (tb.week === week) bestWeekW.set(tb.user_id, (bestWeekW.get(tb.user_id) ?? 0) + 1)
-        if (tb.week === week - 1) bestPrevW.set(tb.user_id, (bestPrevW.get(tb.user_id) ?? 0) + 1)
-      } else if (score.is_correct === false) {
-        bestTotalL.set(tb.user_id, (bestTotalL.get(tb.user_id) ?? 0) + 1)
-        if (tb.week === week) bestWeekL.set(tb.user_id, (bestWeekL.get(tb.user_id) ?? 0) + 1)
-        if (tb.week === week - 1) bestPrevL.set(tb.user_id, (bestPrevL.get(tb.user_id) ?? 0) + 1)
+      const game = decidedGames.find((g: any) =>
+        g.week === tb.week &&
+        (g.away_team === team || g.home_team === team)
+      )
+      if (!game) return
+      const isTie = game.winning_team === 'TIE'
+      const pick = allPicksMap.get(`${tb.user_id}-${game.id}`)
+      let result: 'w' | 'l' | 't'
+      if (!pick) {
+        result = isTie ? 't' : 'l'
+      } else if (isTie) {
+        result = 't'
+      } else if (pick.picked_team === game.winning_team) {
+        result = 'w'
       } else {
-        bestTotalT.set(tb.user_id, (bestTotalT.get(tb.user_id) ?? 0) + 1)
-        if (tb.week === week) bestWeekT.set(tb.user_id, (bestWeekT.get(tb.user_id) ?? 0) + 1)
-        if (tb.week === week - 1) bestPrevT.set(tb.user_id, (bestPrevT.get(tb.user_id) ?? 0) + 1)
+        result = 'l'
       }
+      const maps = result === 'w' ? [bestTotalW, bestWeekW, bestPrevW] : result === 'l' ? [bestTotalL, bestWeekL, bestPrevL] : [bestTotalT, bestWeekT, bestPrevT]
+      maps[0].set(tb.user_id, (maps[0].get(tb.user_id) ?? 0) + 1)
+      if (tb.week === week) maps[1].set(tb.user_id, (maps[1].get(tb.user_id) ?? 0) + 1)
+      if (tb.week === week - 1) maps[2].set(tb.user_id, (maps[2].get(tb.user_id) ?? 0) + 1)
     })
   })
 

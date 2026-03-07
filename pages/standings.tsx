@@ -80,18 +80,14 @@ export default function StandingsPage() {
           supabase.from('scores').select('*').eq('season', CURRENT_SEASON),
           supabase.from('picks').select('*').eq('season', CURRENT_SEASON),
           supabase.from('three_best').select('*').eq('season', CURRENT_SEASON),
-          supabase.from('games').select('id, away_team, home_team, week, season').eq('season', CURRENT_SEASON),
+          supabase.from('games').select('id, away_team, home_team, week, season, winning_team').eq('season', CURRENT_SEASON),
         ])
 
         if (!users) return
 
-        const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p.picked_team]))
-        // Store the full score object so we can distinguish "tie" (row exists, is_correct=null) from "no score"
-        const scoresMap = new Map((scores || []).map(s => [`${s.user_id}-${s.game_id}`, s]))
+        const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p]))
 
-        // Get all weeks that have scores (any row in scores table = game has been decided)
-        const scoredWeeks = [...new Set((scores || []).map(s => s.week))].sort((a, b) => a - b)
-
+        // Track last updated from scores
         const scored = (scores || [])
         if (scored.length > 0) {
           setLastUpdated(new Date(Math.max(...scored.map((s: { created_at: string }) => new Date(s.created_at).getTime()))).toLocaleString('en-US', {
@@ -100,57 +96,104 @@ export default function StandingsPage() {
           }))
         }
 
+        // Decided games (have a winning_team set)
+        const decidedGames = (games || []).filter((g: any) => g.winning_team)
+
+        // Build user participation: which weeks each user has any picks in
+        const userWeeks = new Map<string, Set<number>>()
+        ;(picks || []).forEach((p: any) => {
+          if (!userWeeks.has(p.user_id)) userWeeks.set(p.user_id, new Set())
+          userWeeks.get(p.user_id)!.add(p.week)
+        })
+
         const result: UserStanding[] = users.map(u => {
           let wins = 0, losses = 0, ties = 0, bestWins = 0, bestLosses = 0, bestTies = 0
+          const weeks = userWeeks.get(u.id) || new Set<number>()
 
-          ;(scores || []).forEach(s => {
-            if (s.user_id !== u.id) return
-            if (s.is_correct === true) wins++
-            else if (s.is_correct === false) losses++
-            else ties++
-          })
+          // Iterate ALL decided games — unpicked games in participated weeks count as losses
+          for (const game of decidedGames) {
+            if (!weeks.has(game.week)) continue
+            const isTie = game.winning_team === 'TIE'
+            const pick = picksMap.get(`${u.id}-${game.id}`)
+            if (!pick) {
+              if (isTie) ties++
+              else losses++
+            } else if (isTie) {
+              ties++
+            } else if (pick.picked_team === game.winning_team) {
+              wins++
+            } else {
+              losses++
+            }
+          }
 
-          ;(threeBests || []).filter(tb => tb.user_id === u.id).forEach(tb => {
+          // Best 3
+          ;(threeBests || []).filter((tb: any) => tb.user_id === u.id).forEach((tb: any) => {
             const bestTeams = [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)
-            bestTeams.forEach(team => {
-              const game = (games || []).find(g =>
+            bestTeams.forEach((team: string) => {
+              const game = decidedGames.find((g: any) =>
                 g.week === tb.week &&
-                (g.away_team === team || g.home_team === team) &&
-                picksMap.get(`${u.id}-${g.id}`) === team
+                (g.away_team === team || g.home_team === team)
               )
               if (!game) return
-              const score = scoresMap.get(`${u.id}-${game.id}`)
-              if (!score) return
-              if (score.is_correct === true) bestWins++
-              else if (score.is_correct === false) bestLosses++
-              else bestTies++
+              const isTie = game.winning_team === 'TIE'
+              const pick = picksMap.get(`${u.id}-${game.id}`)
+              if (!pick) {
+                if (isTie) bestTies++
+                else bestLosses++
+              } else if (isTie) {
+                bestTies++
+              } else if (pick.picked_team === game.winning_team) {
+                bestWins++
+              } else {
+                bestLosses++
+              }
             })
           })
 
           // Build per-week records
-          const weekRecords: WeekRecord[] = scoredWeeks.map(week => {
+          const decidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))]
+            .filter(w => weeks.has(w))
+            .sort((a, b) => a - b)
+
+          const weekRecords: WeekRecord[] = decidedWeeks.map(week => {
             let ww = 0, wl = 0, wt = 0, bw = 0, bl = 0, bt = 0
-            ;(scores || []).forEach(s => {
-              if (s.user_id !== u.id || s.week !== week) return
-              if (s.is_correct === true) ww++
-              else if (s.is_correct === false) wl++
-              else wt++
-            })
-            const tb = (threeBests || []).find(t => t.user_id === u.id && t.week === week)
+            for (const game of decidedGames) {
+              if (game.week !== week) continue
+              const isTie = game.winning_team === 'TIE'
+              const pick = picksMap.get(`${u.id}-${game.id}`)
+              if (!pick) {
+                if (isTie) wt++
+                else wl++
+              } else if (isTie) {
+                wt++
+              } else if (pick.picked_team === game.winning_team) {
+                ww++
+              } else {
+                wl++
+              }
+            }
+            const tb = (threeBests || []).find((t: any) => t.user_id === u.id && t.week === week)
             if (tb) {
               const bestTeams = [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)
-              bestTeams.forEach(team => {
-                const game = (games || []).find(g =>
+              bestTeams.forEach((team: string) => {
+                const game = decidedGames.find((g: any) =>
                   g.week === week &&
-                  (g.away_team === team || g.home_team === team) &&
-                  picksMap.get(`${u.id}-${g.id}`) === team
+                  (g.away_team === team || g.home_team === team)
                 )
                 if (!game) return
-                const score = scoresMap.get(`${u.id}-${game.id}`)
-                if (!score) return
-                if (score.is_correct === true) bw++
-                else if (score.is_correct === false) bl++
-                else bt++
+                const isTie = game.winning_team === 'TIE'
+                const pick = picksMap.get(`${u.id}-${game.id}`)
+                if (!pick) {
+                  if (isTie) bt++
+                  else bl++
+                } else if (isTie) {
+                  bt++
+                } else if (pick.picked_team === game.winning_team) {
+                  bw++
+                } else {
+                  bl++
+                }
               })
             }
             return { week, wins: ww, losses: wl, ties: wt, bestWins: bw, bestLosses: bl, bestTies: bt }

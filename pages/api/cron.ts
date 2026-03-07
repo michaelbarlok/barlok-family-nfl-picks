@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { parseUTC } from '@/lib/lockTime'
 
 /**
  * Cron handler — runs once per day (9 AM ET).
@@ -22,7 +23,7 @@ async function getFirstKickoff(): Promise<Date | null> {
     .limit(1)
 
   if (!data || data.length === 0) return null
-  return new Date(data[0].kickoff_time)
+  return parseUTC(data[0].kickoff_time)
 }
 
 async function callInternal(req: NextApiRequest, path: string): Promise<{ status: number; body: any }> {

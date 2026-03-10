@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
@@ -123,7 +123,7 @@ export default function AdminPage() {
   // Manage Players tab state
   interface ManagedPlayer { id: string; name: string }
   interface ManagerLink { manager_id: string; player_id: string }
-  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; is_admin?: boolean; email_recipient?: boolean; last_sign_in_at: string | null }
+  interface FullUser { id: string; name: string; email: string | null; is_manager: boolean; is_managed: boolean; is_admin?: boolean; email_recipient?: boolean; last_sign_in_at: string | null; avatar_url?: string | null }
   const [sendingResetFor, setSendingResetFor] = useState<string | null>(null)
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [managerLinks, setManagerLinks] = useState<ManagerLink[]>([])
@@ -134,6 +134,9 @@ export default function AdminPage() {
   const [playersLoading, setPlayersLoading] = useState(false)
   const [editingNameId, setEditingNameId] = useState<string | null>(null)
   const [editingNameValue, setEditingNameValue] = useState('')
+  const [uploadingAvatarFor, setUploadingAvatarFor] = useState<string | null>(null)
+  const avatarFileRef = useRef<HTMLInputElement>(null)
+  const [avatarTargetId, setAvatarTargetId] = useState<string | null>(null)
 
   // Auth guard — allow admin and managers
   useEffect(() => {
@@ -425,6 +428,61 @@ export default function AdminPage() {
       setMessage({ type: 'success', text: 'Name updated.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    }
+  }
+
+  // Avatar upload for any user (admin only)
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !avatarTargetId) return
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'Image must be under 2MB' })
+      return
+    }
+    setUploadingAvatarFor(avatarTargetId)
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const token = await getToken()
+      const res = await fetch('/api/avatar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: avatarTargetId, imageData: base64, contentType: file.type }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setAllUsers(prev => prev.map(u => u.id === avatarTargetId ? { ...u, avatar_url: data.avatar_url } : u))
+      setManagedPlayers(prev => prev.map(p => p.id === avatarTargetId ? { ...p } : p))
+      setMessage({ type: 'success', text: 'Photo updated.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to upload' })
+    } finally {
+      setUploadingAvatarFor(null)
+      setAvatarTargetId(null)
+      if (avatarFileRef.current) avatarFileRef.current.value = ''
+    }
+  }
+
+  const handleRemoveAvatar = async (userId: string) => {
+    setUploadingAvatarFor(userId)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/avatar', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId }),
+      })
+      if (!res.ok) throw new Error('Failed to remove photo')
+      setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, avatar_url: null } : u))
+      setMessage({ type: 'success', text: 'Photo removed.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    } finally {
+      setUploadingAvatarFor(null)
     }
   }
 
@@ -1108,6 +1166,13 @@ export default function AdminPage() {
         {/* ── MANAGE PLAYERS TAB ── */}
         {activeTab === 'players' && (
           <>
+            <input
+              ref={avatarFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={handleAvatarUpload}
+            />
             {playersLoading ? (
               <div className="glass-card rounded-xl p-8 text-center">
                 <p className="text-slate-400 text-sm">Loading player data...</p>
@@ -1184,7 +1249,33 @@ export default function AdminPage() {
                           className={`px-4 py-3 ${idx > 0 ? 'border-t border-white/[0.04]' : ''}`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <div className="relative group shrink-0">
+                                {u.avatar_url ? (
+                                  <img src={u.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover border border-white/[0.08]" />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center border border-white/[0.08] text-white text-xs font-bold">
+                                    {u.name?.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                {uploadingAvatarFor === u.id ? (
+                                  <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
+                                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => { setAvatarTargetId(u.id); avatarFileRef.current?.click() }}
+                                    className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title={u.avatar_url ? 'Change photo' : 'Add photo'}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                      <circle cx="12" cy="13" r="4" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                              <div className="min-w-0">
                               {editingNameId === u.id ? (
                                 <form onSubmit={e => { e.preventDefault(); handleRenameUser(u.id) }} className="flex items-center gap-2">
                                   <input
@@ -1217,6 +1308,16 @@ export default function AdminPage() {
                                     : 'Never'}
                                 </p>
                               )}
+                              {u.avatar_url && (
+                                <button
+                                  onClick={() => handleRemoveAvatar(u.id)}
+                                  disabled={uploadingAvatarFor === u.id}
+                                  className="text-[11px] text-slate-600 hover:text-red-400 transition mt-0.5 disabled:opacity-50"
+                                >
+                                  Remove photo
+                                </button>
+                              )}
+                              </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                               {/* Admin toggle */}
@@ -1325,6 +1426,36 @@ export default function AdminPage() {
                         <div key={player.id} className="glass-card rounded-xl p-4">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
+                              {(() => {
+                                const playerUser = allUsers.find(u => u.id === player.id)
+                                return (
+                                  <div className="relative group shrink-0">
+                                    {playerUser?.avatar_url ? (
+                                      <img src={playerUser.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover border border-white/[0.08]" />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center border border-white/[0.08] text-white text-xs font-bold">
+                                        {player.name?.charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+                                    {uploadingAvatarFor === player.id ? (
+                                      <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
+                                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={() => { setAvatarTargetId(player.id); avatarFileRef.current?.click() }}
+                                        className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Change photo"
+                                      >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                          <circle cx="12" cy="13" r="4" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              })()}
                               <span className="text-xs bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium shrink-0">
                                 Managed
                               </span>

@@ -7,6 +7,7 @@ interface User {
   name: string
   is_manager?: boolean
   is_admin?: boolean
+  avatar_url?: string | null
 }
 
 interface AuthContextType {
@@ -17,6 +18,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, name: string) => Promise<void>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
+  updateAvatarUrl: (url: string | null) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -171,8 +173,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(error.message)
   }
 
+  const updateAvatarUrl = (url: string | null) => {
+    setUser(prev => prev ? { ...prev, avatar_url: url } : prev)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, configError, signIn, signUp, signOut, resetPassword }}>
+    <AuthContext.Provider value={{ user, loading, configError, signIn, signUp, signOut, resetPassword, updateAvatarUrl }}>
       {children}
     </AuthContext.Provider>
   )

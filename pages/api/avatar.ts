@@ -50,9 +50,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Validate content type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
     if (!allowedTypes.includes(contentType)) {
-      return res.status(400).json({ error: 'Only JPEG, PNG, WebP, and GIF images are allowed' })
+      return res.status(400).json({ error: 'Only JPEG, PNG, WebP, GIF, and HEIC images are allowed' })
     }
 
     // Determine target user: self or admin uploading for another user
@@ -76,9 +76,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Decode base64
       const buffer = Buffer.from(imageData, 'base64')
 
-      // Validate size (max 2MB after decode)
-      if (buffer.length > 2 * 1024 * 1024) {
-        return res.status(400).json({ error: 'Image must be under 2MB' })
+      // Safety limit (5MB) — client compresses to ~512px JPEG so this is generous
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Image too large' })
       }
 
       const ext = contentType.split('/')[1] === 'jpeg' ? 'jpg' : contentType.split('/')[1]

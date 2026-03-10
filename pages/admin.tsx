@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { processAvatarFile } from '@/lib/avatarUtils'
 import Nav from '@/components/Nav'
 
 const NFL_TEAMS: Record<string, { city: string; name: string; logo: string }> = {
@@ -435,23 +436,14 @@ export default function AdminPage() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !avatarTargetId) return
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'Image must be under 2MB' })
-      return
-    }
     setUploadingAvatarFor(avatarTargetId)
     try {
-      const reader = new FileReader()
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      const { base64, contentType } = await processAvatarFile(file)
       const token = await getToken()
       const res = await fetch('/api/avatar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ userId: avatarTargetId, imageData: base64, contentType: file.type }),
+        body: JSON.stringify({ userId: avatarTargetId, imageData: base64, contentType }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -1169,7 +1161,7 @@ export default function AdminPage() {
             <input
               ref={avatarFileRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
+              accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
               className="hidden"
               onChange={handleAvatarUpload}
             />

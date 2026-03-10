@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
 import { supabase } from '@/lib/supabase'
+import { processAvatarFile } from '@/lib/avatarUtils'
 
 const baseTabs = [
   { label: 'My Picks', icon: '🏈', href: '/picks' },
@@ -53,21 +54,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !user) return
-    if (file.size > 2 * 1024 * 1024) {
-      alert('Image must be under 2MB')
-      return
-    }
     setAvatarUploading(true)
     try {
-      const reader = new FileReader()
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string
-          resolve(result.split(',')[1])
-        }
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      const { base64, contentType } = await processAvatarFile(file)
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/avatar', {
         method: 'POST',
@@ -75,7 +64,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`,
         },
-        body: JSON.stringify({ imageData: base64, contentType: file.type }),
+        body: JSON.stringify({ imageData: base64, contentType }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -249,7 +238,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   <input
                     ref={avatarInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
                     className="hidden"
                     onChange={handleAvatarUpload}
                   />

@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { supabase } from '@/lib/supabase'
 
 const baseTabs = [
   { label: 'My Picks', icon: '🏈', href: '/picks' },
@@ -18,10 +19,12 @@ interface NavProps {
 
 export default function Nav({ incompleteCount }: NavProps = {}) {
   const router = useRouter()
-  const { user, signOut, resetPassword } = useAuth()
+  const { user, signOut, resetPassword, updateAvatarUrl } = useAuth()
   const [showMenu, setShowMenu] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const isAdmin = user?.email === ADMIN_EMAIL || user?.is_admin === true
@@ -44,6 +47,69 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       setResetStatus('sent')
     } catch {
       setResetStatus('error')
+    }
+  }
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Image must be under 2MB')
+      return
+    }
+    setAvatarUploading(true)
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string
+          resolve(result.split(',')[1])
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ imageData: base64, contentType: file.type }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      updateAvatarUrl(data.avatar_url)
+    } catch (err: any) {
+      alert(err.message || 'Failed to upload avatar')
+    } finally {
+      setAvatarUploading(false)
+      if (avatarInputRef.current) avatarInputRef.current.value = ''
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    if (!user) return
+    setAvatarUploading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/avatar', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error)
+      }
+      updateAvatarUrl(null)
+    } catch (err: any) {
+      alert(err.message || 'Failed to remove avatar')
+    } finally {
+      setAvatarUploading(false)
     }
   }
 
@@ -85,12 +151,16 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/[0.04] transition"
                 >
                   <span className="text-sm text-slate-400 hidden sm:inline">{user.name}</span>
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center border border-white/[0.08]">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                  </div>
+                  {user.avatar_url ? (
+                    <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover border border-white/[0.08]" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center border border-white/[0.08]">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                    </div>
+                  )}
                 </button>
 
                 {/* Dropdown menu */}
@@ -175,12 +245,57 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
             {/* User info */}
             <div className="px-5 pb-4">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/20">
-                  {user.name?.charAt(0).toUpperCase() || '?'}
+                <div className="relative group">
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                  />
+                  {user.avatar_url ? (
+                    <img src={user.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover shadow-lg border-2 border-white/[0.1]" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/20">
+                      {user.name?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={avatarUploading}
+                    className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    {avatarUploading ? (
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-white font-semibold truncate">{user.name}</p>
                   <p className="text-sm text-slate-400 truncate">{user.email}</p>
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={avatarUploading}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 transition disabled:opacity-50"
+                    >
+                      {user.avatar_url ? 'Change photo' : 'Add photo'}
+                    </button>
+                    {user.avatar_url && (
+                      <button
+                        onClick={handleRemoveAvatar}
+                        disabled={avatarUploading}
+                        className="text-[11px] text-slate-500 hover:text-red-400 transition disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 

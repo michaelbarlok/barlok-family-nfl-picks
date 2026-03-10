@@ -62,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const { data: allUsers } = await supabase
           .from('users')
-          .select('id, name, email, is_manager, is_managed, is_admin, email_recipient')
+          .select('id, name, email, is_manager, is_managed, is_admin, email_recipient, avatar_url')
           .order('name')
 
         // Fetch last_sign_in_at from Supabase Auth for users with logins

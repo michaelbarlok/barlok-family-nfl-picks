@@ -187,7 +187,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
           <div className="hidden sm:flex gap-1 pb-3">
             {tabs.map(tab => {
               const isActive = router.pathname === tab.href
-              const showBadge = tab.href === '/picks' && incompleteCount && incompleteCount > 0
+              const showBadge = tab.href === '/picks' && typeof incompleteCount === 'number' && incompleteCount > 0
               return (
                 <Link
                   key={tab.href}
@@ -351,7 +351,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
         <div className="flex justify-around items-center px-1 pt-1.5 pb-1">
           {tabs.map(tab => {
             const isActive = router.pathname === tab.href
-            const showBadge = tab.href === '/picks' && incompleteCount && incompleteCount > 0
+            const showBadge = tab.href === '/picks' && typeof incompleteCount === 'number' && incompleteCount > 0
             return (
               <Link
                 key={tab.href}

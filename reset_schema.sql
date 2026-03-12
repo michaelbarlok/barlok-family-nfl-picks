@@ -1,12 +1,19 @@
 -- ============================================================
 -- FULL SCHEMA RESET for Barlok Family NFL Picks
--- WARNING: This drops ALL app tables and recreates them.
---          ALL DATA WILL BE LOST.
+-- PRESERVES user accounts and player_managers data.
+-- Picks, scores, games, and three_best data WILL BE LOST.
 -- Run this in the Supabase SQL Editor.
 -- ============================================================
 
 -- =====================
--- 1. DROP EVERYTHING
+-- 1. BACKUP USERS & PLAYER MANAGERS
+-- =====================
+
+CREATE TEMP TABLE _users_backup AS SELECT * FROM users;
+CREATE TEMP TABLE _player_managers_backup AS SELECT * FROM player_managers;
+
+-- =====================
+-- 2. DROP EVERYTHING
 -- =====================
 
 -- Drop policies first (they depend on tables/functions)
@@ -40,7 +47,7 @@ DROP TABLE IF EXISTS users CASCADE;
 DROP FUNCTION IF EXISTS is_week_locked(INTEGER, INTEGER);
 
 -- =====================
--- 2. CREATE TABLES
+-- 3. CREATE TABLES
 -- =====================
 
 -- Users table
@@ -121,7 +128,37 @@ CREATE TABLE player_managers (
 );
 
 -- =====================
--- 3. ENABLE RLS
+-- 4. RESTORE USERS & PLAYER MANAGERS
+-- =====================
+
+-- Restore users (only columns that exist in the new schema)
+INSERT INTO users (id, email, name, is_managed, is_manager, is_admin, email_recipient, avatar_url, created_at, updated_at)
+SELECT
+  id,
+  email,
+  name,
+  COALESCE(is_managed, false),
+  COALESCE(is_manager, false),
+  COALESCE(is_admin, false),
+  COALESCE(email_recipient, false),
+  avatar_url,
+  COALESCE(created_at, NOW()),
+  COALESCE(updated_at, NOW())
+FROM _users_backup
+ON CONFLICT (id) DO NOTHING;
+
+-- Restore player manager relationships
+INSERT INTO player_managers (id, manager_id, player_id, created_at)
+SELECT id, manager_id, player_id, COALESCE(created_at, NOW())
+FROM _player_managers_backup
+ON CONFLICT (manager_id, player_id) DO NOTHING;
+
+-- Clean up temp tables
+DROP TABLE _users_backup;
+DROP TABLE _player_managers_backup;
+
+-- =====================
+-- 5. ENABLE RLS
 -- =====================
 
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -132,7 +169,7 @@ ALTER TABLE scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE player_managers ENABLE ROW LEVEL SECURITY;
 
 -- =====================
--- 4. HELPER FUNCTIONS
+-- 6. HELPER FUNCTIONS
 -- =====================
 
 -- Returns TRUE if any game in the given week has kicked off
@@ -146,7 +183,7 @@ RETURNS BOOLEAN AS $$
 $$ LANGUAGE SQL STABLE SECURITY DEFINER;
 
 -- =====================
--- 5. RLS POLICIES
+-- 7. RLS POLICIES
 -- =====================
 
 -- Users
@@ -183,7 +220,7 @@ CREATE POLICY "Users can read all scores" ON scores FOR SELECT USING (true);
 CREATE POLICY "Users can read all player_managers" ON player_managers FOR SELECT USING (true);
 
 -- =====================
--- 6. PERFORMANCE INDEXES
+-- 8. PERFORMANCE INDEXES
 -- =====================
 
 CREATE INDEX idx_picks_user_season ON picks(user_id, season);
@@ -195,7 +232,7 @@ CREATE INDEX idx_games_kickoff ON games(kickoff_time);
 CREATE INDEX idx_three_best_week_season ON three_best(week, season);
 
 -- =====================
--- 7. STORAGE (avatars)
+-- 9. STORAGE (avatars)
 -- =====================
 -- Uncomment and run these if you need to recreate the avatars storage bucket.
 -- If the bucket already exists, skip this section.

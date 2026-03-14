@@ -152,6 +152,75 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
   }
 
+  if (type === 'deadline_warning') {
+    // Send personalized deadline warnings to ALL email recipients
+    const minutes = parseInt((req.query.minutes as string) || '60')
+    const timeLabel = minutes >= 60 ? `${Math.round(minutes / 60)} Hour` : `${minutes} Minutes`
+
+    if (emailableUsers.length === 0) {
+      return res.status(200).json({ message: 'No email recipients configured.' })
+    }
+
+    let sentCount = 0
+    for (const u of emailableUsers) {
+      const count = pickCounts.get(u.id) || 0
+      const hasThreeBest = threeBestUserIds.has(u.id)
+      const isComplete = count >= totalGames && hasThreeBest
+
+      let bodyHtml: string
+      if (isComplete) {
+        bodyHtml = `
+          <p>Hey ${u.name},</p>
+          <p>Your Week ${week} picks are submitted! If you have any last-minute changes, make sure to save them before the deadline.</p>
+          <p>Picks lock at <strong>${lockTimeStr}</strong>.</p>
+        `
+      } else {
+        const missingPicks = totalGames - count
+        const parts: string[] = []
+        if (missingPicks > 0) parts.push(`${missingPicks} game pick${missingPicks > 1 ? 's' : ''}`)
+        if (!hasThreeBest) parts.push('Best 3 selections')
+        const missingStr = parts.join(' and ')
+        bodyHtml = `
+          <p>Hey ${u.name},</p>
+          <p>You still need to submit <strong>${missingStr}</strong> for Week ${week}!</p>
+          <p>Picks lock at <strong>${lockTimeStr}</strong>.</p>
+        `
+      }
+
+      await transporter.sendMail({
+        from: `Barlok Family NFL Picks <${gmailAddress}>`,
+        to: u.email,
+        subject: `${LEAGUE_NAME} — Picks Lock in ${timeLabel}!`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #dc2626;">${minutes <= 15 ? '🚨' : '⏰'} Picks Lock in ${timeLabel}!</h2>
+            ${bodyHtml}
+            <p style="margin: 20px 0;">
+              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'}/picks"
+                 style="display: inline-block; background-color: #1d4ed8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                ${isComplete ? 'Review Your Picks' : 'Submit Your Picks'}
+              </a>
+            </p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+            <p style="color: #9ca3af; font-size: 12px;">
+              ${LEAGUE_NAME} &middot; ${CURRENT_SEASON} Season &middot; Week ${week}
+            </p>
+          </div>
+        `,
+      })
+      sentCount++
+    }
+
+    return res.status(200).json({
+      success: true,
+      week,
+      type: 'deadline_warning',
+      minutes,
+      sent: sentCount,
+      message: `Deadline warning (${timeLabel}) sent to ${sentCount} recipients.`,
+    })
+  }
+
   // Default: reminder — only send to users who haven't completed picks
   const incompleteUsers = emailableUsers.filter((u: any) => {
     const count = pickCounts.get(u.id) || 0

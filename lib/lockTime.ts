@@ -76,3 +76,17 @@ export async function detectUpcomingWeek(
 
   return null
 }
+
+/**
+ * Get the current time components in Eastern Time.
+ * Handles EDT/EST automatically via the IANA timezone database.
+ */
+export function getCurrentET(): { hour: number; dayOfWeek: number } {
+  const now = new Date()
+  const etString = now.toLocaleString('en-US', { timeZone: 'America/New_York' })
+  const etDate = new Date(etString)
+  return {
+    hour: etDate.getHours(),
+    dayOfWeek: etDate.getDay(), // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  }
+}

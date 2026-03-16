@@ -1,28 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { detectUpcomingWeek, getCurrentET } from '@/lib/lockTime'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { callInternal } from '@/lib/callInternal'
 
 /**
  * Cron handler — runs at 10pm and 11pm UTC on Tue/Wed/Thu
  * (covers both EDT and EST for 6pm ET).
  * Sends pick reminders to users who haven't completed their picks.
  */
-
-async function callInternal(req: NextApiRequest, path: string): Promise<{ status: number; body: any }> {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000'
-  const baseUrl = `${protocol}://${host}`
-
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: req.headers.authorization ?? '',
-      'Content-Type': 'application/json',
-    },
-  })
-  const body = await res.json().catch(() => ({}))
-  return { status: res.status, body }
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authHeader = req.headers.authorization ?? ''
@@ -41,10 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ skipped: true, reason: 'Not Tue/Wed/Thu' })
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const supabase = getAdminClient()
 
   const upcoming = await detectUpcomingWeek(supabase)
   if (!upcoming) {

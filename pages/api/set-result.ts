@@ -1,29 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
-import { ADMIN_EMAIL } from '@/lib/constants'
 import { isValidOrigin } from '@/lib/validation'
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
-
-async function isAdmin(req: NextApiRequest): Promise<boolean> {
-  const token = (req.headers.authorization ?? '').replace('Bearer ', '')
-  if (!token) return false
-  try {
-    const anon = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anon.auth.getUser(token)
-    return user?.email === ADMIN_EMAIL
-  } catch {
-    return false
-  }
-}
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { isAdmin } from '@/lib/apiAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -54,38 +32,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (picksError) throw picksError
 
-    // Upsert a score row for every user who picked this game
+    // Batch upsert scores for all users
     const isTie = winningTeam === 'TIE'
-    let updated = 0
-    for (const pick of picks ?? []) {
-      await supabase.from('scores').upsert({
-        user_id: pick.user_id,
-        game_id: gameId,
-        is_correct: isTie ? null : pick.picked_team === winningTeam,
-        week,
-        season,
-      }, { onConflict: 'user_id,game_id' })
-      updated++
-    }
+    const scoreRows = (picks ?? []).map(pick => ({
+      user_id: pick.user_id,
+      game_id: gameId,
+      is_correct: isTie ? null : pick.picked_team === winningTeam,
+      week,
+      season,
+    }))
 
-    // Create loss rows for users who have ANY picks this week but skipped this game
+    // Add loss rows for users who have ANY picks this week but skipped this game
     const { data: weekPicks } = await supabase.from('picks').select('user_id').eq('week', week).eq('season', season)
     const usersWithPicks = new Set((weekPicks ?? []).map(p => p.user_id))
     const usersWhoPicked = new Set((picks ?? []).map(p => p.user_id))
     for (const userId of usersWithPicks) {
       if (!usersWhoPicked.has(userId)) {
-        await supabase.from('scores').upsert({
+        scoreRows.push({
           user_id: userId,
           game_id: gameId,
           is_correct: isTie ? null : false,
           week,
           season,
-        }, { onConflict: 'user_id,game_id' })
-        updated++
+        })
       }
     }
 
-    return res.status(200).json({ success: true, winningTeam, updated })
+    if (scoreRows.length > 0) {
+      await supabase.from('scores').upsert(scoreRows, { onConflict: 'user_id,game_id' })
+    }
+
+    return res.status(200).json({ success: true, winningTeam, updated: scoreRows.length })
   } catch (err) {
     console.error('set-result error:', err)
     return res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' })

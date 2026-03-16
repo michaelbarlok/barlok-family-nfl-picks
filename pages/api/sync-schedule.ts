@@ -1,43 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
-import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
-
-// ESPN uses slightly different abbreviations for a few teams
-const ESPN_TO_OUR: Record<string, string> = {
-  JAX: 'JAC',
-  WSH: 'WAS',
-}
-function normalizeTeam(espnAbbr: string): string {
-  return ESPN_TO_OUR[espnAbbr] ?? espnAbbr
-}
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
-
-async function isAuthorized(req: NextApiRequest): Promise<boolean> {
-  const authHeader = req.headers.authorization ?? ''
-
-  if (process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
-    return true
-  }
-
-  const token = authHeader.replace('Bearer ', '')
-  if (!token) return false
-  try {
-    const anon = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anon.auth.getUser(token)
-    return user?.email === ADMIN_EMAIL
-  } catch {
-    return false
-  }
-}
+import { CURRENT_SEASON } from '@/lib/constants'
+import { normalizeTeam } from '@/lib/nflTeams'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { isAuthorized } from '@/lib/apiAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

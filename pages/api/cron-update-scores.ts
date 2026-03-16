@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { callInternal } from '@/lib/callInternal'
 
 /**
  * Cron handler — runs every hour.
@@ -8,32 +9,13 @@ import { CURRENT_SEASON } from '@/lib/constants'
  * then calls /api/update-scores for each affected week.
  */
 
-async function callInternal(req: NextApiRequest, path: string): Promise<{ status: number; body: any }> {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000'
-  const baseUrl = `${protocol}://${host}`
-
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: req.headers.authorization ?? '',
-      'Content-Type': 'application/json',
-    },
-  })
-  const body = await res.json().catch(() => ({}))
-  return { status: res.status, body }
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authHeader = req.headers.authorization ?? ''
   if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(403).json({ error: 'Unauthorized' })
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const supabase = getAdminClient()
 
   const now = new Date()
   const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000)

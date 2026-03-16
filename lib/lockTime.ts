@@ -17,6 +17,18 @@ export function parseUTC(iso: string): Date {
 }
 
 /**
+ * Format a kickoff time for display in Eastern Time.
+ */
+export function formatKickoff(iso: string): string {
+  const d = parseUTC(iso)
+  return d.toLocaleString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+    timeZone: 'America/New_York',
+  })
+}
+
+/**
  * Compute the lock time for a set of games.
  * Lock time = earliest kickoff of the week.
  */

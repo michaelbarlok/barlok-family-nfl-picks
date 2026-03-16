@@ -1,30 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { validateThreeBest, isValidOrigin } from '@/lib/validation'
 import { getWeekLockTime } from '@/lib/lockTime'
-
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
-
-async function getAuthUser(req: NextApiRequest) {
-  const token = (req.headers.authorization ?? '').replace('Bearer ', '')
-  if (!token) return null
-  try {
-    const anon = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anon.auth.getUser(token)
-    return user
-  } catch {
-    return null
-  }
-}
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getAuthUser } from '@/lib/apiAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -39,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Missing required fields: playerId, week, season' })
   }
 
-  const supabase = getServiceClient()
+  const supabase = getAdminClient()
 
   // Verify caller is a manager of this player
   const { data: link } = await supabase

@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { ADMIN_EMAIL } from '@/lib/constants'
 import { isValidOrigin } from '@/lib/validation'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getAuthUser } from '@/lib/apiAuth'
 
 export const config = {
   api: {
@@ -11,35 +12,13 @@ export const config = {
   },
 }
 
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
-
-async function getAuthUser(req: NextApiRequest) {
-  const token = (req.headers.authorization ?? '').replace('Bearer ', '')
-  if (!token) return null
-  try {
-    const anon = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anon.auth.getUser(token)
-    return user
-  } catch {
-    return null
-  }
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
 
   const authUser = await getAuthUser(req)
   if (!authUser) return res.status(401).json({ error: 'Unauthorized' })
 
-  const supabase = getServiceClient()
+  const supabase = getAdminClient()
 
   // POST: Upload avatar (base64 image in body)
   if (req.method === 'POST') {

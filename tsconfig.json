@@ -6,7 +6,7 @@
       "dom",
       "dom.iterable"
     ],
-    "jsx": "react-jsx",
+    "jsx": "preserve",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,

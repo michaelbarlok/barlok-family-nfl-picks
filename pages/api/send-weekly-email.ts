@@ -1,44 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
-import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { CURRENT_SEASON } from '@/lib/constants'
 import { isValidEmail } from '@/lib/validation'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { isAuthorized } from '@/lib/apiAuth'
+
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
-
-async function isAuthorized(req: NextApiRequest): Promise<boolean> {
-  const authHeader = req.headers.authorization ?? ''
-
-  // Vercel cron secret
-  if (process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
-    return true
-  }
-
-  // Admin user token
-  const token = authHeader.replace('Bearer ', '')
-  if (!token) return false
-  try {
-    const anon = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anon.auth.getUser(token)
-    if (!user) return false
-    if (user.email === ADMIN_EMAIL) return true
-    const admin = getAdminClient()
-    const { data } = await admin.from('users').select('is_admin').eq('id', user.id).single()
-    return data?.is_admin === true
-  } catch {
-    return false
-  }
-}
 
 // Detect the current NFL week: most recent week where any game has kicked off
 async function detectCurrentWeek(supabase: any): Promise<number | null> {

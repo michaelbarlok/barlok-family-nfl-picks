@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { detectUpcomingWeek, getCurrentET } from '@/lib/lockTime'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { callInternal } from '@/lib/callInternal'
 
 /**
  * Cron handler — runs at 5am and 6am UTC on Tuesdays
@@ -9,22 +10,6 @@ import { detectUpcomingWeek, getCurrentET } from '@/lib/lockTime'
  * Syncs the next week's schedule from ESPN and re-syncs
  * the current upcoming week to catch flex scheduling changes.
  */
-
-async function callInternal(req: NextApiRequest, path: string): Promise<{ status: number; body: any }> {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000'
-  const baseUrl = `${protocol}://${host}`
-
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: req.headers.authorization ?? '',
-      'Content-Type': 'application/json',
-    },
-  })
-  const body = await res.json().catch(() => ({}))
-  return { status: res.status, body }
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authHeader = req.headers.authorization ?? ''
@@ -38,10 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ skipped: true, reason: `Not 1am ET (current ET hour: ${et.hour})` })
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const supabase = getAdminClient()
 
   const results: { action: string; week: number; result: any }[] = []
 

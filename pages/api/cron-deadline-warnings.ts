@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { detectUpcomingWeek } from '@/lib/lockTime'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { callInternal } from '@/lib/callInternal'
 
 /**
  * Cron handler — runs every 15 minutes.
@@ -10,29 +11,6 @@ import { detectUpcomingWeek } from '@/lib/lockTime'
  *   - 15 minutes before lock time (to everyone)
  * Uses cron_log table to prevent duplicate sends.
  */
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
-
-async function callInternal(req: NextApiRequest, path: string): Promise<{ status: number; body: any }> {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000'
-  const baseUrl = `${protocol}://${host}`
-
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: req.headers.authorization ?? '',
-      'Content-Type': 'application/json',
-    },
-  })
-  const body = await res.json().catch(() => ({}))
-  return { status: res.status, body }
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authHeader = req.headers.authorization ?? ''

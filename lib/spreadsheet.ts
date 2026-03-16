@@ -1,35 +1,9 @@
 import { Workbook, Borders, Alignment } from 'exceljs'
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { NFL_TEAMS } from '@/lib/nflTeams'
+import { parseUTC } from '@/lib/lockTime'
 
-function getSupabaseClient(): SupabaseClient {
-  if (typeof window !== 'undefined') {
-    throw new Error('getSupabaseClient (service role) must only be called server-side')
-  }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  return createClient(url, key)
-}
-
-// --- Team nickname lookup ---
-const TEAM_NAMES: Record<string, string> = {
-  ARI: 'Cardinals', ATL: 'Falcons', BAL: 'Ravens', BUF: 'Bills',
-  CAR: 'Panthers', CHI: 'Bears', CIN: 'Bengals', CLE: 'Browns',
-  DAL: 'Cowboys', DEN: 'Broncos', DET: 'Lions', GB: 'Packers',
-  HOU: 'Texans', IND: 'Colts', JAC: 'Jaguars', KC: 'Chiefs',
-  LAC: 'Chargers', LAR: 'Rams', LV: 'Raiders', MIA: 'Dolphins',
-  MIN: 'Vikings', NE: 'Patriots', NO: 'Saints', NYG: 'Giants',
-  NYJ: 'Jets', PHI: 'Eagles', PIT: 'Steelers', SEA: 'Seahawks',
-  SF: '49ers', TB: 'Buccaneers', TEN: 'Titans', WAS: 'Commanders',
-}
-function teamName(abbr: string): string { return TEAM_NAMES[abbr] || abbr }
-
-// --- Parse Supabase timestamps as UTC ---
-function parseUTC(iso: string): Date {
-  const normalized = iso.replace(' ', 'T')
-  const timepart = normalized.split('T')[1] || ''
-  const hasOffset = timepart.includes('Z') || timepart.includes('+') || timepart.includes('-')
-  return new Date(hasOffset ? normalized : normalized + 'Z')
-}
+function teamName(abbr: string): string { return NFL_TEAMS[abbr]?.name || abbr }
 
 // --- Day label + date from kickoff time (e.g. "Thurs 9/4") ---
 function getDayLabel(kickoffTime: string): string {
@@ -112,7 +86,7 @@ export async function generateWeeklyPicksSpreadsheet(
 ) {
   const workbook = new Workbook()
   const ws = workbook.addWorksheet(`Week ${week}`)
-  const db = getSupabaseClient()
+  const db = getAdminClient()
 
   // ---------- Fetch data ----------
   const { data: users } = await db.from('users').select('*').order('name')

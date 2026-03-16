@@ -1,49 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
-import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
-
-// ESPN uses slightly different abbreviations for a few teams
-const ESPN_TO_OUR: Record<string, string> = {
-  JAX: 'JAC',
-  WSH: 'WAS',
-}
-function normalizeTeam(espnAbbr: string): string {
-  return ESPN_TO_OUR[espnAbbr] ?? espnAbbr
-}
-
-// Service-role client — bypasses RLS for admin writes
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(url, serviceKey)
-}
-
-// Regular client — used to validate user tokens
-function getAnonClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  return createClient(url, anonKey)
-}
-
-async function isAuthorized(req: NextApiRequest): Promise<boolean> {
-  const authHeader = req.headers.authorization ?? ''
-
-  // Vercel cron jobs send the CRON_SECRET automatically
-  if (process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
-    return true
-  }
-
-  // Admin UI sends the user's Supabase access token
-  const token = authHeader.replace('Bearer ', '')
-  if (!token) return false
-
-  try {
-    const { data: { user } } = await getAnonClient().auth.getUser(token)
-    return user?.email === ADMIN_EMAIL
-  } catch {
-    return false
-  }
-}
+import { CURRENT_SEASON } from '@/lib/constants'
+import { normalizeTeam } from '@/lib/nflTeams'
+import { getAdminClient } from '@/lib/supabaseAdmin'
+import { isAuthorized } from '@/lib/apiAuth'
 
 // Auto-detect which week to update: the most recent week with any game already kicked off
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -152,38 +111,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .update({ winning_team: ourWinner, away_score: awayScore, home_score: homeScore })
         .eq('id', ourGame.id)
 
-      // Upsert scores for every user who picked this game
+      // Batch upsert scores for all users
       const gamePicks = (allPicks ?? []).filter((p) => p.game_id === ourGame.id)
-      let updated = 0
-      for (const pick of gamePicks) {
-        await supabase.from('scores').upsert({
-          user_id: pick.user_id,
-          game_id: ourGame.id,
-          is_correct: isTie ? null : pick.picked_team === ourWinner,
-          week,
-          season,
-        }, { onConflict: 'user_id,game_id' })
-        updated++
-      }
-
-      // Create loss rows for users who have ANY picks this week but skipped this game
-      // (unpicked game = automatic loss; ties still count as ties)
       const usersWithPicks = new Set((allPicks ?? []).map(p => p.user_id))
       const usersWhoPicked = new Set(gamePicks.map(p => p.user_id))
+
+      const scoreRows = gamePicks.map(pick => ({
+        user_id: pick.user_id,
+        game_id: ourGame.id,
+        is_correct: isTie ? null : pick.picked_team === ourWinner,
+        week,
+        season,
+      }))
+
+      // Add loss rows for users who have ANY picks this week but skipped this game
       for (const userId of usersWithPicks) {
         if (!usersWhoPicked.has(userId)) {
-          await supabase.from('scores').upsert({
+          scoreRows.push({
             user_id: userId,
             game_id: ourGame.id,
             is_correct: isTie ? null : false,
             week,
             season,
-          }, { onConflict: 'user_id,game_id' })
-          updated++
+          })
         }
       }
 
-      results.push({ game: `${espnAway} @ ${espnHome}`, winner: ourWinner, updated })
+      if (scoreRows.length > 0) {
+        await supabase.from('scores').upsert(scoreRows, { onConflict: 'user_id,game_id' })
+      }
+
+      results.push({ game: `${espnAway} @ ${espnHome}`, winner: ourWinner, updated: scoreRows.length })
     }
 
     return res.status(200).json({

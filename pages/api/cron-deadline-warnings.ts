@@ -49,16 +49,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
   }
 
-  // Check cron_log for duplicate prevention
-  const { data: existing } = await supabase
-    .from('cron_log')
-    .select('id')
-    .eq('week', week)
-    .eq('season', CURRENT_SEASON)
-    .eq('warning_type', warningType)
-    .limit(1)
+  // Claim the slot FIRST to prevent duplicate sends from concurrent cron runs.
+  // The UNIQUE(week, season, warning_type) constraint acts as a lock —
+  // only the first insert succeeds, all others get a conflict error.
+  const { error: claimError } = await supabase.from('cron_log').insert({
+    week,
+    season: CURRENT_SEASON,
+    warning_type: warningType,
+  })
 
-  if (existing && existing.length > 0) {
+  if (claimError) {
+    // UNIQUE constraint violation means another run already claimed this
     return res.status(200).json({
       message: `${warningType} already sent for Week ${week}.`,
       skipped: true,
@@ -71,12 +72,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `/api/send-reminder-email?type=deadline_warning&minutes=${minutes}`
     )
 
-    if (result.status < 400) {
-      // Log successful send to prevent duplicates
-      await supabase.from('cron_log').insert({
-        week,
-        season: CURRENT_SEASON,
-        warning_type: warningType,
+    if (result.status >= 400) {
+      // Email failed — remove the log so it can be retried next run
+      await supabase.from('cron_log').delete()
+        .eq('week', week)
+        .eq('season', CURRENT_SEASON)
+        .eq('warning_type', warningType)
+
+      return res.status(500).json({
+        task: warningType,
+        error: `Email send returned ${result.status}`,
+        body: result.body,
       })
     }
 
@@ -87,8 +93,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       result: result.body,
     })
   } catch (err) {
+    // Send failed — remove the log so it can be retried next run
+    await supabase.from('cron_log').delete()
+      .eq('week', week)
+      .eq('season', CURRENT_SEASON)
+      .eq('warning_type', warningType)
+
     console.error(`cron-deadline-warnings (${warningType}) error:`, err)
-    return res.status(200).json({
+    return res.status(500).json({
       task: warningType,
       error: err instanceof Error ? err.message : 'Internal call failed',
     })

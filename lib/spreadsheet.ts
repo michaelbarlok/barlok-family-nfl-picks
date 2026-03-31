@@ -149,6 +149,51 @@ export async function generateWeeklyPicksSpreadsheet(
     }
   }
 
+  // ---------- Non-participant penalty ----------
+  // Users who didn't submit ANY picks for a decided week get a record
+  // one worse than the worst participant that week
+  const allDecidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))].sort((a: number, b: number) => a - b)
+  for (const wk of allDecidedWeeks) {
+    const wkGames = decidedGames.filter((g: any) => g.week === wk)
+    const totalGamesInWeek = wkGames.length
+    if (totalGamesInWeek === 0) continue
+
+    // Find worst participant wins for this week
+    let worstParticipantWins = Infinity
+    let anyParticipant = false
+    for (const uid of userIds) {
+      if ((userWeeks.get(uid) || new Set()).has(wk)) {
+        anyParticipant = true
+        let wkWins = 0
+        for (const game of wkGames) {
+          const isTie = game.winning_team === 'TIE'
+          const pick = allPicksMap.get(`${uid}-${game.id}`)
+          if (pick && !isTie && pick.picked_team === game.winning_team) wkWins++
+        }
+        worstParticipantWins = Math.min(worstParticipantWins, wkWins)
+      }
+    }
+    if (!anyParticipant) continue
+
+    const penaltyWins = Math.max(0, worstParticipantWins - 1)
+    const penaltyLosses = totalGamesInWeek - penaltyWins
+
+    for (const uid of userIds) {
+      if (!(userWeeks.get(uid) || new Set()).has(wk)) {
+        totalW.set(uid, (totalW.get(uid) ?? 0) + penaltyWins)
+        totalL.set(uid, (totalL.get(uid) ?? 0) + penaltyLosses)
+        if (wk === week) {
+          weekW.set(uid, (weekW.get(uid) ?? 0) + penaltyWins)
+          weekL.set(uid, (weekL.get(uid) ?? 0) + penaltyLosses)
+        }
+        if (wk === week - 1) {
+          prevW.set(uid, (prevW.get(uid) ?? 0) + penaltyWins)
+          prevL.set(uid, (prevL.get(uid) ?? 0) + penaltyLosses)
+        }
+      }
+    }
+  }
+
   // ---------- Compute 3 BEST W-L (unpicked best = loss) ----------
   const bestTotalW = init(), bestTotalL = init(), bestTotalT = init()
   const bestWeekW = init(), bestWeekL = init(), bestWeekT = init()
@@ -165,7 +210,7 @@ export async function generateWeeklyPicksSpreadsheet(
       const pick = allPicksMap.get(`${tb.user_id}-${game.id}`)
       let result: 'w' | 'l' | 't'
       if (!pick) {
-        result = isTie ? 't' : 'l'
+        result = 'l' // unpicked best 3 games always count as losses
       } else if (isTie) {
         result = 't'
       } else if (pick.picked_team === game.winning_team) {

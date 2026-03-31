@@ -65,7 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     results.push({ action: 'sync_next', week: nextWeek, result: { error: err instanceof Error ? err.message : 'Failed' } })
   }
 
-  return res.status(200).json({
+  const hasErrors = results.some(r => r.result?.error)
+  return res.status(hasErrors ? 500 : 200).json({
     task: 'sync_schedule',
     results,
   })

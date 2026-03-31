@@ -140,8 +140,7 @@ export default function StandingsPage() {
               const isTie = game.winning_team === 'TIE'
               const pick = picksMap.get(`${u.id}-${game.id}`)
               if (!pick) {
-                if (isTie) bestTies++
-                else bestLosses++
+                bestLosses++ // unpicked best 3 games always count as losses
               } else if (isTie) {
                 bestTies++
               } else if (pick.picked_team === game.winning_team) {
@@ -186,8 +185,7 @@ export default function StandingsPage() {
                 const isTie = game.winning_team === 'TIE'
                 const pick = picksMap.get(`${u.id}-${game.id}`)
                 if (!pick) {
-                  if (isTie) bt++
-                  else bl++
+                  bl++ // unpicked best 3 games always count as losses
                 } else if (isTie) {
                   bt++
                 } else if (pick.picked_team === game.winning_team) {
@@ -204,10 +202,59 @@ export default function StandingsPage() {
           return { user: u, wins, losses, ties, bestWins, bestLosses, bestTies, totalPicks, weekRecords }
         })
 
+        // Non-participant penalty: users who didn't submit ANY picks for a decided week
+        // get a record one worse than the worst participant that week
+        const allDecidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))].sort((a: number, b: number) => a - b)
+        for (const wk of allDecidedWeeks) {
+          const wkGames = decidedGames.filter((g: any) => g.week === wk)
+          const totalGamesInWeek = wkGames.length
+          if (totalGamesInWeek === 0) continue
+
+          // Find worst participant wins for this week
+          let worstParticipantWins = Infinity
+          let anyParticipant = false
+          for (const s of result) {
+            if ((userWeeks.get(s.user.id) || new Set<number>()).has(wk)) {
+              anyParticipant = true
+              const wr = s.weekRecords.find(r => r.week === wk)
+              if (wr) {
+                worstParticipantWins = Math.min(worstParticipantWins, wr.wins)
+              }
+            }
+          }
+          if (!anyParticipant) continue
+
+          const penaltyWins = Math.max(0, worstParticipantWins - 1)
+          const penaltyLosses = totalGamesInWeek - penaltyWins
+
+          for (const s of result) {
+            if (!(userWeeks.get(s.user.id) || new Set<number>()).has(wk)) {
+              s.wins += penaltyWins
+              s.losses += penaltyLosses
+              s.weekRecords.push({
+                week: wk,
+                wins: penaltyWins,
+                losses: penaltyLosses,
+                ties: 0,
+                bestWins: 0,
+                bestLosses: 0,
+                bestTies: 0,
+              })
+            }
+          }
+        }
+
+        // Recompute totalPicks and sort weekRecords after penalties
+        for (const s of result) {
+          s.totalPicks = s.wins + s.losses + s.ties
+          s.weekRecords.sort((a, b) => a.week - b.week)
+        }
+
         result.sort((a, b) => {
           if (b.wins !== a.wins) return b.wins - a.wins
           if (a.losses !== b.losses) return a.losses - b.losses
-          return b.bestWins - a.bestWins
+          if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
+          return a.bestLosses - b.bestLosses
         })
 
         setStandings(result)

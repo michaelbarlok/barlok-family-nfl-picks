@@ -47,7 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
   } catch (err) {
     console.error('cron-pick-reminders error:', err)
-    return res.status(200).json({
+    return res.status(500).json({
       task: 'pick_reminder',
       error: err instanceof Error ? err.message : 'Internal call failed',
     })

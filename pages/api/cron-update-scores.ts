@@ -48,7 +48,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  return res.status(200).json({
+  const hasErrors = results.some(r => r.result?.error)
+  return res.status(hasErrors ? 500 : 200).json({
     task: 'update_scores',
     weeksChecked: weeks,
     results,

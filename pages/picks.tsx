@@ -74,9 +74,9 @@ export default function PicksPage() {
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Keep clock ticking so lock state stays live
+  // Tick every second for live countdown
   useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 30_000)
+    const interval = setInterval(() => setNow(new Date()), 1_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -349,22 +349,52 @@ export default function PicksPage() {
 
         {/* Lock countdown */}
         {!isLocked && lockTime && (() => {
-          const diff = lockTime.getTime() - now.getTime()
+          const diff = Math.max(0, lockTime.getTime() - now.getTime())
           const days = Math.floor(diff / (1000 * 60 * 60 * 24))
           const hours = Math.floor((diff / (1000 * 60 * 60)) % 24)
           const minutes = Math.floor((diff / (1000 * 60)) % 60)
+          const seconds = Math.floor((diff / 1000) % 60)
           const urgent = diff < 1000 * 60 * 60 * 2 // under 2 hours
-          const parts: string[] = []
-          if (days > 0) parts.push(`${days}d`)
-          if (hours > 0) parts.push(`${hours}h`)
-          parts.push(`${minutes}m`)
+          const digitClass = urgent
+            ? 'inline-flex items-center justify-center min-w-[2.2rem] px-1.5 py-1 rounded-lg font-mono font-bold text-base tabular-nums bg-red-500/15 text-red-400'
+            : 'inline-flex items-center justify-center min-w-[2.2rem] px-1.5 py-1 rounded-lg font-mono font-bold text-base tabular-nums bg-amber-500/15 text-amber-400'
+          const labelClass = urgent
+            ? 'text-[9px] uppercase tracking-wider mt-0.5 text-red-500/60 font-semibold'
+            : 'text-[9px] uppercase tracking-wider mt-0.5 text-amber-500/60 font-semibold'
+          const colonClass = urgent
+            ? 'text-red-500/30 font-bold text-sm self-start mt-1'
+            : 'text-amber-500/30 font-bold text-sm self-start mt-1'
           return (
-            <div className={`mb-5 p-3 glass-card rounded-2xl flex items-center gap-2.5 text-xs ${urgent ? 'text-red-400 border-red-500/30' : 'text-amber-400'}`}>
-              <span className="animate-pulse-glow">{urgent ? '🚨' : '⏰'}</span>
-              <span>
-                Picks lock at <strong>{formatKickoff(lockTime.toISOString())}</strong>
-                {' '}— <strong>{parts.join(' ')}</strong> remaining
-              </span>
+            <div className={`mb-5 glass-card rounded-2xl overflow-hidden ${urgent ? 'border-red-500/30' : ''}`}>
+              <div className="px-4 py-3 flex items-center justify-between">
+                <div className={`flex items-center gap-2 text-xs ${urgent ? 'text-red-400' : 'text-amber-400'}`}>
+                  <span className="animate-pulse-glow">{urgent ? '🚨' : '⏰'}</span>
+                  <span>Locks {formatKickoff(lockTime.toISOString())}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {days > 0 && (
+                    <div className="flex flex-col items-center">
+                      <span className={digitClass}>{days}</span>
+                      <span className={labelClass}>day{days !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
+                  {days > 0 && <span className={colonClass}>:</span>}
+                  <div className="flex flex-col items-center">
+                    <span className={digitClass}>{String(hours).padStart(2, '0')}</span>
+                    <span className={labelClass}>hrs</span>
+                  </div>
+                  <span className={colonClass}>:</span>
+                  <div className="flex flex-col items-center">
+                    <span className={digitClass}>{String(minutes).padStart(2, '0')}</span>
+                    <span className={labelClass}>min</span>
+                  </div>
+                  <span className={colonClass}>:</span>
+                  <div className="flex flex-col items-center">
+                    <span className={digitClass}>{String(seconds).padStart(2, '0')}</span>
+                    <span className={labelClass}>sec</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )
         })()}

@@ -28,18 +28,44 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-surface flex items-center justify-center px-4 relative overflow-hidden">
-      {/* Background gradient orbs */}
-      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[400px] h-[400px] bg-indigo-600/15 rounded-full blur-[120px] pointer-events-none" />
+      {/* Subtle green field tint */}
+      <div className="absolute inset-0 bg-green-950/30 pointer-events-none" />
 
-      {/* Subtle grid pattern */}
-      <div
-        className="absolute inset-0 opacity-[0.03] pointer-events-none"
-        style={{
-          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-          backgroundSize: '60px 60px',
-        }}
-      />
+      {/* Background gradient orbs */}
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-blue-600/15 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[400px] h-[400px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
+
+      {/* Football field yard lines + hash marks */}
+      <svg
+        className="absolute inset-0 w-full h-full pointer-events-none opacity-[0.045]"
+        xmlns="http://www.w3.org/2000/svg"
+        preserveAspectRatio="none"
+      >
+        {/* Side borders */}
+        <line x1="4%" y1="0" x2="4%" y2="100%" stroke="white" strokeWidth="1.5" />
+        <line x1="96%" y1="0" x2="96%" y2="100%" stroke="white" strokeWidth="1.5" />
+        {/* End zone lines */}
+        <line x1="0" y1="8%" x2="100%" y2="8%" stroke="white" strokeWidth="1.5" />
+        <line x1="0" y1="92%" x2="100%" y2="92%" stroke="white" strokeWidth="1.5" />
+        {/* Yard lines */}
+        {[18, 27, 36, 45, 54, 63, 72, 81].map(pct => (
+          <line key={pct} x1="4%" y1={`${pct}%`} x2="96%" y2={`${pct}%`} stroke="white" strokeWidth="1" />
+        ))}
+        {/* 50-yard line (slightly bolder) */}
+        <line x1="4%" y1="50%" x2="96%" y2="50%" stroke="white" strokeWidth="1.8" />
+        {/* Hash marks — left side */}
+        {[18, 27, 36, 45, 54, 63, 72, 81].map(pct => (
+          <g key={`lh-${pct}`}>
+            <line x1="32%" y1={`${pct - 1.5}%`} x2="32%" y2={`${pct + 1.5}%`} stroke="white" strokeWidth="1" />
+          </g>
+        ))}
+        {/* Hash marks — right side */}
+        {[18, 27, 36, 45, 54, 63, 72, 81].map(pct => (
+          <g key={`rh-${pct}`}>
+            <line x1="68%" y1={`${pct - 1.5}%`} x2="68%" y2={`${pct + 1.5}%`} stroke="white" strokeWidth="1" />
+          </g>
+        ))}
+      </svg>
 
       <div className="w-full max-w-md relative z-10 animate-fade-in">
         {/* Header */}

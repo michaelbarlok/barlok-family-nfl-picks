@@ -192,14 +192,22 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`relative flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all ${
+                  className={`relative flex flex-col items-center gap-0 px-4 py-2 text-sm font-medium rounded-full transition-all ${
                     isActive
                       ? 'bg-white/[0.10] text-white shadow-sm'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span className="text-xs">{tab.icon}</span>
-                  {tab.label}
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-xs">{tab.icon}</span>
+                    {tab.label}
+                  </span>
+                  {/* Animated active indicator line */}
+                  <span
+                    className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-0.5 rounded-full bg-blue-400 transition-all duration-300 ease-out ${
+                      isActive ? 'w-4 opacity-100' : 'w-0 opacity-0'
+                    }`}
+                  />
                   {showBadge && (
                     <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1 shadow-lg shadow-red-500/30 animate-pulse-glow">
                       {incompleteCount}
@@ -362,8 +370,14 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                     : 'text-slate-500 active:text-slate-300'
                 }`}
               >
-                <span className={`text-lg leading-none ${isActive ? 'scale-110' : ''} transition-transform`}>{tab.icon}</span>
+                <span className={`text-lg leading-none transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}>{tab.icon}</span>
                 <span className={`text-[10px] font-medium truncate w-full text-center ${isActive ? 'text-blue-400' : ''}`}>{tab.label}</span>
+                {/* Active dot indicator */}
+                <span
+                  className={`h-0.5 rounded-full bg-blue-400 transition-all duration-300 ease-out ${
+                    isActive ? 'w-4 opacity-100' : 'w-0 opacity-0'
+                  }`}
+                />
                 {showBadge && (
                   <span className="absolute -top-0.5 right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white px-0.5 shadow-lg shadow-red-500/30">
                     {incompleteCount}

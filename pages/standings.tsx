@@ -1,9 +1,58 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
 import Nav from '@/components/Nav'
+
+// Canvas confetti burst — shown when a perfect week is spotted
+function ConfettiLayer({ active }: { active: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    if (!active) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const colors = ['#F59E0B', '#3B82F6', '#10B981', '#EF4444', '#8B5CF6', '#F97316', '#FBBF24', '#34D399']
+    const particles = Array.from({ length: 120 }, () => ({
+      x: Math.random() * canvas.width,
+      y: -20 - Math.random() * 120,
+      vx: (Math.random() - 0.5) * 6,
+      vy: 2 + Math.random() * 5,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      w: 7 + Math.random() * 8,
+      h: 3 + Math.random() * 4,
+      rot: Math.random() * 360,
+      rotV: (Math.random() - 0.5) * 12,
+    }))
+
+    const start = Date.now()
+    let rafId: number
+    const tick = () => {
+      const t = Date.now() - start
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.globalAlpha = t > 2800 ? Math.max(0, 1 - (t - 2800) / 700) : 1
+      particles.forEach(p => {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.09; p.rot += p.rotV
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot * Math.PI / 180)
+        ctx.fillStyle = p.color; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h)
+        ctx.restore()
+      })
+      if (t < 3500) rafId = requestAnimationFrame(tick)
+      else ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [active])
+
+  if (!active) return null
+  return <canvas ref={canvasRef} className="fixed inset-0 z-50 pointer-events-none" style={{ width: '100vw', height: '100vh' }} />
+}
 
 interface User {
   id: string
@@ -61,6 +110,8 @@ export default function StandingsPage() {
   const [loadError, setLoadError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null)
+  const [showConfetti, setShowConfetti] = useState(false)
+  const confettiShownFor = useRef<string | null>(null)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -272,16 +323,35 @@ export default function StandingsPage() {
   if (!user) return null
 
   const hasScores = standings.some(s => s.totalPicks > 0)
+  const podiumStandings = standings.filter(s => s.totalPicks > 0).slice(0, 3)
 
-  const medalColors = [
-    { bg: 'from-amber-500/20 to-amber-600/10', border: 'border-amber-500/30', text: 'text-amber-400' },
-    { bg: 'from-slate-300/15 to-slate-400/5', border: 'border-slate-400/20', text: 'text-slate-300' },
-    { bg: 'from-orange-600/15 to-orange-700/5', border: 'border-orange-600/20', text: 'text-orange-400' },
+  // Confetti: fire when the current user expands their own row and has a perfect week
+  const handleExpandRow = (userId: string, weekRecords: WeekRecord[]) => {
+    const isExpanded = expandedUserId === userId
+    setExpandedUserId(isExpanded ? null : userId)
+    if (!isExpanded && userId === user.id && confettiShownFor.current !== userId) {
+      const hasPerfectWeek = weekRecords.some(wr => wr.wins > 0 && wr.losses === 0 && wr.ties === 0)
+      if (hasPerfectWeek) {
+        confettiShownFor.current = userId
+        setShowConfetti(true)
+        setTimeout(() => setShowConfetti(false), 3600)
+      }
+    }
+  }
+
+  const podiumConfig = [
+    // 1st — gold, center (rendered in middle slot)
+    { emoji: '🥇', textColor: 'text-amber-400', ringColor: 'ring-amber-400/40', podiumColor: 'bg-amber-500/20', podiumH: 40, avatarSize: 64, nameSz: 'text-sm' },
+    // 2nd — silver, left slot
+    { emoji: '🥈', textColor: 'text-slate-300', ringColor: 'ring-slate-400/30', podiumColor: 'bg-slate-400/15', podiumH: 28, avatarSize: 52, nameSz: 'text-xs' },
+    // 3rd — bronze, right slot
+    { emoji: '🥉', textColor: 'text-orange-400', ringColor: 'ring-orange-500/30', podiumColor: 'bg-orange-600/15', podiumH: 20, avatarSize: 44, nameSz: 'text-xs' },
   ]
 
   return (
     <div className="min-h-screen bg-surface pb-20">
       <Nav />
+      <ConfettiLayer active={showConfetti} />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
         {loadError && (
@@ -310,6 +380,67 @@ export default function StandingsPage() {
             <p className="text-slate-500 text-sm mt-1.5">Standings will appear here once Week 1 results are recorded.</p>
           </div>
         ) : (
+          <>
+          {/* ── PODIUM ── top 3 visual before the table */}
+          {podiumStandings.length >= 2 && (
+            <div className="mb-6 animate-slide-up">
+              {/* Order: 2nd (left) | 1st (center) | 3rd (right) */}
+              {(() => {
+                const slots = [
+                  podiumStandings[1] ? { standing: podiumStandings[1], rank: 1 } : null,
+                  { standing: podiumStandings[0], rank: 0 },
+                  podiumStandings[2] ? { standing: podiumStandings[2], rank: 2 } : null,
+                ].filter(Boolean) as { standing: UserStanding; rank: number }[]
+
+                return (
+                  <div className="flex items-end justify-center gap-3">
+                    {slots.map(({ standing: s, rank }) => {
+                      const cfg = podiumConfig[rank]
+                      const isMe = s.user.id === user.id
+                      const record = `${s.wins}-${s.losses}${s.ties > 0 ? `-${s.ties}` : ''}`
+                      return (
+                        <div key={s.user.id} className="flex flex-col items-center" style={{ minWidth: rank === 0 ? 100 : 80 }}>
+                          {/* Avatar + medal */}
+                          <div className="relative mb-2">
+                            {s.user.avatar_url ? (
+                              <img
+                                src={s.user.avatar_url}
+                                alt=""
+                                className={`rounded-full object-cover border-2 ring-2 ${cfg.ringColor} ${isMe ? 'border-blue-400/60' : 'border-white/10'} transition-all`}
+                                style={{ width: cfg.avatarSize, height: cfg.avatarSize }}
+                              />
+                            ) : (
+                              <div
+                                className={`rounded-full flex items-center justify-center font-bold ring-2 ${cfg.ringColor} ${
+                                  isMe ? 'bg-gradient-to-br from-blue-500 to-indigo-600 border-2 border-blue-400/60' : 'bg-gradient-to-br from-slate-600 to-slate-700 border-2 border-white/10'
+                                } text-white`}
+                                style={{ width: cfg.avatarSize, height: cfg.avatarSize, fontSize: cfg.avatarSize * 0.35 }}
+                              >
+                                {s.user.name?.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className="absolute -bottom-1 -right-1 text-base leading-none">{cfg.emoji}</span>
+                          </div>
+                          {/* Name */}
+                          <p className={`font-semibold text-center truncate w-full px-1 ${cfg.nameSz} ${isMe ? 'text-blue-400' : 'text-white'}`}>
+                            {s.user.name.split(' ')[0]}
+                          </p>
+                          {/* Record */}
+                          <p className={`text-[11px] font-mono mt-0.5 mb-2 ${cfg.textColor}`}>{record}</p>
+                          {/* Podium block */}
+                          <div
+                            className={`w-full rounded-t-lg ${cfg.podiumColor} border border-white/[0.06]`}
+                            style={{ height: cfg.podiumH }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
           <div className="glass-card rounded-2xl overflow-hidden">
             {/* Table header */}
             <div className="grid grid-cols-12 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -323,14 +454,18 @@ export default function StandingsPage() {
               const isMe = s.user.id === user.id
               const winPct = s.totalPicks > 0 ? Math.round((s.wins / s.totalPicks) * 100) : null
               const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
-              const podium = idx < 3 ? medalColors[idx] : null
+              const podium = idx < 3 ? [
+                { bg: 'from-amber-500/20 to-amber-600/10', border: 'border-amber-500/30', text: 'text-amber-400' },
+                { bg: 'from-slate-300/15 to-slate-400/5', border: 'border-slate-400/20', text: 'text-slate-300' },
+                { bg: 'from-orange-600/15 to-orange-700/5', border: 'border-orange-600/20', text: 'text-orange-400' },
+              ][idx] : null
               const isExpanded = expandedUserId === s.user.id
               const hasWeekData = s.weekRecords.length > 0
 
               return (
                 <div key={s.user.id}>
                   <div
-                    onClick={() => hasWeekData && setExpandedUserId(isExpanded ? null : s.user.id)}
+                    onClick={() => hasWeekData && handleExpandRow(s.user.id, s.weekRecords)}
                     className={`grid grid-cols-12 px-4 py-4 items-center border-b border-white/[0.04] last:border-0 transition-colors animate-slide-up ${
                       hasWeekData ? 'cursor-pointer' : ''
                     } ${
@@ -430,10 +565,12 @@ export default function StandingsPage() {
                         <div className="col-span-3 text-center">W-L</div>
                         <div className="col-span-3 text-center">Best 3</div>
                       </div>
-                      {s.weekRecords.map(wr => (
-                        <div key={wr.week} className="px-4 py-2 grid grid-cols-12 items-center text-xs hover:bg-white/[0.02] transition-colors">
-                          <div className="col-span-1" />
-                          <div className="col-span-5 text-slate-400 font-medium">Week {wr.week}</div>
+                      {s.weekRecords.map(wr => {
+                        const isPerfect = wr.wins > 0 && wr.losses === 0 && wr.ties === 0
+                        return (
+                        <div key={wr.week} className={`px-4 py-2 grid grid-cols-12 items-center text-xs hover:bg-white/[0.02] transition-colors ${isPerfect ? 'bg-amber-500/5' : ''}`}>
+                          <div className="col-span-1 text-center">{isPerfect ? '🏆' : ''}</div>
+                          <div className={`col-span-5 font-medium ${isPerfect ? 'text-amber-300' : 'text-slate-400'}`}>Week {wr.week}{isPerfect ? ' — Perfect!' : ''}</div>
                           <div className="col-span-3 text-center">
                             <span className="text-emerald-400">{wr.wins}</span>
                             <span className="text-slate-600 mx-0.5">-</span>
@@ -453,13 +590,15 @@ export default function StandingsPage() {
                             )}
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
               )
             })}
           </div>
+          </>
         )}
 
         <p className="text-xs text-slate-600 text-center mt-5">

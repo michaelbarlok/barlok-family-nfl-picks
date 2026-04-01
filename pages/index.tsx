@@ -125,7 +125,7 @@ export default function DashboardPage() {
           }
         }
 
-        // Non-participant penalty
+        // Non-participant penalty — only for users who have played at least one week
         for (const wk of allDecidedWeeks) {
           const wkGames = decidedGames.filter(g => g.week === wk)
           const total = wkGames.length
@@ -140,11 +140,11 @@ export default function DashboardPage() {
           if (!any) continue
           const pw = Math.max(0, worstWins - 1); const pl = total - pw
           for (const uid of userIds) {
-            if (!(userWeeks.get(uid) || new Set()).has(wk)) {
-              const r = records.get(uid)!
-              r.wins += pw; r.losses += pl
-              r.weekWins.set(wk, pw); r.weekLosses.set(wk, pl)
-            }
+            if ((userWeeks.get(uid) || new Set()).has(wk)) continue
+            if ((userWeeks.get(uid) || new Set()).size === 0) continue // never played
+            const r = records.get(uid)!
+            r.wins += pw; r.losses += pl
+            r.weekWins.set(wk, pw); r.weekLosses.set(wk, pl)
           }
         }
 

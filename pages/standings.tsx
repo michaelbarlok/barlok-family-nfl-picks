@@ -119,9 +119,8 @@ export default function StandingsPage() {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
 
-  useEffect(() => {
-    const fetchStandings = async () => {
-      if (!user) return
+  const fetchStandings = useCallback(async () => {
+    if (!user) return
       try {
         const [
           { data: users },
@@ -255,8 +254,8 @@ export default function StandingsPage() {
           return { user: u, wins, losses, ties, bestWins, bestLosses, bestTies, totalPicks, weekRecords, rankChange: null, winStreak: 0 }
         })
 
-        // Non-participant penalty: users who didn't submit ANY picks for a decided week
-        // get a record one worse than the worst participant that week
+        // Non-participant penalty: users who didn't submit picks for a decided week
+        // but HAVE participated in at least one week get a record one worse than worst participant
         const allDecidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))].sort((a: number, b: number) => a - b)
         for (const wk of allDecidedWeeks) {
           const wkGames = decidedGames.filter((g: any) => g.week === wk)
@@ -281,19 +280,23 @@ export default function StandingsPage() {
           const penaltyLosses = totalGamesInWeek - penaltyWins
 
           for (const s of result) {
-            if (!(userWeeks.get(s.user.id) || new Set<number>()).has(wk)) {
-              s.wins += penaltyWins
-              s.losses += penaltyLosses
-              s.weekRecords.push({
-                week: wk,
-                wins: penaltyWins,
-                losses: penaltyLosses,
-                ties: 0,
-                bestWins: 0,
-                bestLosses: 0,
-                bestTies: 0,
-              })
-            }
+            // Skip users who participated this week (they already have a record)
+            if ((userWeeks.get(s.user.id) || new Set<number>()).has(wk)) continue
+            // Skip users who have NEVER participated in any week — they aren't playing
+            const totalWeeksPlayed = (userWeeks.get(s.user.id) || new Set<number>()).size
+            if (totalWeeksPlayed === 0) continue
+
+            s.wins += penaltyWins
+            s.losses += penaltyLosses
+            s.weekRecords.push({
+              week: wk,
+              wins: penaltyWins,
+              losses: penaltyLosses,
+              ties: 0,
+              bestWins: 0,
+              bestLosses: 0,
+              bestTies: 0,
+            })
           }
         }
 
@@ -367,9 +370,32 @@ export default function StandingsPage() {
       } finally {
         setDataLoading(false)
       }
-    }
-    fetchStandings()
   }, [user])
+
+  // Fetch on mount
+  useEffect(() => { fetchStandings() }, [fetchStandings])
+
+  // Real-time: re-fetch when games or picks change
+  useEffect(() => {
+    if (!user) return
+    const gamesChannel = supabase
+      .channel('standings-games')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => { fetchStandings() })
+      .subscribe()
+    const picksChannel = supabase
+      .channel('standings-picks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'picks' }, () => { fetchStandings() })
+      .subscribe()
+    const threeBestChannel = supabase
+      .channel('standings-threebest')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'three_best' }, () => { fetchStandings() })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(gamesChannel)
+      supabase.removeChannel(picksChannel)
+      supabase.removeChannel(threeBestChannel)
+    }
+  }, [user, fetchStandings])
 
   if (loading || dataLoading) return <StandingsSkeleton />
   if (!user) return null

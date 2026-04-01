@@ -18,6 +18,9 @@ interface Game {
   home_team: string
   kickoff_time: string
   week: number
+  winning_team?: string | null
+  away_score?: number | null
+  home_score?: number | null
 }
 
 interface UserPick {
@@ -431,6 +434,42 @@ export default function PicksPage() {
 
         <div>
           <div className="mb-6">
+            {/* Week record summary (when any games decided) */}
+            {isLocked && games.some(g => g.winning_team) && (() => {
+              const decided = games.filter(g => g.winning_team)
+              let w = 0, l = 0, t = 0
+              decided.forEach(g => {
+                const isTie = g.winning_team === 'TIE'
+                const p = picks[g.id]
+                if (!p) { if (isTie) t++; else l++; }
+                else if (isTie) t++
+                else if (p === g.winning_team) w++
+                else l++
+              })
+              const total = decided.length
+              const allDecided = total === games.length
+              return (
+                <div className="glass-card rounded-2xl p-4 mb-4 animate-slide-up">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                        {allDecided ? 'Final Record' : `Results (${total}/${games.length} games)`}
+                      </p>
+                      <p className="text-xl font-bold">
+                        <span className="text-emerald-400">{w}</span>
+                        <span className="text-slate-500 mx-1">&ndash;</span>
+                        <span className="text-red-400">{l}</span>
+                        {t > 0 && <><span className="text-slate-500 mx-1">&ndash;</span><span className="text-slate-400">{t}</span></>}
+                      </p>
+                    </div>
+                    {allDecided && w > 0 && l === 0 && t === 0 && (
+                      <span className="text-2xl">🏆</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
               Week {currentWeek} Games
             </h2>
@@ -450,16 +489,69 @@ export default function PicksPage() {
                   const canStar = !!pickedTeam && !isLocked
                   const starDisabled = !canStar || (!isStarred && bestPicks.size >= MAX_BEST_PICKS)
 
+                  // Post-lock result info
+                  const decided = !!game.winning_team
+                  const isTie = game.winning_team === 'TIE'
+                  const pickedCorrectly = decided && pickedTeam ? (isTie ? null : pickedTeam === game.winning_team) : null
+                  const hasScore = game.away_score != null && game.home_score != null
+
+                  // Card border color based on result
+                  const resultRing = decided && pickedTeam
+                    ? pickedCorrectly === true ? 'ring-1 ring-emerald-500/40' : pickedCorrectly === false ? 'ring-1 ring-red-500/30' : 'ring-1 ring-slate-400/20'
+                    : decided && !pickedTeam ? 'ring-1 ring-red-500/20' : ''
+
+                  // Pick result styling helper
+                  const getTeamBtnClass = (team: string) => {
+                    const isPicked = pickedTeam === team
+                    const isWinner = decided && game.winning_team === team
+                    const animClass = justPicked === `${game.id}:${team}` ? 'animate-pick-pop' : ''
+                    // Post-lock decided game
+                    if (decided && isLocked) {
+                      if (isPicked && pickedCorrectly === true) return `${animClass} border-emerald-500/50 bg-emerald-500/10 text-white`
+                      if (isPicked && pickedCorrectly === false) return `${animClass} border-red-500/40 bg-red-500/10 text-white`
+                      if (isPicked && isTie) return `${animClass} border-slate-400/30 bg-slate-500/10 text-slate-300`
+                      if (isWinner) return `${animClass} border-white/[0.08] bg-white/[0.03] text-slate-400 cursor-default`
+                      return `${animClass} border-white/[0.03] bg-white/[0.02] text-slate-500 cursor-default`
+                    }
+                    // Locked but not decided
+                    if (isLocked) {
+                      return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.03] bg-white/[0.02] text-slate-500 cursor-default'}`
+                    }
+                    // Not locked
+                    return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'}`
+                  }
+
+                  // Result indicator icon for picked team
+                  const getResultIcon = (team: string) => {
+                    if (!decided || !isLocked || pickedTeam !== team) {
+                      if (pickedTeam === team) return <span className={`ml-auto text-blue-400 text-sm ${justPicked === `${game.id}:${team}` ? 'animate-check-in' : ''}`}>✓</span>
+                      return null
+                    }
+                    if (isTie) return <span className="ml-auto text-slate-400 text-sm font-bold">=</span>
+                    if (pickedCorrectly === true) return <span className="ml-auto text-emerald-400 text-sm font-bold">✓</span>
+                    if (pickedCorrectly === false) return <span className="ml-auto text-red-400 text-sm font-bold">✗</span>
+                    return null
+                  }
+
                   return (
                     <div
                       key={game.id}
                       className={`glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${
-                        isStarred ? 'ring-1 ring-amber-500/30' : ''
-                      } ${isLocked ? 'opacity-80' : ''}`}
+                        isStarred && !decided ? 'ring-1 ring-amber-500/30' : resultRing
+                      } ${isLocked && !decided ? 'opacity-80' : ''}`}
                       style={{ animationDelay: `${gameIdx * 30}ms` }}
                     >
                       <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                        <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
+                          {/* Score badge when game is decided */}
+                          {decided && hasScore && (
+                            <span className="text-[11px] font-mono font-bold text-slate-300 bg-white/[0.06] px-1.5 py-0.5 rounded">
+                              {game.away_score}&ndash;{game.home_score}
+                              {isTie && <span className="text-slate-500 ml-1 font-sans text-[10px]">TIE</span>}
+                            </span>
+                          )}
+                        </div>
                         {!isLocked && (
                           <button
                             type="button"
@@ -487,31 +579,27 @@ export default function PicksPage() {
                           type="button"
                           onClick={() => handlePickChange(game.id, game.away_team)}
                           disabled={isLocked}
-                          className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${
-                            justPicked === `${game.id}:${game.away_team}` ? 'animate-pick-pop' : ''
-                          } ${
-                            pickedTeam === game.away_team
-                              ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue'
-                              : isLocked
-                              ? 'border-white/[0.03] bg-white/[0.02] text-slate-500 cursor-default'
-                              : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'
-                          }`}
+                          className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.away_team)}`}
                         >
                           <img
                             src={away.logo} alt={game.away_team}
                             className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
                               pickedTeam === game.away_team ? 'scale-110' : ''
-                            } ${isLocked && pickedTeam !== game.away_team ? 'opacity-30' : ''}`}
+                            } ${isLocked && pickedTeam !== game.away_team && !decided ? 'opacity-30' : ''}`}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                           />
                           <div className="min-w-0">
                             <p className="text-[11px] opacity-50 leading-tight truncate">{away.city}</p>
                             <p className="font-semibold text-sm leading-tight truncate">{away.name}</p>
-                            <p className={`text-[11px] mt-0.5 ${pickedTeam === game.away_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Away</p>
+                            {decided && hasScore ? (
+                              <p className={`text-[11px] mt-0.5 font-bold ${game.winning_team === game.away_team ? 'text-emerald-400' : isTie ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {game.away_score} pts{game.winning_team === game.away_team ? ' — W' : isTie ? ' — T' : ''}
+                              </p>
+                            ) : (
+                              <p className={`text-[11px] mt-0.5 ${pickedTeam === game.away_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Away</p>
+                            )}
                           </div>
-                          {pickedTeam === game.away_team && (
-                            <span className={`ml-auto text-blue-400 text-sm ${justPicked === `${game.id}:${game.away_team}` ? 'animate-check-in' : ''}`}>✓</span>
-                          )}
+                          {getResultIcon(game.away_team)}
                         </button>
 
                         {/* VS divider */}
@@ -524,31 +612,27 @@ export default function PicksPage() {
                           type="button"
                           onClick={() => handlePickChange(game.id, game.home_team)}
                           disabled={isLocked}
-                          className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${
-                            justPicked === `${game.id}:${game.home_team}` ? 'animate-pick-pop' : ''
-                          } ${
-                            pickedTeam === game.home_team
-                              ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue'
-                              : isLocked
-                              ? 'border-white/[0.03] bg-white/[0.02] text-slate-500 cursor-default'
-                              : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'
-                          }`}
+                          className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.home_team)}`}
                         >
                           <img
                             src={home.logo} alt={game.home_team}
                             className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
                               pickedTeam === game.home_team ? 'scale-110' : ''
-                            } ${isLocked && pickedTeam !== game.home_team ? 'opacity-30' : ''}`}
+                            } ${isLocked && pickedTeam !== game.home_team && !decided ? 'opacity-30' : ''}`}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                           />
                           <div className="min-w-0">
                             <p className="text-[11px] opacity-50 leading-tight truncate">{home.city}</p>
                             <p className="font-semibold text-sm leading-tight truncate">{home.name}</p>
-                            <p className={`text-[11px] mt-0.5 ${pickedTeam === game.home_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Home</p>
+                            {decided && hasScore ? (
+                              <p className={`text-[11px] mt-0.5 font-bold ${game.winning_team === game.home_team ? 'text-emerald-400' : isTie ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {game.home_score} pts{game.winning_team === game.home_team ? ' — W' : isTie ? ' — T' : ''}
+                              </p>
+                            ) : (
+                              <p className={`text-[11px] mt-0.5 ${pickedTeam === game.home_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Home</p>
+                            )}
                           </div>
-                          {pickedTeam === game.home_team && (
-                            <span className={`ml-auto text-blue-400 text-sm ${justPicked === `${game.id}:${game.home_team}` ? 'animate-check-in' : ''}`}>✓</span>
-                          )}
+                          {getResultIcon(game.home_team)}
                         </button>
                       </div>
                     </div>

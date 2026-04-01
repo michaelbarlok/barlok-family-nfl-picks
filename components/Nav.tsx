@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { processAvatarFile } from '@/lib/avatarUtils'
 
 const baseTabs = [
+  { label: 'Home', icon: '🏠', href: '/' },
   { label: 'My Picks', icon: '🏈', href: '/picks' },
   { label: 'All Picks', icon: '📋', href: '/all-picks' },
   { label: 'Standings', icon: '🏆', href: '/standings' },

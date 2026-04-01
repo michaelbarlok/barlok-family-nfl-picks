@@ -6,6 +6,7 @@ import { CURRENT_SEASON } from '@/lib/constants'
 import { parseUTC, computeLockTime } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import Nav from '@/components/Nav'
+import WeekNavigator from '@/components/WeekNavigator'
 
 interface Game {
   id: string
@@ -245,49 +246,11 @@ export default function AllPicksPage() {
         </h2>
 
         {/* Week selector */}
-        {availableWeeks.length > 0 && (
-          <div className="flex items-center gap-2 mb-5">
-            <button
-              onClick={() => {
-                const idx = availableWeeks.indexOf(selectedWeek!)
-                if (idx > 0) setSelectedWeek(availableWeeks[idx - 1])
-              }}
-              disabled={selectedWeek === availableWeeks[0]}
-              className="press w-9 h-9 flex items-center justify-center rounded-xl bg-white/[0.06] text-slate-400 hover:bg-white/[0.10] disabled:opacity-30 disabled:cursor-not-allowed transition"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-
-            <div className="flex-1 overflow-x-auto">
-              <div className="flex gap-1.5 justify-center">
-                {availableWeeks.map(week => (
-                  <button
-                    key={week}
-                    onClick={() => setSelectedWeek(week)}
-                    className={`press px-3.5 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap ${
-                      selectedWeek === week
-                        ? 'bg-white/[0.10] text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    Wk {week}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                const idx = availableWeeks.indexOf(selectedWeek!)
-                if (idx < availableWeeks.length - 1) setSelectedWeek(availableWeeks[idx + 1])
-              }}
-              disabled={selectedWeek === availableWeeks[availableWeeks.length - 1]}
-              className="press w-9 h-9 flex items-center justify-center rounded-xl bg-white/[0.06] text-slate-400 hover:bg-white/[0.10] disabled:opacity-30 disabled:cursor-not-allowed transition"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          </div>
-        )}
+        <WeekNavigator
+          selectedWeek={selectedWeek}
+          onWeekChange={setSelectedWeek}
+          availableWeeks={availableWeeks}
+        />
 
         {/* Content */}
         {picksLoading ? (

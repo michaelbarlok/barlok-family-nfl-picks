@@ -81,6 +81,8 @@ interface UserStanding {
   bestTies: number
   totalPicks: number
   weekRecords: WeekRecord[]
+  rankChange: number | null // positive = moved up, negative = moved down, 0 = same, null = no prior data
+  winStreak: number // consecutive correct picks (current streak)
 }
 
 function StandingsSkeleton() {
@@ -250,7 +252,7 @@ export default function StandingsPage() {
           })
 
           const totalPicks = wins + losses + ties
-          return { user: u, wins, losses, ties, bestWins, bestLosses, bestTies, totalPicks, weekRecords }
+          return { user: u, wins, losses, ties, bestWins, bestLosses, bestTies, totalPicks, weekRecords, rankChange: null, winStreak: 0 }
         })
 
         // Non-participant penalty: users who didn't submit ANY picks for a decided week
@@ -301,12 +303,62 @@ export default function StandingsPage() {
           s.weekRecords.sort((a, b) => a.week - b.week)
         }
 
-        result.sort((a, b) => {
+        // Sort by current record
+        const sortFn = (a: UserStanding, b: UserStanding) => {
           if (b.wins !== a.wins) return b.wins - a.wins
           if (a.losses !== b.losses) return a.losses - b.losses
           if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
           return a.bestLosses - b.bestLosses
+        }
+        result.sort(sortFn)
+
+        // Rank change: compare current rank to rank WITHOUT the latest decided week
+        if (allDecidedWeeks.length >= 2) {
+          const latestWeek = allDecidedWeeks[allDecidedWeeks.length - 1]
+          // Build "previous" records (subtract latest week's contribution)
+          const prevResult = result.map(s => {
+            const latestWr = s.weekRecords.find(wr => wr.week === latestWeek)
+            return {
+              userId: s.user.id,
+              wins: s.wins - (latestWr?.wins ?? 0),
+              losses: s.losses - (latestWr?.losses ?? 0),
+              bestWins: s.bestWins - (latestWr?.bestWins ?? 0),
+              bestLosses: s.bestLosses - (latestWr?.bestLosses ?? 0),
+            }
+          })
+          prevResult.sort((a, b) => {
+            if (b.wins !== a.wins) return b.wins - a.wins
+            if (a.losses !== b.losses) return a.losses - b.losses
+            if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
+            return a.bestLosses - b.bestLosses
+          })
+          const prevRankMap = new Map(prevResult.map((r, i) => [r.userId, i + 1]))
+          result.forEach((s, i) => {
+            const prevRank = prevRankMap.get(s.user.id)
+            if (prevRank != null) {
+              s.rankChange = prevRank - (i + 1) // positive = moved up
+            }
+          })
+        }
+
+        // Win streaks: count consecutive correct picks going backwards from most recent
+        const sortedDecided = [...decidedGames].sort((a: any, b: any) => {
+          if (a.week !== b.week) return b.week - a.week // latest week first
+          return new Date(b.kickoff_time || 0).getTime() - new Date(a.kickoff_time || 0).getTime()
         })
+        for (const s of result) {
+          let streak = 0
+          for (const game of sortedDecided) {
+            const participated = (userWeeks.get(s.user.id) || new Set<number>()).has(game.week)
+            if (!participated) continue
+            const isTie = game.winning_team === 'TIE'
+            if (isTie) { streak = 0; break } // ties break the streak
+            const pick = picksMap.get(`${s.user.id}-${game.id}`)
+            if (pick && pick.picked_team === game.winning_team) streak++
+            else break
+          }
+          s.winStreak = streak
+        }
 
         setStandings(result)
       } catch (err) {
@@ -477,16 +529,23 @@ export default function StandingsPage() {
                     }`}
                     style={{ animationDelay: `${idx * 50}ms` }}
                   >
-                    {/* Rank */}
+                    {/* Rank + change arrow */}
                     <div className="col-span-1 text-center">
-                      {medal ? (
-                        <span className="text-lg">{medal}</span>
-                      ) : (
-                        <span className="text-sm text-slate-500 font-medium">{idx + 1}</span>
-                      )}
+                      <div className="flex flex-col items-center">
+                        {medal ? (
+                          <span className="text-lg">{medal}</span>
+                        ) : (
+                          <span className="text-sm text-slate-500 font-medium">{idx + 1}</span>
+                        )}
+                        {s.rankChange !== null && s.rankChange !== 0 && (
+                          <span className={`text-[9px] font-bold leading-none ${s.rankChange > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {s.rankChange > 0 ? '▲' : '▼'}{Math.abs(s.rankChange)}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Name */}
+                    {/* Name + streak */}
                     <div className="col-span-5">
                       <div className="flex items-center gap-2">
                         {s.user.avatar_url ? (
@@ -503,6 +562,11 @@ export default function StandingsPage() {
                             <p className={`text-sm font-semibold truncate ${isMe ? 'text-blue-400' : 'text-white'}`}>
                               {s.user.name} {isMe && <span className="text-blue-400/60 font-normal text-xs">(you)</span>}
                             </p>
+                            {s.winStreak >= 3 && (
+                              <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-full leading-none shrink-0" title={`${s.winStreak} correct in a row`}>
+                                🔥{s.winStreak}
+                              </span>
+                            )}
                             {hasWeekData && (
                               <svg
                                 className={`w-3.5 h-3.5 text-slate-500 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}

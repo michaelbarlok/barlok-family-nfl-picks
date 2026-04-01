@@ -627,81 +627,137 @@ export default function AdminPage() {
 
   const selectedUser = users.find(u => u.id === selectedUserId)
 
+  const adminTabs = [
+    ...(isAdmin ? [
+      { key: 'results' as const, label: 'Results', icon: '🏆' },
+      { key: 'override' as const, label: 'Override', icon: '✏️' },
+    ] : []),
+    { key: 'players' as const, label: 'Players', icon: '👥' },
+  ]
+
   return (
     <div className="min-h-screen bg-surface">
       <Nav />
 
-      <main className="max-w-3xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h1 className="text-lg font-bold text-white">Admin Dashboard</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Visible to admins &amp; managers</p>
+      <div className="max-w-6xl mx-auto px-4 py-6 sm:flex sm:gap-6">
+        {/* ── SIDEBAR (desktop) ── */}
+        <aside className="hidden sm:block w-56 shrink-0">
+          <div className="sticky top-[73px]">
+            {/* Role badge */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                isAdmin
+                  ? 'bg-red-500/15 text-red-400 border-red-500/20'
+                  : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+              }`}>
+                {isAdmin ? '🔐 Admin' : '👤 Manager'}
+              </span>
+            </div>
+
+            {/* Sidebar nav */}
+            <nav className="space-y-1 mb-6">
+              {adminTabs.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => { setActiveTab(tab.key); setMessage(null) }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+                    activeTab === tab.key
+                      ? 'bg-white/[0.10] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <span className="text-base leading-none">{tab.icon}</span>
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+
+            {/* Week selector in sidebar */}
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-1">Week</p>
+              <div className="grid grid-cols-6 gap-1">
+                {Array.from({ length: 18 }, (_, i) => i + 1).map(w => (
+                  <button
+                    key={w}
+                    onClick={() => setSelectedWeek(w)}
+                    className={`py-1.5 rounded-lg text-xs font-medium border transition ${
+                      selectedWeek === w
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : availableWeeks.includes(w)
+                          ? 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-blue-500/30'
+                          : 'bg-white/[0.02] text-slate-600 border-white/[0.05] hover:border-blue-500/30'
+                    }`}
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
-            isAdmin
-              ? 'bg-red-500/15 text-red-400 border-red-500/20'
-              : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
-          }`}>
-            {isAdmin ? '🔐 Admin' : '👤 Manager'}
-          </span>
-        </div>
+        </aside>
 
-        {/* Tab bar */}
-        <div className="flex gap-1 mb-5 bg-white/[0.04] p-1 rounded-xl">
-          {[
-            ...(isAdmin ? [
-              { key: 'results', label: '🏆 Results' },
-              { key: 'override', label: '✏️ Override' },
-            ] : []),
-            { key: 'players', label: '👥 Players' },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => { setActiveTab(tab.key as 'results' | 'override' | 'players'); setMessage(null) }}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition ${
-                activeTab === tab.key
-                  ? 'bg-white/[0.10] text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Message banner */}
-        {message && (
-          <div className={`mb-4 p-3 rounded-xl text-sm border animate-slide-up ${
-            message.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-              : 'bg-red-500/10 border-red-500/20 text-red-400'
-          }`}>
-            {message.type === 'success' ? '✓ ' : '✗ '}{message.text}
+        {/* ── MOBILE header + tabs ── */}
+        <div className="sm:hidden mb-5">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-lg font-bold text-white">Admin</h1>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+              isAdmin
+                ? 'bg-red-500/15 text-red-400 border-red-500/20'
+                : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+            }`}>
+              {isAdmin ? '🔐 Admin' : '👤 Manager'}
+            </span>
           </div>
-        )}
-
-        {/* Week selector (shared) — show all 18 weeks so new weeks can be synced */}
-        <div className="mb-5">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Week</p>
-          <div className="flex flex-wrap gap-2">
-            {Array.from({ length: 18 }, (_, i) => i + 1).map(w => (
+          <div className="flex gap-1 mb-4 bg-white/[0.04] p-1 rounded-xl">
+            {adminTabs.map(tab => (
               <button
-                key={w}
-                onClick={() => setSelectedWeek(w)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
-                  selectedWeek === w
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : availableWeeks.includes(w)
-                      ? 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-blue-500/30'
-                      : 'bg-white/[0.02] text-slate-500 border-white/[0.05] hover:border-blue-500/30'
+                key={tab.key}
+                onClick={() => { setActiveTab(tab.key); setMessage(null) }}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition ${
+                  activeTab === tab.key
+                    ? 'bg-white/[0.10] text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-300'
                 }`}
               >
-                {w}
+                {tab.icon} {tab.label}
               </button>
             ))}
           </div>
+          {/* Mobile week selector */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Week</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Array.from({ length: 18 }, (_, i) => i + 1).map(w => (
+                <button
+                  key={w}
+                  onClick={() => setSelectedWeek(w)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                    selectedWeek === w
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : availableWeeks.includes(w)
+                        ? 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-blue-500/30'
+                        : 'bg-white/[0.02] text-slate-500 border-white/[0.05] hover:border-blue-500/30'
+                  }`}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
+
+        {/* ── MAIN CONTENT ── */}
+        <main className="flex-1 min-w-0 pb-20">
+          {/* Message banner */}
+          {message && (
+            <div className={`mb-4 p-3 rounded-xl text-sm border animate-slide-up ${
+              message.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                : 'bg-red-500/10 border-red-500/20 text-red-400'
+            }`}>
+              {message.type === 'success' ? '✓ ' : '✗ '}{message.text}
+            </div>
+          )}
 
         {/* ── GAME RESULTS TAB ── */}
         {activeTab === 'results' && selectedWeek && (
@@ -1466,7 +1522,8 @@ export default function AdminPage() {
             <p className="text-slate-500 text-sm">No games found. Add games to the database first.</p>
           </div>
         )}
-      </main>
+        </main>
+      </div>
     </div>
   )
 }

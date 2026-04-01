@@ -179,17 +179,17 @@ export async function generateWeeklyPicksSpreadsheet(
     const penaltyLosses = totalGamesInWeek - penaltyWins
 
     for (const uid of userIds) {
-      if (!(userWeeks.get(uid) || new Set()).has(wk)) {
-        totalW.set(uid, (totalW.get(uid) ?? 0) + penaltyWins)
-        totalL.set(uid, (totalL.get(uid) ?? 0) + penaltyLosses)
-        if (wk === week) {
-          weekW.set(uid, (weekW.get(uid) ?? 0) + penaltyWins)
-          weekL.set(uid, (weekL.get(uid) ?? 0) + penaltyLosses)
-        }
-        if (wk === week - 1) {
-          prevW.set(uid, (prevW.get(uid) ?? 0) + penaltyWins)
-          prevL.set(uid, (prevL.get(uid) ?? 0) + penaltyLosses)
-        }
+      if ((userWeeks.get(uid) || new Set()).has(wk)) continue
+      if ((userWeeks.get(uid) || new Set()).size === 0) continue // never played — skip
+      totalW.set(uid, (totalW.get(uid) ?? 0) + penaltyWins)
+      totalL.set(uid, (totalL.get(uid) ?? 0) + penaltyLosses)
+      if (wk === week) {
+        weekW.set(uid, (weekW.get(uid) ?? 0) + penaltyWins)
+        weekL.set(uid, (weekL.get(uid) ?? 0) + penaltyLosses)
+      }
+      if (wk === week - 1) {
+        prevW.set(uid, (prevW.get(uid) ?? 0) + penaltyWins)
+        prevL.set(uid, (prevL.get(uid) ?? 0) + penaltyLosses)
       }
     }
   }

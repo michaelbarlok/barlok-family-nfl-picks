@@ -6,6 +6,7 @@ import { CURRENT_SEASON } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
+import WeekNavigator from '@/components/WeekNavigator'
 
 interface ManagedPlayer {
   id: string
@@ -74,6 +75,7 @@ export default function PicksPage() {
   const [now, setNow] = useState(new Date())
   const [managedPlayers, setManagedPlayers] = useState<ManagedPlayer[]>([])
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -108,17 +110,18 @@ export default function PicksPage() {
     fetchManaged()
   }, [user])
 
-  // Detect current week: the latest week in the DB for this season
+  // Detect current week and available weeks
   useEffect(() => {
     const detectWeek = async () => {
       if (!user) return
       const { data } = await supabase
         .from('games').select('week')
         .eq('season', CURRENT_SEASON)
-        .order('week', { ascending: false })
-        .limit(1)
+        .order('week')
       if (data && data.length > 0) {
-        setCurrentWeek(data[0].week)
+        const weeks = [...new Set(data.map(g => g.week))].sort((a, b) => a - b)
+        setAvailableWeeks(weeks)
+        setCurrentWeek(weeks[weeks.length - 1])
       } else {
         setDataLoading(false)
       }
@@ -322,6 +325,13 @@ export default function PicksPage() {
             )}
           </div>
         )}
+
+        {/* Week navigator */}
+        <WeekNavigator
+          selectedWeek={currentWeek}
+          onWeekChange={(week) => { setCurrentWeek(week); setDataLoading(true) }}
+          availableWeeks={availableWeeks}
+        />
 
         {/* ── MY PICKS VIEW ── */}
         <>

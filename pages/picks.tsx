@@ -601,13 +601,7 @@ export default function PicksPage() {
                           <div className="min-w-0">
                             <p className="text-[11px] opacity-50 leading-tight truncate">{away.city}</p>
                             <p className="font-semibold text-sm leading-tight truncate">{away.name}</p>
-                            {decided && hasScore ? (
-                              <p className={`text-[11px] mt-0.5 font-bold ${game.winning_team === game.away_team ? 'text-emerald-400' : isTie ? 'text-slate-400' : 'text-slate-500'}`}>
-                                {game.away_score} pts{game.winning_team === game.away_team ? ' — W' : isTie ? ' — T' : ''}
-                              </p>
-                            ) : (
-                              <p className={`text-[11px] mt-0.5 ${pickedTeam === game.away_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Away</p>
-                            )}
+                            <p className={`text-[11px] mt-0.5 ${pickedTeam === game.away_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Away</p>
                           </div>
                           {getResultIcon(game.away_team)}
                         </button>
@@ -634,13 +628,7 @@ export default function PicksPage() {
                           <div className="min-w-0">
                             <p className="text-[11px] opacity-50 leading-tight truncate">{home.city}</p>
                             <p className="font-semibold text-sm leading-tight truncate">{home.name}</p>
-                            {decided && hasScore ? (
-                              <p className={`text-[11px] mt-0.5 font-bold ${game.winning_team === game.home_team ? 'text-emerald-400' : isTie ? 'text-slate-400' : 'text-slate-500'}`}>
-                                {game.home_score} pts{game.winning_team === game.home_team ? ' — W' : isTie ? ' — T' : ''}
-                              </p>
-                            ) : (
-                              <p className={`text-[11px] mt-0.5 ${pickedTeam === game.home_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Home</p>
-                            )}
+                            <p className={`text-[11px] mt-0.5 ${pickedTeam === game.home_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Home</p>
                           </div>
                           {getResultIcon(game.home_team)}
                         </button>

@@ -323,12 +323,12 @@ export default function AllPicksPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-white/[0.03] border-b border-white/[0.06]">
-                    <th className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase min-w-[120px]">
+                    <th className="sticky left-0 z-10 bg-[#0f1729] px-2 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase w-[88px] min-w-[88px]">
                       Game
                     </th>
                     {allPicksData.users.map(u => (
-                      <th key={u.id} className="px-2 py-2.5 text-center text-xs font-semibold text-slate-400 whitespace-nowrap">
-                        {u.name}
+                      <th key={u.id} className="px-1.5 py-2.5 text-center text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+                        {u.name.split(' ')[0]}
                       </th>
                     ))}
                   </tr>
@@ -337,20 +337,26 @@ export default function AllPicksPage() {
                   {games.map(game => {
                     const away = NFL_TEAMS[game.away_team]
                     const home = NFL_TEAMS[game.home_team]
+                    const hasScore = game.away_score != null && game.home_score != null
+                    const awayWon = game.winning_team === game.away_team
+                    const homeWon = game.winning_team === game.home_team
+                    const isTieGame = game.winning_team === 'TIE'
                     return (
                       <tr key={game.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                        <td className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2.5 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            {away && <img src={away.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                            <span className="text-slate-300 text-xs font-medium">
-                              {game.away_team}
-                              {game.away_score != null && <span className={`ml-1 ${game.winning_team === 'TIE' ? 'text-slate-400' : game.winning_team === game.away_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
-                              {' @ '}
-                              {game.home_team}
-                              {game.home_score != null && <span className={`ml-1 ${game.winning_team === 'TIE' ? 'text-slate-400' : game.winning_team === game.home_team ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
-                              {game.winning_team === 'TIE' && <span className="ml-1.5 text-slate-500 text-[10px]">TIE</span>}
-                            </span>
-                            {home && <img src={home.logo} alt="" className="w-5 h-5 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                        <td className="sticky left-0 z-10 bg-[#0f1729] px-2 py-1.5">
+                          <div className="flex flex-col gap-0.5">
+                            {/* Away team row */}
+                            <div className="flex items-center gap-1.5">
+                              {away && <img src={away.logo} alt="" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                              <span className={`text-[11px] font-semibold ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>{game.away_team}</span>
+                              {hasScore && <span className={`text-[11px] ml-auto tabular-nums ${awayWon ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
+                            </div>
+                            {/* Home team row */}
+                            <div className="flex items-center gap-1.5">
+                              {home && <img src={home.logo} alt="" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                              <span className={`text-[11px] font-semibold ${homeWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>{game.home_team}</span>
+                              {hasScore && <span className={`text-[11px] ml-auto tabular-nums ${homeWon ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
+                            </div>
                           </div>
                         </td>
                         {allPicksData.users.map(u => {
@@ -362,18 +368,18 @@ export default function AllPicksPage() {
                           const isWin = picked && winner && !isTie && picked === winner
                           const isLoss = picked && winner && !isTie && picked !== winner
                           return (
-                            <td key={u.id} className="px-2 py-2.5 text-center">
+                            <td key={u.id} className="px-1 py-1.5 text-center align-middle">
                               {picked ? (
-                                <span className={`text-xs font-medium ${
+                                <span className={`text-[11px] font-medium leading-none ${
                                   isTie ? (isBest ? 'text-slate-300' : 'text-slate-400')
                                   : isWin ? (isBest ? 'text-emerald-300' : 'text-emerald-400')
                                   : isLoss ? (isBest ? 'text-red-300' : 'text-red-400')
                                   : (isBest ? 'text-amber-400' : 'text-slate-300')
                                 }`}>
-                                  {isBest && '\u2B50 '}{picked}
+                                  {isBest && '\u2B50'}{picked}
                                 </span>
                               ) : (
-                                <span className="text-slate-600 text-xs">&mdash;</span>
+                                <span className="text-slate-600 text-[11px]">&mdash;</span>
                               )}
                             </td>
                           )
@@ -397,13 +403,13 @@ export default function AllPicksPage() {
                     return (
                       <>
                         <tr className="bg-white/[0.03]">
-                          <td colSpan={allPicksData.users.length + 1} className="px-3 py-1.5">
+                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1.5">
                             <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Overall Record</span>
                           </td>
                         </tr>
                         {rows.map(r => (
                           <tr key={r.key} className="border-t border-white/[0.04]">
-                            <td className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2 text-xs font-medium text-slate-400 whitespace-nowrap">
+                            <td className="sticky left-0 z-10 bg-[#0f1729] px-2 py-2 text-[11px] font-medium text-slate-400 whitespace-nowrap">
                               {r.label}
                             </td>
                             {userRecords.map((rec, i) => {
@@ -411,7 +417,7 @@ export default function AllPicksPage() {
                               const l = r.key === 'prior' ? rec.priorL : r.key === 'week' ? rec.weekL : rec.totalL
                               const t = r.key === 'prior' ? rec.priorT : r.key === 'week' ? rec.weekT : rec.totalT
                               return (
-                                <td key={allPicksData!.users[i].id} className="px-2 py-2 text-center">
+                                <td key={allPicksData!.users[i].id} className="px-1 py-2 text-center">
                                   <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-white' : 'text-slate-300'}`}>
                                     {w}-{l}{t > 0 ? `-${t}` : ''}
                                   </span>
@@ -421,13 +427,13 @@ export default function AllPicksPage() {
                           </tr>
                         ))}
                         <tr className="bg-white/[0.03]">
-                          <td colSpan={allPicksData.users.length + 1} className="px-3 py-1.5">
+                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1.5">
                             <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Best 3 Record</span>
                           </td>
                         </tr>
                         {b3Rows.map(r => (
                           <tr key={`b3-${r.key}`} className="border-t border-white/[0.04]">
-                            <td className="sticky left-0 z-10 bg-[#0f1729] px-3 py-2 text-xs font-medium text-slate-400 whitespace-nowrap">
+                            <td className="sticky left-0 z-10 bg-[#0f1729] px-2 py-2 text-[11px] font-medium text-slate-400 whitespace-nowrap">
                               {r.label}
                             </td>
                             {userRecords.map((rec, i) => {
@@ -435,7 +441,7 @@ export default function AllPicksPage() {
                               const l = r.key === 'prior' ? rec.priorB3L : r.key === 'week' ? rec.weekB3L : rec.totalB3L
                               const t = r.key === 'prior' ? rec.priorB3T : r.key === 'week' ? rec.weekB3T : rec.totalB3T
                               return (
-                                <td key={allPicksData!.users[i].id} className="px-2 py-2 text-center">
+                                <td key={allPicksData!.users[i].id} className="px-1 py-2 text-center">
                                   <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-amber-400' : 'text-slate-300'}`}>
                                     {w}-{l}{t > 0 ? `-${t}` : ''}
                                   </span>

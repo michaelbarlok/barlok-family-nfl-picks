@@ -20,11 +20,14 @@ export async function getAuthUser(req: NextApiRequest): Promise<User | null> {
 
 /**
  * Check if the request is from an admin user.
- * Only checks the user's Supabase token against ADMIN_EMAIL.
+ * Matches the owner email or any user with is_admin=true.
  */
 export async function isAdmin(req: NextApiRequest): Promise<boolean> {
   const user = await getAuthUser(req)
-  return user?.email === ADMIN_EMAIL
+  if (!user) return false
+  if (user.email === ADMIN_EMAIL) return true
+  const { data } = await getAdminClient().from('users').select('is_admin').eq('id', user.id).single()
+  return data?.is_admin === true
 }
 
 /**

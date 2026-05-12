@@ -41,6 +41,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Single pick save (auto-save mode)
     if (gameId && pickedTeam !== undefined) {
+      // Verify the game exists and its week/season match the request
+      const { data: game } = await supabase
+        .from('games')
+        .select('week, season, away_team, home_team')
+        .eq('id', gameId)
+        .single()
+      if (!game) return res.status(404).json({ error: 'Game not found' })
+      if (game.week !== week || game.season !== season) {
+        return res.status(400).json({ error: 'week/season do not match the game' })
+      }
+      if (pickedTeam !== game.away_team && pickedTeam !== game.home_team) {
+        return res.status(400).json({ error: 'pickedTeam must be one of the game teams' })
+      }
+
       const { error: pickError } = await supabase.from('picks').upsert({
         user_id: playerId,
         game_id: gameId,

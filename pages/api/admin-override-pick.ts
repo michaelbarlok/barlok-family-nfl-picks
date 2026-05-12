@@ -33,7 +33,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .eq('user_id', userId)
           .eq('game_id', gameId)
       } else {
-        // Upsert the pick
+        // Verify the game exists and its week/season match the request
+        const { data: game } = await supabase
+          .from('games')
+          .select('winning_team, week, season, away_team, home_team')
+          .eq('id', gameId)
+          .single()
+        if (!game) return res.status(404).json({ error: 'Game not found' })
+        if (game.week !== week || game.season !== season) {
+          return res.status(400).json({ error: 'week/season do not match the game' })
+        }
+        if (pickedTeam !== game.away_team && pickedTeam !== game.home_team) {
+          return res.status(400).json({ error: 'pickedTeam must be one of the game teams' })
+        }
+
         const { error } = await supabase.from('picks').upsert({
           user_id: userId,
           game_id: gameId,
@@ -44,13 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (error) throw error
 
         // If this game already has a result, update the score row too
-        const { data: game } = await supabase
-          .from('games')
-          .select('winning_team')
-          .eq('id', gameId)
-          .single()
-
-        if (game?.winning_team) {
+        if (game.winning_team) {
           await supabase.from('scores').upsert({
             user_id: userId,
             game_id: gameId,

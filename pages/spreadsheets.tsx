@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
 import Nav from '@/components/Nav'
 
 function SheetsSkeleton() {
@@ -39,6 +39,8 @@ export default function SpreadsheetsPage() {
   const [latestWeek, setLatestWeek] = useState<number | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
   const [downloading, setDownloading] = useState<number | null>(null)
+
+  const canDownload = user?.email === ADMIN_EMAIL || user?.is_admin === true
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -144,30 +146,34 @@ export default function SpreadsheetsPage() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => handleDownload(week)}
-                    disabled={isDownloading}
-                    className={`press flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                      isCurrent
-                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-600/20 disabled:opacity-50'
-                        : 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.10] disabled:opacity-50'
-                    }`}
-                  >
-                    {isDownloading ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
-                          <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="rgba(34,197,94,0.15)" />
-                          <path d="M5 5L8 8M8 8L11 5M8 8L5 11M8 8L11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                        Download
-                      </>
-                    )}
-                  </button>
+                  {canDownload ? (
+                    <button
+                      onClick={() => handleDownload(week)}
+                      disabled={isDownloading}
+                      className={`press flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                        isCurrent
+                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-600/20 disabled:opacity-50'
+                          : 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.10] disabled:opacity-50'
+                      }`}
+                    >
+                      {isDownloading ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+                            <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="rgba(34,197,94,0.15)" />
+                            <path d="M5 5L8 8M8 8L11 5M8 8L5 11M8 8L11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                          Download
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-slate-500 italic">Admin only</span>
+                  )}
                 </div>
               )
             })}

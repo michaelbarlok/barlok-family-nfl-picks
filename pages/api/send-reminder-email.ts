@@ -137,8 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ message: 'No email recipients configured.' })
     }
 
-    let sentCount = 0
-    for (const u of emailableUsers) {
+    const buildDeadlineEmail = (u: { id: string; name: string; email: string }) => {
       const count = pickCounts.get(u.id) || 0
       const hasThreeBest = threeBestUserIds.has(u.id)
       const isComplete = count >= totalGames && hasThreeBest
@@ -163,7 +162,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         `
       }
 
-      await transporter.sendMail({
+      return transporter.sendMail({
         from: `Barlok Family NFL Picks <${gmailAddress}>`,
         to: u.email,
         subject: `${LEAGUE_NAME} — Picks Lock in ${timeLabel}!`,
@@ -184,8 +183,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           </div>
         `,
       })
-      sentCount++
     }
+
+    const settled = await Promise.allSettled(emailableUsers.map((u: any) => buildDeadlineEmail(u)))
+    const sentCount = settled.filter(r => r.status === 'fulfilled').length
+    const failed = settled.length - sentCount
 
     return res.status(200).json({
       success: true,
@@ -193,7 +195,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       type: 'deadline_warning',
       minutes,
       sent: sentCount,
-      message: `Deadline warning (${timeLabel}) sent to ${sentCount} recipients.`,
+      failed,
+      message: `Deadline warning (${timeLabel}) sent to ${sentCount} of ${settled.length} recipients.`,
     })
   }
 
@@ -208,9 +211,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ message: `All email recipients have completed Week ${week} picks. No reminders sent.` })
   }
 
-  // Send individual emails so each user gets a personalized message
-  let sentCount = 0
-  for (const u of incompleteUsers) {
+  // Send individual emails in parallel so each user gets a personalized message
+  const buildReminder = (u: { id: string; name: string; email: string }) => {
     const count = pickCounts.get(u.id) || 0
     const hasThreeBest = threeBestUserIds.has(u.id)
     const missingPicks = totalGames - count
@@ -219,7 +221,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!hasThreeBest) parts.push('Best 3 selections')
     const missingStr = parts.join(' and ')
 
-    await transporter.sendMail({
+    return transporter.sendMail({
       from: `Barlok Family NFL Picks <${gmailAddress}>`,
       to: u.email,
       subject: `${LEAGUE_NAME} — Week ${week} Picks Reminder`,
@@ -242,14 +244,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         </div>
       `,
     })
-    sentCount++
   }
+
+  const settled = await Promise.allSettled(incompleteUsers.map((u: any) => buildReminder(u)))
+  const sentCount = settled.filter(r => r.status === 'fulfilled').length
+  const failed = settled.length - sentCount
 
   return res.status(200).json({
     success: true,
     week,
     type: 'reminder',
     sent: sentCount,
-    message: `Reminder sent to ${sentCount} user${sentCount !== 1 ? 's' : ''} with incomplete Week ${week} picks.`,
+    failed,
+    message: `Reminder sent to ${sentCount} of ${settled.length} user${settled.length !== 1 ? 's' : ''} with incomplete Week ${week} picks.`,
   })
 }

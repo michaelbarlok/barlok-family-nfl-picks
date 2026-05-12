@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
@@ -27,7 +27,6 @@ interface Game {
 interface UserPick {
   [gameId: string]: string
 }
-const MAX_BEST_PICKS = 3
 
 // Skeleton loading component
 function PicksSkeleton() {
@@ -79,10 +78,27 @@ export default function PicksPage() {
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Tick every second for live countdown
+  // Tick every second for live countdown — paused when tab hidden to save battery
   useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 1_000)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+    const start = () => {
+      if (interval) return
+      setNow(new Date())
+      interval = setInterval(() => setNow(new Date()), 1_000)
+    }
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null }
+    }
+    const handleVisibility = () => {
+      if (document.hidden) stop()
+      else start()
+    }
+    start()
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   useEffect(() => {
@@ -593,6 +609,7 @@ export default function PicksPage() {
                         >
                           <img
                             src={away.logo} alt={game.away_team}
+                            loading="lazy" decoding="async"
                             className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
                               pickedTeam === game.away_team ? 'scale-110' : ''
                             } ${isLocked && pickedTeam !== game.away_team && !decided ? 'opacity-30' : ''}`}
@@ -620,6 +637,7 @@ export default function PicksPage() {
                         >
                           <img
                             src={home.logo} alt={game.home_team}
+                            loading="lazy" decoding="async"
                             className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
                               pickedTeam === game.home_team ? 'scale-110' : ''
                             } ${isLocked && pickedTeam !== game.home_team && !decided ? 'opacity-30' : ''}`}
@@ -652,7 +670,7 @@ export default function PicksPage() {
                   const t = getTeam(team)
                   return (
                     <div key={gameId} className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
-                      <img src={t.logo} alt={team} className="w-5 h-5 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      <img src={t.logo} alt={team} loading="lazy" decoding="async" className="w-5 h-5 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                       <span className="text-sm font-semibold text-amber-200">{t.city} {t.name}</span>
                     </div>
                   )

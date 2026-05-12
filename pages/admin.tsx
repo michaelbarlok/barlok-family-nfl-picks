@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { CURRENT_SEASON, ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
 import { processAvatarFile } from '@/lib/avatarUtils'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
@@ -606,7 +606,7 @@ export default function AdminPage() {
     setOverrideBestGames(prev => {
       const next = new Set(prev)
       if (next.has(gameId)) next.delete(gameId)
-      else if (next.size < 3) next.add(gameId)
+      else if (next.size < MAX_BEST_PICKS) next.add(gameId)
       saveBestPicks(next)
       return next
     })
@@ -947,6 +947,7 @@ export default function AdminPage() {
                             >
                               <img
                                 src={info.logo} alt={abbr}
+                                loading="lazy" decoding="async"
                                 className={`w-8 h-8 object-contain flex-shrink-0 ${winner && !isWinner && !isTie ? 'opacity-30' : ''}`}
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                               />
@@ -1054,7 +1055,7 @@ export default function AdminPage() {
                         const currentPick = overridePicks[game.id] ?? null
                         const isStarred = overrideBestGames.has(game.id)
                         const canStar = !!currentPick
-                        const starDisabled = !canStar || (!isStarred && overrideBestGames.size >= 3)
+                        const starDisabled = !canStar || (!isStarred && overrideBestGames.size >= MAX_BEST_PICKS)
 
                         return (
                           <div key={game.id} className={`glass-card rounded-xl overflow-hidden ${isStarred ? 'ring-1 ring-amber-500/30' : ''}`}>
@@ -1106,6 +1107,7 @@ export default function AdminPage() {
                                   >
                                     <img
                                       src={info.logo} alt={abbr}
+                                      loading="lazy" decoding="async"
                                       className={`w-8 h-8 object-contain flex-shrink-0 ${currentPick && !isPicked ? 'opacity-30' : ''}`}
                                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                                     />

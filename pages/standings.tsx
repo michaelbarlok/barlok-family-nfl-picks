@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { computeRecords, recordSort } from '@/lib/computeStandings'
 import Nav from '@/components/Nav'
 
 // Canvas confetti burst — shown when a perfect week is spotted
@@ -130,203 +131,73 @@ export default function StandingsPage() {
           { data: games },
         ] = await Promise.all([
           supabase.from('users').select('*').order('name'),
-          supabase.from('scores').select('*').eq('season', CURRENT_SEASON),
-          supabase.from('picks').select('*').eq('season', CURRENT_SEASON),
-          supabase.from('three_best').select('*').eq('season', CURRENT_SEASON),
-          supabase.from('games').select('id, away_team, home_team, week, season, winning_team').eq('season', CURRENT_SEASON),
+          supabase.from('scores').select('user_id, created_at').eq('season', CURRENT_SEASON).order('created_at', { ascending: false }).limit(1),
+          supabase.from('picks').select('user_id, game_id, picked_team, week').eq('season', CURRENT_SEASON),
+          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
+          supabase.from('games').select('id, away_team, home_team, kickoff_time, week, season, winning_team').eq('season', CURRENT_SEASON),
         ])
 
         if (!users) return
 
-        const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p]))
-
-        // Track last updated from scores
-        const scored = (scores || [])
-        if (scored.length > 0) {
-          setLastUpdated(new Date(Math.max(...scored.map((s: { created_at: string }) => new Date(s.created_at).getTime()))).toLocaleString('en-US', {
+        // Last updated banner from most recent score row
+        if (scores && scores.length > 0) {
+          setLastUpdated(new Date(scores[0].created_at).toLocaleString('en-US', {
             month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
             timeZone: 'America/New_York',
           }))
         }
 
-        // Decided games (have a winning_team set)
-        const decidedGames = (games || []).filter((g: any) => g.winning_team)
-
-        // Build user participation: which weeks each user has any picks in
+        const userIds = users.map(u => u.id)
+        const allGames = games ?? []
+        const decidedGames = allGames.filter((g: any) => g.winning_team)
+        const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p]))
         const userWeeks = new Map<string, Set<number>>()
         ;(picks || []).forEach((p: any) => {
           if (!userWeeks.has(p.user_id)) userWeeks.set(p.user_id, new Set())
           userWeeks.get(p.user_id)!.add(p.week)
         })
 
-        const result: UserStanding[] = users.map(u => {
-          let wins = 0, losses = 0, ties = 0, bestWins = 0, bestLosses = 0, bestTies = 0
-          const weeks = userWeeks.get(u.id) || new Set<number>()
-
-          // Iterate ALL decided games — unpicked games in participated weeks count as losses
-          for (const game of decidedGames) {
-            if (!weeks.has(game.week)) continue
-            const isTie = game.winning_team === 'TIE'
-            const pick = picksMap.get(`${u.id}-${game.id}`)
-            if (!pick) {
-              if (isTie) ties++
-              else losses++
-            } else if (isTie) {
-              ties++
-            } else if (pick.picked_team === game.winning_team) {
-              wins++
-            } else {
-              losses++
-            }
-          }
-
-          // Best 3
-          ;(threeBests || []).filter((tb: any) => tb.user_id === u.id).forEach((tb: any) => {
-            const bestTeams = [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)
-            bestTeams.forEach((team: string) => {
-              const game = decidedGames.find((g: any) =>
-                g.week === tb.week &&
-                (g.away_team === team || g.home_team === team)
-              )
-              if (!game) return
-              const isTie = game.winning_team === 'TIE'
-              const pick = picksMap.get(`${u.id}-${game.id}`)
-              if (!pick) {
-                bestLosses++ // unpicked best 3 games always count as losses
-              } else if (isTie) {
-                bestTies++
-              } else if (pick.picked_team === game.winning_team) {
-                bestWins++
-              } else {
-                bestLosses++
-              }
-            })
-          })
-
-          // Build per-week records
-          const decidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))]
-            .filter(w => weeks.has(w))
-            .sort((a, b) => a - b)
-
-          const weekRecords: WeekRecord[] = decidedWeeks.map(week => {
-            let ww = 0, wl = 0, wt = 0, bw = 0, bl = 0, bt = 0
-            for (const game of decidedGames) {
-              if (game.week !== week) continue
-              const isTie = game.winning_team === 'TIE'
-              const pick = picksMap.get(`${u.id}-${game.id}`)
-              if (!pick) {
-                if (isTie) wt++
-                else wl++
-              } else if (isTie) {
-                wt++
-              } else if (pick.picked_team === game.winning_team) {
-                ww++
-              } else {
-                wl++
-              }
-            }
-            const tb = (threeBests || []).find((t: any) => t.user_id === u.id && t.week === week)
-            if (tb) {
-              const bestTeams = [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)
-              bestTeams.forEach((team: string) => {
-                const game = decidedGames.find((g: any) =>
-                  g.week === week &&
-                  (g.away_team === team || g.home_team === team)
-                )
-                if (!game) return
-                const isTie = game.winning_team === 'TIE'
-                const pick = picksMap.get(`${u.id}-${game.id}`)
-                if (!pick) {
-                  bl++ // unpicked best 3 games always count as losses
-                } else if (isTie) {
-                  bt++
-                } else if (pick.picked_team === game.winning_team) {
-                  bw++
-                } else {
-                  bl++
-                }
-              })
-            }
-            return { week, wins: ww, losses: wl, ties: wt, bestWins: bw, bestLosses: bl, bestTies: bt }
-          })
-
-          const totalPicks = wins + losses + ties
-          return { user: u, wins, losses, ties, bestWins, bestLosses, bestTies, totalPicks, weekRecords, rankChange: null, winStreak: 0 }
+        // Compute records using shared logic
+        const records = computeRecords({
+          userIds,
+          games: allGames,
+          picks: picks ?? [],
+          threeBests: threeBests ?? [],
         })
 
-        // Non-participant penalty: users who didn't submit picks for a decided week
-        // but HAVE participated in at least one week get a record one worse than worst participant
-        const allDecidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))].sort((a: number, b: number) => a - b)
-        for (const wk of allDecidedWeeks) {
-          const wkGames = decidedGames.filter((g: any) => g.week === wk)
-          const totalGamesInWeek = wkGames.length
-          if (totalGamesInWeek === 0) continue
-
-          // Find worst participant wins for this week
-          let worstParticipantWins = Infinity
-          let anyParticipant = false
-          for (const s of result) {
-            if ((userWeeks.get(s.user.id) || new Set<number>()).has(wk)) {
-              anyParticipant = true
-              const wr = s.weekRecords.find(r => r.week === wk)
-              if (wr) {
-                worstParticipantWins = Math.min(worstParticipantWins, wr.wins)
-              }
-            }
+        // Project into UserStanding shape
+        const result: UserStanding[] = users.map(u => {
+          const r = records.get(u.id)!
+          const weekRecords: WeekRecord[] = [...r.weekRecords.entries()]
+            .map(([week, wr]) => ({ week, ...wr }))
+            .sort((a, b) => a.week - b.week)
+          return {
+            user: u,
+            wins: r.wins, losses: r.losses, ties: r.ties,
+            bestWins: r.bestWins, bestLosses: r.bestLosses, bestTies: r.bestTies,
+            totalPicks: r.wins + r.losses + r.ties,
+            weekRecords,
+            rankChange: null,
+            winStreak: 0,
           }
-          if (!anyParticipant) continue
-
-          const penaltyWins = Math.max(0, worstParticipantWins - 1)
-          const penaltyLosses = totalGamesInWeek - penaltyWins
-
-          for (const s of result) {
-            // Skip users who participated this week (they already have a record)
-            if ((userWeeks.get(s.user.id) || new Set<number>()).has(wk)) continue
-            // Skip users who have NEVER participated in any week — they aren't playing
-            const totalWeeksPlayed = (userWeeks.get(s.user.id) || new Set<number>()).size
-            if (totalWeeksPlayed === 0) continue
-
-            s.wins += penaltyWins
-            s.losses += penaltyLosses
-            s.weekRecords.push({
-              week: wk,
-              wins: penaltyWins,
-              losses: penaltyLosses,
-              ties: 0,
-              bestWins: 0,
-              bestLosses: 0,
-              bestTies: 0,
-            })
-          }
-        }
-
-        // Recompute totalPicks and sort weekRecords after penalties
-        for (const s of result) {
-          s.totalPicks = s.wins + s.losses + s.ties
-          s.weekRecords.sort((a, b) => a.week - b.week)
-        }
+        })
 
         // Sort by current record
-        const sortFn = (a: UserStanding, b: UserStanding) => {
-          if (b.wins !== a.wins) return b.wins - a.wins
-          if (a.losses !== b.losses) return a.losses - b.losses
-          if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
-          return a.bestLosses - b.bestLosses
-        }
-        result.sort(sortFn)
+        result.sort((a, b) => recordSort(records.get(a.user.id)!, records.get(b.user.id)!))
 
         // Rank change: compare current rank to rank WITHOUT the latest decided week
+        const allDecidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))].sort((a: number, b: number) => a - b)
         if (allDecidedWeeks.length >= 2) {
           const latestWeek = allDecidedWeeks[allDecidedWeeks.length - 1]
-          // Build "previous" records (subtract latest week's contribution)
           const prevResult = result.map(s => {
-            const latestWr = s.weekRecords.find(wr => wr.week === latestWeek)
+            const r = records.get(s.user.id)!
+            const lwr = r.weekRecords.get(latestWeek)
             return {
               userId: s.user.id,
-              wins: s.wins - (latestWr?.wins ?? 0),
-              losses: s.losses - (latestWr?.losses ?? 0),
-              bestWins: s.bestWins - (latestWr?.bestWins ?? 0),
-              bestLosses: s.bestLosses - (latestWr?.bestLosses ?? 0),
+              wins: r.wins - (lwr?.wins ?? 0),
+              losses: r.losses - (lwr?.losses ?? 0),
+              bestWins: r.bestWins - (lwr?.bestWins ?? 0),
+              bestLosses: r.bestLosses - (lwr?.bestLosses ?? 0),
             }
           })
           prevResult.sort((a, b) => {
@@ -338,24 +209,21 @@ export default function StandingsPage() {
           const prevRankMap = new Map(prevResult.map((r, i) => [r.userId, i + 1]))
           result.forEach((s, i) => {
             const prevRank = prevRankMap.get(s.user.id)
-            if (prevRank != null) {
-              s.rankChange = prevRank - (i + 1) // positive = moved up
-            }
+            if (prevRank != null) s.rankChange = prevRank - (i + 1)
           })
         }
 
-        // Win streaks: count consecutive correct picks going backwards from most recent
+        // Win streaks: consecutive correct picks going backwards
         const sortedDecided = [...decidedGames].sort((a: any, b: any) => {
-          if (a.week !== b.week) return b.week - a.week // latest week first
+          if (a.week !== b.week) return b.week - a.week
           return new Date(b.kickoff_time || 0).getTime() - new Date(a.kickoff_time || 0).getTime()
         })
         for (const s of result) {
           let streak = 0
           for (const game of sortedDecided) {
-            const participated = (userWeeks.get(s.user.id) || new Set<number>()).has(game.week)
+            const participated = userWeeks.get(s.user.id)?.has(game.week)
             if (!participated) continue
-            const isTie = game.winning_team === 'TIE'
-            if (isTie) { streak = 0; break } // ties break the streak
+            if (game.winning_team === 'TIE') { streak = 0; break }
             const pick = picksMap.get(`${s.user.id}-${game.id}`)
             if (pick && pick.picked_team === game.winning_team) streak++
             else break
@@ -375,22 +243,29 @@ export default function StandingsPage() {
   // Fetch on mount
   useEffect(() => { fetchStandings() }, [fetchStandings])
 
-  // Real-time: re-fetch when games or picks change
+  // Real-time: re-fetch when games or picks change.
+  // Debounced so a burst of pick updates only triggers one refetch.
   useEffect(() => {
     if (!user) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const scheduleRefetch = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { fetchStandings() }, 500)
+    }
     const gamesChannel = supabase
       .channel('standings-games')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => { fetchStandings() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, scheduleRefetch)
       .subscribe()
     const picksChannel = supabase
       .channel('standings-picks')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'picks' }, () => { fetchStandings() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'picks' }, scheduleRefetch)
       .subscribe()
     const threeBestChannel = supabase
       .channel('standings-threebest')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'three_best' }, () => { fetchStandings() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'three_best' }, scheduleRefetch)
       .subscribe()
     return () => {
+      if (timer) clearTimeout(timer)
       supabase.removeChannel(gamesChannel)
       supabase.removeChannel(picksChannel)
       supabase.removeChannel(threeBestChannel)
@@ -519,6 +394,51 @@ export default function StandingsPage() {
             </div>
           )}
 
+          {/* ── PERFECT WEEKS TROPHY CASE ── */}
+          {(() => {
+            const trophies = standings
+              .map(s => ({
+                user: s.user,
+                weeks: s.weekRecords.filter(wr => wr.wins > 0 && wr.losses === 0 && wr.ties === 0),
+              }))
+              .filter(t => t.weeks.length > 0)
+              .sort((a, b) => b.weeks.length - a.weeks.length)
+            if (trophies.length === 0) return null
+            return (
+              <div className="mb-6 animate-slide-up">
+                <div className="flex items-center gap-2 mb-3">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Trophy Case</p>
+                  <span className="text-[10px] text-slate-600">{trophies.reduce((sum, t) => sum + t.weeks.length, 0)} perfect week{trophies.reduce((s, t) => s + t.weeks.length, 0) === 1 ? '' : 's'} this season</span>
+                </div>
+                <div className="glass-card rounded-2xl p-4">
+                  <div className="flex flex-wrap gap-2">
+                    {trophies.map(t => (
+                      <div
+                        key={t.user.id}
+                        className={`inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-full border ${
+                          t.user.id === user.id
+                            ? 'bg-amber-500/15 border-amber-500/40'
+                            : 'bg-amber-500/10 border-amber-500/20'
+                        }`}
+                        title={`Perfect weeks: ${t.weeks.map(w => `Week ${w.week}`).join(', ')}`}
+                      >
+                        {t.user.avatar_url ? (
+                          <img src={t.user.avatar_url} alt="" loading="lazy" decoding="async" className="w-6 h-6 rounded-full object-cover border border-white/[0.08]" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[10px] font-bold text-white border border-white/[0.08]">
+                            {t.user.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span className="text-xs font-semibold text-amber-200">{t.user.name.split(' ')[0]}</span>
+                        <span className="text-xs font-bold text-amber-400">🏆{t.weeks.length}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="glass-card rounded-2xl overflow-hidden">
             {/* Table header */}
             <div className="grid grid-cols-12 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -593,6 +513,18 @@ export default function StandingsPage() {
                                 🔥{s.winStreak}
                               </span>
                             )}
+                            {(() => {
+                              const perfectCount = s.weekRecords.filter(wr => wr.wins > 0 && wr.losses === 0 && wr.ties === 0).length
+                              if (perfectCount === 0) return null
+                              return (
+                                <span
+                                  className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full leading-none shrink-0"
+                                  title={`${perfectCount} perfect week${perfectCount === 1 ? '' : 's'}`}
+                                >
+                                  🏆{perfectCount}
+                                </span>
+                              )
+                            })()}
                             {hasWeekData && (
                               <svg
                                 className={`w-3.5 h-3.5 text-slate-500 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}

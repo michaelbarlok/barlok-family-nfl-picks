@@ -9,9 +9,15 @@ A Next.js application for managing NFL pick predictions in a family league, depl
 1. Go to your Supabase project: https://supabase.com
 2. On the left sidebar, click **SQL Editor**
 3. Click **"New Query"**
-4. Copy ALL the SQL code from `database.sql`
-5. Paste it into the SQL Editor and click **Run**
-6. Then run `database_managed_players.sql` and `admin_migration.sql` the same way
+4. Run each file in `supabase/migrations/` in numeric order:
+   - `00_initial_schema.sql` — base tables and RLS
+   - `01_admin.sql` — winner column
+   - `02_avatar.sql` — avatar column + storage bucket policies
+   - `03_game_scores.sql` — score columns
+   - `04_managed_players.sql` — managed-player support
+   - `05_rls_hardening.sql` — restricts picks visibility pre-lock
+   - `06_cron_log.sql` — dedup table for cron emails
+5. Paste each file into the SQL Editor and click **Run**
 
 **What this does**: Creates all your database tables (users, games, picks, three_best, scores, player_managers)
 

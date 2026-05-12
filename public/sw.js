@@ -1,4 +1,6 @@
-const CACHE_NAME = 'nfl-picks-v1'
+// Bump this string on each deploy so old caches are evicted and users get
+// fresh HTML/assets without having to force-reload.
+const CACHE_NAME = 'nfl-picks-v2'
 const PRECACHE_URLS = [
   '/',
   '/picks',
@@ -31,16 +33,19 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET and API requests
   if (request.method !== 'GET' || request.url.includes('/api/')) return
 
+  // Network-first for HTML so deployments roll out immediately when online.
+  // Falls back to cache when offline.
+  const isHTML = request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')
+
   event.respondWith(
     fetch(request)
       .then((response) => {
-        // Cache successful page/asset responses
         if (response.ok) {
           const clone = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
         }
         return response
       })
-      .catch(() => caches.match(request))
+      .catch(() => caches.match(request).then((cached) => cached || (isHTML ? caches.match('/') : undefined)))
   )
 })

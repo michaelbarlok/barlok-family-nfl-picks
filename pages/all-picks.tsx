@@ -347,13 +347,13 @@ export default function AllPicksPage() {
                           <div className="flex flex-col gap-0.5">
                             {/* Away team row */}
                             <div className="flex items-center gap-1.5">
-                              {away && <img src={away.logo} alt="" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                              {away && <img src={away.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                               <span className={`text-[11px] font-semibold ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>{game.away_team}</span>
                               {hasScore && <span className={`text-[11px] ml-auto tabular-nums ${awayWon ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
                             </div>
                             {/* Home team row */}
                             <div className="flex items-center gap-1.5">
-                              {home && <img src={home.logo} alt="" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                              {home && <img src={home.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                               <span className={`text-[11px] font-semibold ${homeWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>{game.home_team}</span>
                               {hasScore && <span className={`text-[11px] ml-auto tabular-nums ${homeWon ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
                             </div>

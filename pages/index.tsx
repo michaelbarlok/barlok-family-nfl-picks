@@ -59,9 +59,27 @@ export default function DashboardPage() {
   const [dataLoading, setDataLoading] = useState(true)
   const [now, setNow] = useState(new Date())
 
+  // Tick every second for live countdown — paused when tab hidden to save battery
   useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 1_000)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+    const start = () => {
+      if (interval) return
+      setNow(new Date())
+      interval = setInterval(() => setNow(new Date()), 1_000)
+    }
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null }
+    }
+    const handleVisibility = () => {
+      if (document.hidden) stop()
+      else start()
+    }
+    start()
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   useEffect(() => {

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
@@ -27,7 +27,6 @@ interface Game {
 interface UserPick {
   [gameId: string]: string
 }
-const MAX_BEST_PICKS = 3
 
 // Skeleton loading component
 function PicksSkeleton() {

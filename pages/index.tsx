@@ -3,9 +3,20 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { computeLockTime, formatKickoff } from '@/lib/lockTime'
+import { computeRecords, recordSort } from '@/lib/computeStandings'
 import Nav from '@/components/Nav'
+
+interface ManagedPlayerSummary {
+  id: string
+  name: string
+  avatar_url?: string | null
+  pickedCount: number
+  totalGames: number
+  bestPickCount: number
+  complete: boolean
+}
 
 interface DashboardData {
   // Your record
@@ -33,6 +44,8 @@ interface DashboardData {
   lastWeekRank: number | null
   // Leaderboard top 3
   leaderboard: { name: string; wins: number; losses: number; ties: number; isYou: boolean; avatar_url?: string | null }[]
+  // Players the current user manages (empty if not a manager)
+  managedPlayers: ManagedPlayerSummary[]
 }
 
 function DashboardSkeleton() {
@@ -94,13 +107,11 @@ export default function DashboardPage() {
           { data: users },
           { data: allPicks },
           { data: allGames },
-          { data: scores },
           { data: threeBests },
         ] = await Promise.all([
           supabase.from('users').select('id, name, avatar_url').order('name'),
           supabase.from('picks').select('user_id, game_id, picked_team, week').eq('season', CURRENT_SEASON),
           supabase.from('games').select('id, week, away_team, home_team, kickoff_time, winning_team, away_score, home_score').eq('season', CURRENT_SEASON).order('kickoff_time'),
-          supabase.from('scores').select('user_id, game_id, is_correct, week').eq('season', CURRENT_SEASON),
           supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
         ])
 
@@ -108,91 +119,23 @@ export default function DashboardPage() {
 
         const userIds = users.map(u => u.id)
         const decidedGames = allGames.filter(g => g.winning_team)
-
-        // Build user participation
-        const userWeeks = new Map<string, Set<number>>()
-        ;(allPicks ?? []).forEach(p => {
-          if (!userWeeks.has(p.user_id)) userWeeks.set(p.user_id, new Set())
-          userWeeks.get(p.user_id)!.add(p.week)
-        })
-
-        // Compute per-user total + per-week records
         const allDecidedWeeks = [...new Set(decidedGames.map(g => g.week))].sort((a, b) => a - b)
-        const picksMap = new Map((allPicks ?? []).map(p => [`${p.user_id}-${p.game_id}`, p]))
 
-        type UserRecord = { wins: number; losses: number; ties: number; weekWins: Map<number, number>; weekLosses: Map<number, number>; weekTies: Map<number, number>; bestWins: number; bestLosses: number; bestTies: number }
-        const records = new Map<string, UserRecord>()
-        userIds.forEach(uid => records.set(uid, { wins: 0, losses: 0, ties: 0, weekWins: new Map(), weekLosses: new Map(), weekTies: new Map(), bestWins: 0, bestLosses: 0, bestTies: 0 }))
-
-        // Participants: compute record from decided games
-        for (const game of decidedGames) {
-          const isTie = game.winning_team === 'TIE'
-          for (const uid of userIds) {
-            const weeks = userWeeks.get(uid)
-            if (!weeks || !weeks.has(game.week)) continue
-            const pick = picksMap.get(`${uid}-${game.id}`)
-            const r = records.get(uid)!
-            let result: 'w' | 'l' | 't'
-            if (!pick) result = isTie ? 't' : 'l'
-            else if (isTie) result = 't'
-            else if (pick.picked_team === game.winning_team) result = 'w'
-            else result = 'l'
-            if (result === 'w') { r.wins++; r.weekWins.set(game.week, (r.weekWins.get(game.week) ?? 0) + 1) }
-            else if (result === 'l') { r.losses++; r.weekLosses.set(game.week, (r.weekLosses.get(game.week) ?? 0) + 1) }
-            else { r.ties++; r.weekTies.set(game.week, (r.weekTies.get(game.week) ?? 0) + 1) }
-          }
-        }
-
-        // Non-participant penalty — only for users who have played at least one week
-        for (const wk of allDecidedWeeks) {
-          const wkGames = decidedGames.filter(g => g.week === wk)
-          const total = wkGames.length
-          if (total === 0) continue
-          let worstWins = Infinity; let any = false
-          for (const uid of userIds) {
-            if ((userWeeks.get(uid) || new Set()).has(wk)) {
-              any = true
-              worstWins = Math.min(worstWins, records.get(uid)!.weekWins.get(wk) ?? 0)
-            }
-          }
-          if (!any) continue
-          const pw = Math.max(0, worstWins - 1); const pl = total - pw
-          for (const uid of userIds) {
-            if ((userWeeks.get(uid) || new Set()).has(wk)) continue
-            if ((userWeeks.get(uid) || new Set()).size === 0) continue // never played
-            const r = records.get(uid)!
-            r.wins += pw; r.losses += pl
-            r.weekWins.set(wk, pw); r.weekLosses.set(wk, pl)
-          }
-        }
-
-        // Best 3
-        ;(threeBests ?? []).forEach(tb => {
-          [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean).forEach((team: string) => {
-            const game = decidedGames.find(g => g.week === tb.week && (g.away_team === team || g.home_team === team))
-            if (!game) return
-            const isTie = game.winning_team === 'TIE'
-            const pick = picksMap.get(`${tb.user_id}-${game.id}`)
-            const r = records.get(tb.user_id)
-            if (!r) return
-            if (!pick) r.bestLosses++
-            else if (isTie) r.bestTies++
-            else if (pick.picked_team === game.winning_team) r.bestWins++
-            else r.bestLosses++
-          })
+        // Per-user records via the shared module
+        const records = computeRecords({
+          userIds,
+          games: allGames,
+          picks: allPicks ?? [],
+          threeBests: threeBests ?? [],
         })
 
         // Rank all users
-        const ranked = userIds.map(uid => ({ uid, ...records.get(uid)! }))
-          .sort((a, b) => {
-            if (b.wins !== a.wins) return b.wins - a.wins
-            if (a.losses !== b.losses) return a.losses - b.losses
-            if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
-            return a.bestLosses - b.bestLosses
-          })
+        const ranked = userIds
+          .map(uid => ({ uid, r: records.get(uid)! }))
+          .sort((a, b) => recordSort(a.r, b.r))
 
-        const myRankIdx = ranked.findIndex(r => r.uid === user.id)
-        const myRecord = records.get(user.id) ?? { wins: 0, losses: 0, ties: 0, weekWins: new Map(), weekLosses: new Map(), weekTies: new Map(), bestWins: 0, bestLosses: 0, bestTies: 0 }
+        const myRankIdx = ranked.findIndex(x => x.uid === user.id)
+        const myRecord = records.get(user.id)!
 
         // Current week detection
         const maxWeek = allGames.length > 0 ? Math.max(...allGames.map(g => g.week)) : null
@@ -207,40 +150,69 @@ export default function DashboardPage() {
         // Last decided week
         const lastDecidedWeek = allDecidedWeeks.length > 0 ? allDecidedWeeks[allDecidedWeeks.length - 1] : null
 
-        // Last week rank — compute rank using only records up to lastDecidedWeek
+        // Last week rank — rank by that week's record (penalties already applied in shared module)
         let lastWeekRank: number | null = null
         if (lastDecidedWeek !== null) {
-          // Rank by week-specific record
           const weekRanked = userIds
-            .filter(uid => (userWeeks.get(uid) || new Set()).has(lastDecidedWeek) || records.get(uid)!.weekWins.has(lastDecidedWeek))
             .map(uid => {
-              const r = records.get(uid)!
-              return { uid, w: r.weekWins.get(lastDecidedWeek) ?? 0, l: r.weekLosses.get(lastDecidedWeek) ?? 0 }
+              const wr = records.get(uid)!.weekRecords.get(lastDecidedWeek)
+              return { uid, w: wr?.wins ?? 0, l: wr?.losses ?? 0, hasRow: !!wr }
             })
+            .filter(x => x.hasRow)
             .sort((a, b) => b.w !== a.w ? b.w - a.w : a.l - b.l)
           const lwIdx = weekRanked.findIndex(r => r.uid === user.id)
           lastWeekRank = lwIdx >= 0 ? lwIdx + 1 : null
         }
 
         // Leaderboard top 3
-        const leaderboard = ranked.slice(0, 3).map(r => {
-          const u = users.find(u => u.id === r.uid)
+        const leaderboard = ranked.slice(0, 3).map(({ uid, r }) => {
+          const u = users.find(u => u.id === uid)
           return {
             name: u?.name ?? 'Unknown',
-            wins: r.wins,
-            losses: r.losses,
-            ties: r.ties,
-            isYou: r.uid === user.id,
+            wins: r.wins, losses: r.losses, ties: r.ties,
+            isYou: uid === user.id,
             avatar_url: u?.avatar_url,
           }
         })
+
+        // Managed players: load any players where I'm a manager
+        let managedPlayers: ManagedPlayerSummary[] = []
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const token = session?.access_token ?? ''
+          const res = await fetch('/api/managed-players', {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (res.ok) {
+            const json = await res.json()
+            const players: Array<{ id: string; name: string }> = json.players ?? []
+            const totalGamesThisWeek = currentWeekGames.length
+            managedPlayers = players.map(p => {
+              const playerPicks = (allPicks ?? []).filter(pk => pk.user_id === p.id && pk.week === maxWeek)
+              const playerBest = (threeBests ?? []).find(tb => tb.user_id === p.id && tb.week === maxWeek)
+              const playerBestCount = playerBest ? [playerBest.pick_1, playerBest.pick_2, playerBest.pick_3].filter(Boolean).length : 0
+              const u = users.find(u => u.id === p.id)
+              return {
+                id: p.id,
+                name: p.name,
+                avatar_url: u?.avatar_url,
+                pickedCount: playerPicks.length,
+                totalGames: totalGamesThisWeek,
+                bestPickCount: playerBestCount,
+                complete: playerPicks.length >= totalGamesThisWeek && playerBestCount >= MAX_BEST_PICKS,
+              }
+            })
+          }
+        } catch (err) {
+          console.error('Managed players fetch error:', err)
+        }
 
         setData({
           wins: myRecord.wins,
           losses: myRecord.losses,
           ties: myRecord.ties,
           rank: myRankIdx + 1,
-          totalPlayers: ranked.filter(r => r.wins + r.losses + r.ties > 0).length,
+          totalPlayers: ranked.filter(x => x.r.wins + x.r.losses + x.r.ties > 0).length,
           bestWins: myRecord.bestWins,
           bestLosses: myRecord.bestLosses,
           bestTies: myRecord.bestTies,
@@ -251,11 +223,12 @@ export default function DashboardPage() {
           lockTime: lt,
           isLocked: locked,
           lastWeek: lastDecidedWeek,
-          lastWeekWins: lastDecidedWeek ? (myRecord.weekWins.get(lastDecidedWeek) ?? 0) : 0,
-          lastWeekLosses: lastDecidedWeek ? (myRecord.weekLosses.get(lastDecidedWeek) ?? 0) : 0,
-          lastWeekTies: lastDecidedWeek ? (myRecord.weekTies.get(lastDecidedWeek) ?? 0) : 0,
+          lastWeekWins: lastDecidedWeek ? (myRecord.weekRecords.get(lastDecidedWeek)?.wins ?? 0) : 0,
+          lastWeekLosses: lastDecidedWeek ? (myRecord.weekRecords.get(lastDecidedWeek)?.losses ?? 0) : 0,
+          lastWeekTies: lastDecidedWeek ? (myRecord.weekRecords.get(lastDecidedWeek)?.ties ?? 0) : 0,
           lastWeekRank,
           leaderboard,
+          managedPlayers,
         })
       } catch (err) {
         console.error('Dashboard error:', err)
@@ -417,6 +390,61 @@ export default function DashboardPage() {
                   Ranked <span className="text-white font-semibold">#{d.lastWeekRank}</span> that week
                 </span>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── MANAGED PLAYERS (only if you manage anyone) ── */}
+        {d.managedPlayers.length > 0 && d.currentWeek !== null && (
+          <div className="mb-5 animate-slide-up" style={{ animationDelay: '175ms' }}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Players you manage</p>
+              <Link href="/picks" className="text-[10px] font-semibold text-blue-400 hover:text-blue-300 transition">
+                Make picks →
+              </Link>
+            </div>
+            <div className="glass-card rounded-2xl overflow-hidden">
+              {d.managedPlayers.map((mp, i) => (
+                <div
+                  key={mp.id}
+                  className={`flex items-center gap-3 px-4 py-3 border-b border-white/[0.04] last:border-0 ${
+                    !mp.complete && !d.isLocked ? 'bg-amber-500/5' : ''
+                  }`}
+                >
+                  {mp.avatar_url ? (
+                    <img src={mp.avatar_url} alt="" loading="lazy" decoding="async" className="w-8 h-8 rounded-full object-cover border border-white/[0.08]" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white text-[11px] font-bold border border-white/[0.08]">
+                      {mp.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{mp.name}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {mp.totalGames > 0 ? (
+                        <>
+                          {mp.pickedCount}/{mp.totalGames} picks
+                          {mp.bestPickCount >= MAX_BEST_PICKS
+                            ? <span className="text-amber-400 ml-1.5">⭐ Best 3 set</span>
+                            : <span className="text-slate-500 ml-1.5">⭐ {mp.bestPickCount}/{MAX_BEST_PICKS}</span>
+                          }
+                        </>
+                      ) : (
+                        'No games yet'
+                      )}
+                    </p>
+                  </div>
+                  {mp.totalGames > 0 && (
+                    mp.complete ? (
+                      <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">Ready</span>
+                    ) : d.isLocked ? (
+                      <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Locked</span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">Incomplete</span>
+                    )
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

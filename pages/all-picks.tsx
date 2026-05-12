@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { parseUTC, computeLockTime } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
+import { computeRecords } from '@/lib/computeStandings'
 import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 
@@ -189,50 +190,54 @@ export default function AllPicksPage() {
   const gameResultLookup = new Map<string, string | null>()
   games.forEach(g => gameResultLookup.set(g.id, g.winning_team))
 
-  // Compute records per user (unpicked games with results count as losses)
-  const computeRecords = (userId: string) => {
-    if (!seasonData || !selectedWeek) return { priorW: 0, priorL: 0, priorT: 0, weekW: 0, weekL: 0, weekT: 0, totalW: 0, totalL: 0, totalT: 0, priorB3W: 0, priorB3L: 0, priorB3T: 0, weekB3W: 0, weekB3L: 0, weekB3T: 0, totalB3W: 0, totalB3L: 0, totalB3T: 0 }
+  // Compute records via the shared module. We pass only weeks <= selectedWeek
+  // so totals don't include future weeks. The Best 3 logic needs team
+  // abbreviations on games, so we hydrate from the current-week games list
+  // (other weeks are looked up via this map below).
+  const userIdsForRecords = allPicksData?.users.map(u => u.id) ?? []
 
-    const userPicksByGame = new Map(seasonData.picks.filter(p => p.user_id === userId).map(p => [p.game_id, p]))
-    const userThreeBests = new Map<number, Set<string>>()
-    seasonData.threeBests.filter(tb => tb.user_id === userId).forEach(tb => {
-      userThreeBests.set(tb.week, new Set([tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean)))
-    })
+  // Games lookup with team abbrs — needed because seasonData.games only has id/week/winning_team
+  const gameTeamsLookup = new Map<string, { away_team: string; home_team: string }>()
+  games.forEach(g => gameTeamsLookup.set(g.id, { away_team: g.away_team, home_team: g.home_team }))
 
-    // Determine which weeks the user participated in (has at least 1 pick)
-    const userWeeks = new Set(seasonData.picks.filter(p => p.user_id === userId).map(p => p.week))
+  const recordsWithBest3 = (seasonData && selectedWeek != null)
+    ? computeRecords({
+        userIds: userIdsForRecords,
+        games: seasonData.games
+          .filter(g => g.week <= selectedWeek)
+          .map(g => {
+            const teams = gameTeamsLookup.get(g.id)
+            return {
+              id: g.id, week: g.week,
+              away_team: teams?.away_team ?? '',
+              home_team: teams?.home_team ?? '',
+              winning_team: g.winning_team,
+            }
+          }),
+        picks: seasonData.picks
+          .filter(p => p.week <= selectedWeek)
+          .map(p => ({ user_id: p.user_id, game_id: p.game_id, picked_team: p.picked_team, week: p.week })),
+        threeBests: seasonData.threeBests
+          .filter(tb => tb.week <= selectedWeek)
+          .map(tb => ({ user_id: tb.user_id, week: tb.week, pick_1: tb.pick_1, pick_2: tb.pick_2, pick_3: tb.pick_3 })),
+      })
+    : null
 
-    let priorW = 0, priorL = 0, priorT = 0, weekW = 0, weekL = 0, weekT = 0
-    let priorB3W = 0, priorB3L = 0, priorB3T = 0, weekB3W = 0, weekB3L = 0, weekB3T = 0
-
-    // Iterate ALL decided games — unpicked games in participated weeks count as losses
-    for (const game of seasonData.games) {
-      if (!game.winning_team) continue
-      if (game.week > selectedWeek) continue
-      if (!userWeeks.has(game.week)) continue
-
-      const pick = userPicksByGame.get(game.id)
-      const isTie = game.winning_team === 'TIE'
-      const won = pick && !isTie && pick.picked_team === game.winning_team
-      const tbSet = userThreeBests.get(game.week)
-      const isBest3 = pick ? (tbSet?.has(pick.picked_team) ?? false) : false
-
-      if (game.week < selectedWeek) {
-        if (isTie) { priorT++; if (isBest3) priorB3T++ }
-        else if (won) { priorW++; if (isBest3) priorB3W++ }
-        else { priorL++; if (isBest3) priorB3L++ }
-      } else if (game.week === selectedWeek) {
-        if (isTie) { weekT++; if (isBest3) weekB3T++ }
-        else if (won) { weekW++; if (isBest3) weekB3W++ }
-        else { weekL++; if (isBest3) weekB3L++ }
-      }
-    }
-
+  const computeRecordsForRow = (userId: string) => {
+    const empty = { priorW: 0, priorL: 0, priorT: 0, weekW: 0, weekL: 0, weekT: 0, totalW: 0, totalL: 0, totalT: 0, priorB3W: 0, priorB3L: 0, priorB3T: 0, weekB3W: 0, weekB3L: 0, weekB3T: 0, totalB3W: 0, totalB3L: 0, totalB3T: 0 }
+    if (!recordsWithBest3 || !selectedWeek) return empty
+    const r = recordsWithBest3.get(userId)
+    if (!r) return empty
+    const wkRec = r.weekRecords.get(selectedWeek)
+    const weekW = wkRec?.wins ?? 0, weekL = wkRec?.losses ?? 0, weekT = wkRec?.ties ?? 0
+    const weekB3W = wkRec?.bestWins ?? 0, weekB3L = wkRec?.bestLosses ?? 0, weekB3T = wkRec?.bestTies ?? 0
     return {
-      priorW, priorL, priorT, weekW, weekL, weekT,
-      totalW: priorW + weekW, totalL: priorL + weekL, totalT: priorT + weekT,
-      priorB3W, priorB3L, priorB3T, weekB3W, weekB3L, weekB3T,
-      totalB3W: priorB3W + weekB3W, totalB3L: priorB3L + weekB3L, totalB3T: priorB3T + weekB3T,
+      priorW: r.wins - weekW, priorL: r.losses - weekL, priorT: r.ties - weekT,
+      weekW, weekL, weekT,
+      totalW: r.wins, totalL: r.losses, totalT: r.ties,
+      priorB3W: r.bestWins - weekB3W, priorB3L: r.bestLosses - weekB3L, priorB3T: r.bestTies - weekB3T,
+      weekB3W, weekB3L, weekB3T,
+      totalB3W: r.bestWins, totalB3L: r.bestLosses, totalB3T: r.bestTies,
     }
   }
 
@@ -318,6 +323,65 @@ export default function AllPicksPage() {
             )}
           </div>
         ) : allPicksData && allPicksData.users.length > 0 ? (
+          <>
+          {/* ── PICK DISTRIBUTION ── per-game consensus visualization */}
+          <div className="mb-5 animate-slide-up">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+              Pick Distribution
+            </p>
+            <div className="glass-card rounded-2xl overflow-hidden divide-y divide-white/[0.04]">
+              {games.map(game => {
+                const total = allPicksData.users.length
+                let awayCount = 0
+                let homeCount = 0
+                for (const u of allPicksData.users) {
+                  const pk = picksLookup.get(`${u.id}-${game.id}`)
+                  if (pk === game.away_team) awayCount++
+                  else if (pk === game.home_team) homeCount++
+                }
+                const noPick = total - awayCount - homeCount
+                const awayPct = total > 0 ? (awayCount / total) * 100 : 0
+                const homePct = total > 0 ? (homeCount / total) * 100 : 0
+                const winner = game.winning_team
+                const isTie = winner === 'TIE'
+                const awayInfo = NFL_TEAMS[game.away_team]
+                const homeInfo = NFL_TEAMS[game.home_team]
+                return (
+                  <div key={game.id} className="px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        {awayInfo && <img src={awayInfo.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                        <span className={`text-[11px] font-semibold ${winner === game.away_team ? 'text-emerald-300' : winner && !isTie ? 'text-slate-500' : 'text-slate-300'}`}>{game.away_team}</span>
+                        <span className="text-[10px] text-slate-500">@</span>
+                        {homeInfo && <img src={homeInfo.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                        <span className={`text-[11px] font-semibold ${winner === game.home_team ? 'text-emerald-300' : winner && !isTie ? 'text-slate-500' : 'text-slate-300'}`}>{game.home_team}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 shrink-0">
+                        {awayCount}-{homeCount}{noPick > 0 ? ` (${noPick} no pick)` : ''}
+                      </span>
+                    </div>
+                    <div className="flex w-full h-2 rounded-full overflow-hidden bg-white/[0.04]">
+                      <div
+                        className={`${winner === game.away_team ? 'bg-emerald-400/80' : winner === game.home_team ? 'bg-red-400/60' : 'bg-blue-400/60'} h-full transition-all`}
+                        style={{ width: `${awayPct}%` }}
+                        title={`${game.away_team}: ${awayCount} (${awayPct.toFixed(0)}%)`}
+                      />
+                      <div
+                        className={`${winner === game.home_team ? 'bg-emerald-400/80' : winner === game.away_team ? 'bg-red-400/60' : 'bg-indigo-400/60'} h-full transition-all`}
+                        style={{ width: `${homePct}%` }}
+                        title={`${game.home_team}: ${homeCount} (${homePct.toFixed(0)}%)`}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                      <span>{awayCount > 0 ? `${awayPct.toFixed(0)}%` : ''}</span>
+                      <span>{homeCount > 0 ? `${homePct.toFixed(0)}%` : ''}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="glass-card rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -389,7 +453,7 @@ export default function AllPicksPage() {
                   })}
                   {/* Record summary rows */}
                   {(() => {
-                    const userRecords = allPicksData.users.map(u => computeRecords(u.id))
+                    const userRecords = allPicksData.users.map(u => computeRecordsForRow(u.id))
                     const rows = [
                       { label: `Prior Wks`, key: 'prior' as const },
                       { label: `Week ${selectedWeek}`, key: 'week' as const },
@@ -457,6 +521,7 @@ export default function AllPicksPage() {
               </table>
             </div>
           </div>
+          </>
         ) : (
           <div className="glass-card rounded-2xl p-10 text-center">
             <p className="text-3xl mb-3">📅</p>

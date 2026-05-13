@@ -322,24 +322,34 @@ export default function AllPicksPage() {
               </div>
             )}
           </div>
-        ) : allPicksData && allPicksData.users.length > 0 ? (
+        ) : allPicksData && allPicksData.users.length > 0 ? (() => {
+          // Density tuning: shrink cell font + game column as user count grows,
+          // so 18-20 users still fit on a 360px phone without sideways scroll.
+          const userCount = allPicksData.users.length
+          const dense = userCount >= 15
+          const veryDense = userCount >= 18
+          const gameColPx = veryDense ? 42 : dense ? 46 : 52
+          const cellTextCls = veryDense ? 'text-[8.5px]' : dense ? 'text-[9px]' : 'text-[10px]'
+          const headerTextCls = veryDense ? 'text-[8px]' : dense ? 'text-[8.5px]' : 'text-[9px]'
+          const headerNameMax = veryDense ? 3 : 4
+          return (
           <>
           {/* ── COMPACT GRID — all users, all games, no horizontal scroll ── */}
           <p className="text-[10px] text-slate-600 mb-2">⭐ = Best 3 (highlighted cell) · <span className="text-emerald-400">green</span> = win · <span className="text-red-400">red</span> = loss</p>
           <div className="glass-card rounded-2xl overflow-hidden">
             <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: '52px' }} />
+                  <col style={{ width: `${gameColPx}px` }} />
                   {allPicksData.users.map(u => <col key={u.id} />)}
                 </colgroup>
                 <thead>
                   <tr className="bg-white/[0.03] border-b border-white/[0.06]">
-                    <th className="px-1 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className={`px-1 py-1.5 text-left font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>
                       Game
                     </th>
                     {allPicksData.users.map(u => (
-                      <th key={u.id} className="px-0.5 py-1.5 text-center text-[9px] font-semibold text-slate-400 uppercase tracking-tight truncate" title={u.name}>
-                        {u.name.split(' ')[0].slice(0, 4)}
+                      <th key={u.id} className={`px-0 py-1.5 text-center font-semibold text-slate-400 uppercase tracking-tight truncate ${headerTextCls}`} title={u.name}>
+                        {u.name.split(' ')[0].slice(0, headerNameMax)}
                       </th>
                     ))}
                   </tr>
@@ -355,10 +365,10 @@ export default function AllPicksPage() {
                         {/* Game column: away / home abbreviations stacked, no logos */}
                         <td className="px-1 py-1 align-middle">
                           <div className="flex flex-col leading-tight">
-                            <span className={`text-[10px] font-bold tabular-nums ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
+                            <span className={`font-bold tabular-nums ${cellTextCls} ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
                               {game.away_team}{hasScore && <span className="text-slate-600 font-normal ml-0.5">{game.away_score}</span>}
                             </span>
-                            <span className={`text-[10px] font-bold tabular-nums ${homeWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
+                            <span className={`font-bold tabular-nums ${cellTextCls} ${homeWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
                               {game.home_team}{hasScore && <span className="text-slate-600 font-normal ml-0.5">{game.home_score}</span>}
                             </span>
                           </div>
@@ -379,7 +389,7 @@ export default function AllPicksPage() {
                             : 'text-slate-300'
                           return (
                             <td key={u.id} className={`px-0 py-1 text-center align-middle ${isBest ? 'bg-amber-500/[0.08]' : ''}`}>
-                              <span className={`text-[10px] font-bold tabular-nums leading-none ${colorClass}`}>
+                              <span className={`font-bold tabular-nums leading-none ${cellTextCls} ${colorClass}`}>
                                 {picked || '\u00B7'}
                               </span>
                             </td>
@@ -404,14 +414,14 @@ export default function AllPicksPage() {
                       totalColor: string,
                     ) => (
                       <tr key={`${keyPrefix}-${r.key}`} className="border-t border-white/[0.04]">
-                        <td className="px-1 py-1 text-[9px] font-medium text-slate-500 uppercase tracking-tight">
+                        <td className={`px-1 py-1 font-medium text-slate-500 uppercase tracking-tight ${headerTextCls}`}>
                           {r.label}
                         </td>
                         {userRecords.map((rec, i) => {
                           const { w, l, t } = pick(rec)
                           return (
                             <td key={allPicksData!.users[i].id} className="px-0 py-1 text-center">
-                              <span className={`text-[10px] font-bold tabular-nums ${r.emphasize ? totalColor : 'text-slate-300'}`}>
+                              <span className={`font-bold tabular-nums ${cellTextCls} ${r.emphasize ? totalColor : 'text-slate-300'}`}>
                                 {w}-{l}{t > 0 ? `-${t}` : ''}
                               </span>
                             </td>
@@ -423,7 +433,7 @@ export default function AllPicksPage() {
                       <>
                         <tr className="bg-white/[0.03]">
                           <td colSpan={allPicksData.users.length + 1} className="px-2 py-1">
-                            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Overall</span>
+                            <span className={`font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>Overall</span>
                           </td>
                         </tr>
                         {rows.map(r => renderRow(r, rec => ({
@@ -433,7 +443,7 @@ export default function AllPicksPage() {
                         }), 'ov', 'text-white'))}
                         <tr className="bg-white/[0.03]">
                           <td colSpan={allPicksData.users.length + 1} className="px-2 py-1">
-                            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Best 3</span>
+                            <span className={`font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>Best 3</span>
                           </td>
                         </tr>
                         {rows.map(r => renderRow(r, rec => ({
@@ -448,7 +458,8 @@ export default function AllPicksPage() {
               </table>
           </div>
           </>
-        ) : (
+          )
+        })() : (
           <div className="glass-card rounded-2xl p-10 text-center">
             <p className="text-3xl mb-3">📅</p>
             <p className="text-white font-medium">No picks data</p>

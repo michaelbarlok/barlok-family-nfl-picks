@@ -324,64 +324,6 @@ export default function AllPicksPage() {
           </div>
         ) : allPicksData && allPicksData.users.length > 0 ? (
           <>
-          {/* ── PICK DISTRIBUTION ── per-game consensus visualization */}
-          <div className="mb-5 animate-slide-up">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              Pick Distribution
-            </p>
-            <div className="glass-card rounded-2xl overflow-hidden divide-y divide-white/[0.04]">
-              {games.map(game => {
-                const total = allPicksData.users.length
-                let awayCount = 0
-                let homeCount = 0
-                for (const u of allPicksData.users) {
-                  const pk = picksLookup.get(`${u.id}-${game.id}`)
-                  if (pk === game.away_team) awayCount++
-                  else if (pk === game.home_team) homeCount++
-                }
-                const noPick = total - awayCount - homeCount
-                const awayPct = total > 0 ? (awayCount / total) * 100 : 0
-                const homePct = total > 0 ? (homeCount / total) * 100 : 0
-                const winner = game.winning_team
-                const isTie = winner === 'TIE'
-                const awayInfo = NFL_TEAMS[game.away_team]
-                const homeInfo = NFL_TEAMS[game.home_team]
-                return (
-                  <div key={game.id} className="px-3 py-2.5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                        {awayInfo && <img src={awayInfo.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                        <span className={`text-[11px] font-semibold ${winner === game.away_team ? 'text-emerald-300' : winner && !isTie ? 'text-slate-500' : 'text-slate-300'}`}>{game.away_team}</span>
-                        <span className="text-[10px] text-slate-500">@</span>
-                        {homeInfo && <img src={homeInfo.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                        <span className={`text-[11px] font-semibold ${winner === game.home_team ? 'text-emerald-300' : winner && !isTie ? 'text-slate-500' : 'text-slate-300'}`}>{game.home_team}</span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 shrink-0">
-                        {awayCount}-{homeCount}{noPick > 0 ? ` (${noPick} no pick)` : ''}
-                      </span>
-                    </div>
-                    <div className="flex w-full h-2 rounded-full overflow-hidden bg-white/[0.04]">
-                      <div
-                        className={`${winner === game.away_team ? 'bg-emerald-400/80' : winner === game.home_team ? 'bg-red-400/60' : 'bg-blue-400/60'} h-full transition-all`}
-                        style={{ width: `${awayPct}%` }}
-                        title={`${game.away_team}: ${awayCount} (${awayPct.toFixed(0)}%)`}
-                      />
-                      <div
-                        className={`${winner === game.home_team ? 'bg-emerald-400/80' : winner === game.away_team ? 'bg-red-400/60' : 'bg-indigo-400/60'} h-full transition-all`}
-                        style={{ width: `${homePct}%` }}
-                        title={`${game.home_team}: ${homeCount} (${homePct.toFixed(0)}%)`}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                      <span>{awayCount > 0 ? `${awayPct.toFixed(0)}%` : ''}</span>
-                      <span>{homeCount > 0 ? `${homePct.toFixed(0)}%` : ''}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
           {/* ── COMPACT GRID — all users, all games, no horizontal scroll ── */}
           <p className="text-[10px] text-slate-600 mb-2">⭐ = Best 3 (highlighted cell) · <span className="text-emerald-400">green</span> = win · <span className="text-red-400">red</span> = loss</p>
           <div className="glass-card rounded-2xl overflow-hidden">

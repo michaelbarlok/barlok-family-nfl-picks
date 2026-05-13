@@ -61,6 +61,7 @@ export default function AllPicksPage() {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
   const [allPicksData, setAllPicksData] = useState<AllPicksData | null>(null)
+  const [viewMode, setViewMode] = useState<'player' | 'game'>('player')
   const [dataLoading, setDataLoading] = useState(true)
   const [picksLoading, setPicksLoading] = useState(false)
   const [isLocked, setIsLocked] = useState(false)
@@ -324,6 +325,26 @@ export default function AllPicksPage() {
           </div>
         ) : allPicksData && allPicksData.users.length > 0 ? (
           <>
+          {/* ── VIEW MODE TOGGLE ── */}
+          <div className="mb-4 flex gap-1 p-1 bg-white/[0.04] border border-white/[0.06] rounded-xl w-fit">
+            <button
+              onClick={() => setViewMode('player')}
+              className={`press text-xs font-semibold px-3 py-1.5 rounded-lg transition ${
+                viewMode === 'player' ? 'bg-white/[0.10] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              By Player
+            </button>
+            <button
+              onClick={() => setViewMode('game')}
+              className={`press text-xs font-semibold px-3 py-1.5 rounded-lg transition ${
+                viewMode === 'game' ? 'bg-white/[0.10] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              By Game
+            </button>
+          </div>
+
           {/* ── PICK DISTRIBUTION ── per-game consensus visualization */}
           <div className="mb-5 animate-slide-up">
             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
@@ -382,6 +403,125 @@ export default function AllPicksPage() {
             </div>
           </div>
 
+          {/* ── BY-PLAYER VIEW ── one card per user, no horizontal scroll ── */}
+          {viewMode === 'player' && (
+            <div className="space-y-3">
+              {allPicksData.users.map((u, userIdx) => {
+                const userPicks = games.map(g => ({
+                  game: g,
+                  pick: picksLookup.get(`${u.id}-${g.id}`) ?? null,
+                }))
+                const bestSet = threeBestLookup.get(u.id) ?? new Set<string>()
+                const rec = computeRecordsForRow(u.id)
+                const isMe = u.id === user.id
+                return (
+                  <div
+                    key={u.id}
+                    className={`glass-card rounded-2xl overflow-hidden animate-slide-up ${
+                      isMe ? 'ring-1 ring-blue-500/40' : ''
+                    }`}
+                    style={{ animationDelay: `${userIdx * 30}ms` }}
+                  >
+                    {/* Card header — user name + week record */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+                      <p className={`text-sm font-semibold truncate ${isMe ? 'text-blue-400' : 'text-white'}`}>
+                        {u.name}{isMe && <span className="text-blue-400/60 font-normal text-xs ml-1.5">(you)</span>}
+                      </p>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {(rec.weekW + rec.weekL + rec.weekT > 0) && (
+                          <span className="text-xs font-bold tabular-nums">
+                            <span className="text-emerald-400">{rec.weekW}</span>
+                            <span className="text-slate-600 mx-0.5">-</span>
+                            <span className="text-red-400">{rec.weekL}</span>
+                            {rec.weekT > 0 && <><span className="text-slate-600 mx-0.5">-</span><span className="text-slate-400">{rec.weekT}</span></>}
+                          </span>
+                        )}
+                        {(rec.weekB3W + rec.weekB3L + rec.weekB3T > 0) && (
+                          <span className="text-[11px] font-bold tabular-nums">
+                            <span className="text-amber-400">⭐{rec.weekB3W}</span>
+                            <span className="text-slate-600 mx-0.5">-</span>
+                            <span className="text-amber-600">{rec.weekB3L}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Picks list — one row per game */}
+                    <div className="divide-y divide-white/[0.04]">
+                      {userPicks.map(({ game, pick }) => {
+                        const winner = game.winning_team
+                        const isTie = winner === 'TIE'
+                        const isWin = pick && winner && !isTie && pick === winner
+                        const isLoss = pick && winner && !isTie && pick !== winner
+                        const isBest = pick ? bestSet.has(pick) : false
+                        const away = NFL_TEAMS[game.away_team]
+                        const home = NFL_TEAMS[game.home_team]
+                        const pickedInfo = pick ? NFL_TEAMS[pick] : null
+                        return (
+                          <div key={game.id} className="flex items-center gap-2 px-4 py-2">
+                            {/* Matchup */}
+                            <div className="flex items-center gap-1 min-w-0 flex-1">
+                              {away && <img src={away.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                              <span className={`text-[11px] font-medium ${winner === game.away_team ? 'text-white' : 'text-slate-500'}`}>{game.away_team}</span>
+                              <span className="text-[10px] text-slate-600 mx-0.5">@</span>
+                              {home && <img src={home.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                              <span className={`text-[11px] font-medium ${winner === game.home_team ? 'text-white' : 'text-slate-500'}`}>{game.home_team}</span>
+                            </div>
+                            {/* Arrow + pick */}
+                            <span className="text-slate-700 text-xs">→</span>
+                            <div className="flex items-center gap-1 shrink-0 min-w-[68px] justify-end">
+                              {pick ? (
+                                <>
+                                  {isBest && <span className="text-amber-400 text-[11px] leading-none">⭐</span>}
+                                  {pickedInfo && <img src={pickedInfo.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                                  <span className={`text-xs font-bold leading-none ${
+                                    isTie ? 'text-slate-300'
+                                    : isWin ? 'text-emerald-400'
+                                    : isLoss ? 'text-red-400'
+                                    : 'text-slate-200'
+                                  }`}>
+                                    {pick}
+                                  </span>
+                                  {isWin && <span className="text-emerald-400 text-xs leading-none">✓</span>}
+                                  {isLoss && <span className="text-red-400 text-xs leading-none">✗</span>}
+                                  {isTie && winner && <span className="text-slate-400 text-xs leading-none">=</span>}
+                                </>
+                              ) : (
+                                <span className="text-slate-700 text-[11px] italic">no pick</span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Card footer — totals */}
+                    <div className="px-4 py-2 bg-white/[0.02] border-t border-white/[0.04] flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Season total</span>
+                      <span className="font-bold tabular-nums">
+                        <span className="text-emerald-400">{rec.totalW}</span>
+                        <span className="text-slate-600 mx-0.5">-</span>
+                        <span className="text-red-400">{rec.totalL}</span>
+                        {rec.totalT > 0 && <><span className="text-slate-600 mx-0.5">-</span><span className="text-slate-400">{rec.totalT}</span></>}
+                        {(rec.totalB3W + rec.totalB3L + rec.totalB3T > 0) && (
+                          <span className="ml-2.5 text-amber-400">⭐{rec.totalB3W}</span>
+                        )}
+                        {(rec.totalB3W + rec.totalB3L + rec.totalB3T > 0) && (
+                          <>
+                            <span className="text-slate-600 mx-0.5">-</span>
+                            <span className="text-amber-600">{rec.totalB3L}</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* ── BY-GAME VIEW ── original wide grid, useful for cross-user comparison ── */}
+          {viewMode === 'game' && (
           <div className="glass-card rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -521,6 +661,7 @@ export default function AllPicksPage() {
               </table>
             </div>
           </div>
+          )}
           </>
         ) : (
           <div className="glass-card rounded-2xl p-10 text-center">

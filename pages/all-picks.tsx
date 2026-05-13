@@ -245,7 +245,7 @@ export default function AllPicksPage() {
     <div className="min-h-screen bg-surface pb-20">
       <Nav />
 
-      <main className="max-w-4xl mx-auto px-4 py-6 animate-fade-in">
+      <main className="max-w-4xl mx-auto px-3 sm:px-4 py-6 animate-fade-in">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
           All Picks
         </h2>
@@ -382,144 +382,128 @@ export default function AllPicksPage() {
             </div>
           </div>
 
+          {/* ── COMPACT GRID — all users, all games, no horizontal scroll ── */}
+          <p className="text-[10px] text-slate-600 mb-2">⭐ = Best 3 (highlighted cell) · <span className="text-emerald-400">green</span> = win · <span className="text-red-400">red</span> = loss</p>
           <div className="glass-card rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <table className="w-full text-xs table-fixed">
+                <colgroup>
+                  <col style={{ width: '52px' }} />
+                  {allPicksData.users.map(u => <col key={u.id} />)}
+                </colgroup>
                 <thead>
                   <tr className="bg-white/[0.03] border-b border-white/[0.06]">
-                    <th className="sticky left-0 z-10 bg-[#0f1729] px-2 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase w-[88px] min-w-[88px]">
+                    <th className="px-1 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
                       Game
                     </th>
                     {allPicksData.users.map(u => (
-                      <th key={u.id} className="px-1.5 py-2.5 text-center text-[11px] font-semibold text-slate-400 whitespace-nowrap">
-                        {u.name.split(' ')[0]}
+                      <th key={u.id} className="px-0.5 py-1.5 text-center text-[9px] font-semibold text-slate-400 uppercase tracking-tight truncate" title={u.name}>
+                        {u.name.split(' ')[0].slice(0, 4)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {games.map(game => {
-                    const away = NFL_TEAMS[game.away_team]
-                    const home = NFL_TEAMS[game.home_team]
                     const hasScore = game.away_score != null && game.home_score != null
                     const awayWon = game.winning_team === game.away_team
                     const homeWon = game.winning_team === game.home_team
                     const isTieGame = game.winning_team === 'TIE'
                     return (
-                      <tr key={game.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                        <td className="sticky left-0 z-10 bg-[#0f1729] px-2 py-1.5">
-                          <div className="flex flex-col gap-0.5">
-                            {/* Away team row */}
-                            <div className="flex items-center gap-1.5">
-                              {away && <img src={away.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                              <span className={`text-[11px] font-semibold ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>{game.away_team}</span>
-                              {hasScore && <span className={`text-[11px] ml-auto tabular-nums ${awayWon ? 'text-white font-bold' : 'text-slate-500'}`}>{game.away_score}</span>}
-                            </div>
-                            {/* Home team row */}
-                            <div className="flex items-center gap-1.5">
-                              {home && <img src={home.logo} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                              <span className={`text-[11px] font-semibold ${homeWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>{game.home_team}</span>
-                              {hasScore && <span className={`text-[11px] ml-auto tabular-nums ${homeWon ? 'text-white font-bold' : 'text-slate-500'}`}>{game.home_score}</span>}
-                            </div>
+                      <tr key={game.id} className="border-b border-white/[0.04]">
+                        {/* Game column: away / home abbreviations stacked, no logos */}
+                        <td className="px-1 py-1 align-middle">
+                          <div className="flex flex-col leading-tight">
+                            <span className={`text-[10px] font-bold tabular-nums ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
+                              {game.away_team}{hasScore && <span className="text-slate-600 font-normal ml-0.5">{game.away_score}</span>}
+                            </span>
+                            <span className={`text-[10px] font-bold tabular-nums ${homeWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
+                              {game.home_team}{hasScore && <span className="text-slate-600 font-normal ml-0.5">{game.home_score}</span>}
+                            </span>
                           </div>
                         </td>
                         {allPicksData.users.map(u => {
                           const picked = picksLookup.get(`${u.id}-${game.id}`)
                           const bestSet = threeBestLookup.get(u.id)
-                          const isBest = picked && bestSet?.has(picked)
+                          const isBest = !!(picked && bestSet?.has(picked))
                           const winner = gameResultLookup.get(game.id)
                           const isTie = winner === 'TIE'
-                          const isWin = picked && winner && !isTie && picked === winner
-                          const isLoss = picked && winner && !isTie && picked !== winner
+                          const isWin = !!(picked && winner && !isTie && picked === winner)
+                          const isLoss = !!(picked && winner && !isTie && picked !== winner)
+                          const colorClass =
+                            !picked ? 'text-slate-700'
+                            : isTie ? 'text-slate-400'
+                            : isWin ? 'text-emerald-400'
+                            : isLoss ? 'text-red-400'
+                            : 'text-slate-300'
                           return (
-                            <td key={u.id} className="px-1 py-1.5 text-center align-middle">
-                              {picked ? (
-                                <span className={`text-[11px] font-medium leading-none ${
-                                  isTie ? (isBest ? 'text-slate-300' : 'text-slate-400')
-                                  : isWin ? (isBest ? 'text-emerald-300' : 'text-emerald-400')
-                                  : isLoss ? (isBest ? 'text-red-300' : 'text-red-400')
-                                  : (isBest ? 'text-amber-400' : 'text-slate-300')
-                                }`}>
-                                  {isBest && '\u2B50'}{picked}
-                                </span>
-                              ) : (
-                                <span className="text-slate-600 text-[11px]">&mdash;</span>
-                              )}
+                            <td key={u.id} className={`px-0 py-1 text-center align-middle ${isBest ? 'bg-amber-500/[0.08]' : ''}`}>
+                              <span className={`text-[10px] font-bold tabular-nums leading-none ${colorClass}`}>
+                                {picked || '\u00B7'}
+                              </span>
                             </td>
                           )
                         })}
                       </tr>
                     )
                   })}
-                  {/* Record summary rows */}
+                  {/* Compact record summary rows */}
                   {(() => {
                     const userRecords = allPicksData.users.map(u => computeRecordsForRow(u.id))
-                    const rows = [
-                      { label: `Prior Wks`, key: 'prior' as const },
-                      { label: `Week ${selectedWeek}`, key: 'week' as const },
-                      { label: 'Total', key: 'total' as const },
+                    type RowKey = 'prior' | 'week' | 'total'
+                    const rows: Array<{ label: string; key: RowKey; emphasize?: boolean }> = [
+                      { label: 'Prior', key: 'prior' },
+                      { label: `Wk${selectedWeek}`, key: 'week' },
+                      { label: 'Total', key: 'total', emphasize: true },
                     ]
-                    const b3Rows = [
-                      { label: 'Best 3 Prior', key: 'prior' as const },
-                      { label: `Best 3 Wk ${selectedWeek}`, key: 'week' as const },
-                      { label: 'Best 3 Total', key: 'total' as const },
-                    ]
+                    const renderRow = (
+                      r: { label: string; key: RowKey; emphasize?: boolean },
+                      pick: (rec: ReturnType<typeof computeRecordsForRow>) => { w: number; l: number; t: number },
+                      keyPrefix: string,
+                      totalColor: string,
+                    ) => (
+                      <tr key={`${keyPrefix}-${r.key}`} className="border-t border-white/[0.04]">
+                        <td className="px-1 py-1 text-[9px] font-medium text-slate-500 uppercase tracking-tight">
+                          {r.label}
+                        </td>
+                        {userRecords.map((rec, i) => {
+                          const { w, l, t } = pick(rec)
+                          return (
+                            <td key={allPicksData!.users[i].id} className="px-0 py-1 text-center">
+                              <span className={`text-[10px] font-bold tabular-nums ${r.emphasize ? totalColor : 'text-slate-300'}`}>
+                                {w}-{l}{t > 0 ? `-${t}` : ''}
+                              </span>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
                     return (
                       <>
                         <tr className="bg-white/[0.03]">
-                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1.5">
-                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Overall Record</span>
+                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1">
+                            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Overall</span>
                           </td>
                         </tr>
-                        {rows.map(r => (
-                          <tr key={r.key} className="border-t border-white/[0.04]">
-                            <td className="sticky left-0 z-10 bg-[#0f1729] px-2 py-2 text-[11px] font-medium text-slate-400 whitespace-nowrap">
-                              {r.label}
-                            </td>
-                            {userRecords.map((rec, i) => {
-                              const w = r.key === 'prior' ? rec.priorW : r.key === 'week' ? rec.weekW : rec.totalW
-                              const l = r.key === 'prior' ? rec.priorL : r.key === 'week' ? rec.weekL : rec.totalL
-                              const t = r.key === 'prior' ? rec.priorT : r.key === 'week' ? rec.weekT : rec.totalT
-                              return (
-                                <td key={allPicksData!.users[i].id} className="px-1 py-2 text-center">
-                                  <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-white' : 'text-slate-300'}`}>
-                                    {w}-{l}{t > 0 ? `-${t}` : ''}
-                                  </span>
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
+                        {rows.map(r => renderRow(r, rec => ({
+                          w: r.key === 'prior' ? rec.priorW : r.key === 'week' ? rec.weekW : rec.totalW,
+                          l: r.key === 'prior' ? rec.priorL : r.key === 'week' ? rec.weekL : rec.totalL,
+                          t: r.key === 'prior' ? rec.priorT : r.key === 'week' ? rec.weekT : rec.totalT,
+                        }), 'ov', 'text-white'))}
                         <tr className="bg-white/[0.03]">
-                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1.5">
-                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Best 3 Record</span>
+                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1">
+                            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Best 3</span>
                           </td>
                         </tr>
-                        {b3Rows.map(r => (
-                          <tr key={`b3-${r.key}`} className="border-t border-white/[0.04]">
-                            <td className="sticky left-0 z-10 bg-[#0f1729] px-2 py-2 text-[11px] font-medium text-slate-400 whitespace-nowrap">
-                              {r.label}
-                            </td>
-                            {userRecords.map((rec, i) => {
-                              const w = r.key === 'prior' ? rec.priorB3W : r.key === 'week' ? rec.weekB3W : rec.totalB3W
-                              const l = r.key === 'prior' ? rec.priorB3L : r.key === 'week' ? rec.weekB3L : rec.totalB3L
-                              const t = r.key === 'prior' ? rec.priorB3T : r.key === 'week' ? rec.weekB3T : rec.totalB3T
-                              return (
-                                <td key={allPicksData!.users[i].id} className="px-1 py-2 text-center">
-                                  <span className={`text-xs font-semibold ${r.key === 'total' ? 'text-amber-400' : 'text-slate-300'}`}>
-                                    {w}-{l}{t > 0 ? `-${t}` : ''}
-                                  </span>
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
+                        {rows.map(r => renderRow(r, rec => ({
+                          w: r.key === 'prior' ? rec.priorB3W : r.key === 'week' ? rec.weekB3W : rec.totalB3W,
+                          l: r.key === 'prior' ? rec.priorB3L : r.key === 'week' ? rec.weekB3L : rec.totalB3L,
+                          t: r.key === 'prior' ? rec.priorB3T : r.key === 'week' ? rec.weekB3T : rec.totalB3T,
+                        }), 'b3', 'text-amber-400'))}
                       </>
                     )
                   })()}
                 </tbody>
               </table>
-            </div>
           </div>
           </>
         ) : (

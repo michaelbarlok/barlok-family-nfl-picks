@@ -71,7 +71,7 @@ Games can be loaded from the Admin panel using **Sync Schedule** (pulls from ESP
 
 ```sql
 INSERT INTO games (away_team, home_team, week, season, kickoff_time) VALUES
-  ('KC', 'DAL', 1, 2025, '2025-09-07T20:20:00Z');
+  ('KC', 'DAL', 1, 2026, '2026-09-06T20:20:00Z');
 ```
 
 ---

@@ -1,4 +1,4 @@
-export const CURRENT_SEASON = 2025
+export const CURRENT_SEASON = 2026
 export const ADMIN_EMAIL = 'barlokmichael@gmail.com'
 
 /** Max number of "best picks" (tiebreaker selections) per week */

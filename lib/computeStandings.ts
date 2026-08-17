@@ -12,11 +12,12 @@
  *   2. For each decided game in a participated week:
  *        - Tie → counts as a tie for everyone.
  *        - Otherwise: pick matches winner → win; missing pick or wrong pick → loss.
- *   3. Non-participant penalty: a user who has played at least one week
- *      but didn't submit picks for a given decided week gets a week-record
- *      one worse than the worst participant that week (wins = worstWins - 1,
- *      losses = totalGamesInWeek - wins). Users who have never played at all
- *      are excluded.
+ *   3. Non-participant penalty: a user who didn't submit picks for a decided
+ *      week gets a week-record one worse than the worst participant that week
+ *      (wins = worstWins - 1, losses = totalGamesInWeek - wins). This applies
+ *      to everyone in the pool, including users who have never submitted a
+ *      pick all season — being on the roster is enough. Once any week is
+ *      decided, nobody sits at 0-0.
  *   4. Best 3: for each of the user's three_best picks in a week, look up
  *      the game in that week containing that team. Apply the same scoring,
  *      EXCEPT missing picks always count as losses (not tied with ties).
@@ -140,11 +141,11 @@ export function computeRecords(input: ComputeInput): Map<string, UserRecord> {
     }
   }
 
-  // A user is "in the pool" once they've submitted picks for any week. Those
-  // users are scored in every decided week — as a participant (phase 1) or via
-  // the no-show penalty (phase 2) — and owe a Best 3 for each (phase 3).
-  const hasPlayed = (uid: string) => (userWeeks.get(uid)?.size ?? 0) > 0
-
+  // Every user in `userIds` is in the pool and is scored in every decided week
+  // — as a participant (phase 1) or via the no-show penalty (phase 2) — and
+  // owes a Best 3 for each (phase 3). No opt-out: a player who never submits
+  // anything takes the penalty every week rather than sitting at 0-0.
+  //
   // Phase 2: non-participant penalty
   const allDecidedWeeks = [...new Set(decidedGames.map(g => g.week))].sort((a, b) => a - b)
   for (const wk of allDecidedWeeks) {
@@ -167,8 +168,7 @@ export function computeRecords(input: ComputeInput): Map<string, UserRecord> {
     const penaltyLosses = totalGamesInWeek - penaltyWins
 
     for (const uid of userIds) {
-      if (userWeeks.get(uid)?.has(wk)) continue // already counted
-      if (!userWeeks.get(uid) || userWeeks.get(uid)!.size === 0) continue // never played at all
+      if (userWeeks.get(uid)?.has(wk)) continue // already counted in phase 1
       const rec = records.get(uid)!
       const wr = ensureWeek(rec, wk)
       rec.wins += penaltyWins
@@ -185,7 +185,6 @@ export function computeRecords(input: ComputeInput): Map<string, UserRecord> {
 
   for (const wk of allDecidedWeeks) {
     for (const uid of userIds) {
-      if (!hasPlayed(uid)) continue // never played at all — excluded entirely
       const rec = records.get(uid)!
       const wr = ensureWeek(rec, wk)
 

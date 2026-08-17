@@ -1,7 +1,7 @@
 import { Workbook, Borders, Alignment } from 'exceljs'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { NFL_TEAMS } from '@/lib/nflTeams'
-import { parseUTC } from '@/lib/lockTime'
+import { parseUTC, getWeekLockTime } from '@/lib/lockTime'
 import { fetchAllRows } from '@/lib/fetchAll'
 import { MAX_BEST_PICKS } from '@/lib/constants'
 
@@ -89,6 +89,18 @@ export async function generateWeeklyPicksSpreadsheet(
   const workbook = new Workbook()
   const ws = workbook.addWorksheet(`Week ${week}`)
   const db = getAdminClient()
+
+  // This runs on the service-role client, which bypasses RLS — so the "picks
+  // stay hidden until kickoff" rule the database enforces everywhere else does
+  // NOT apply here, and has to be enforced by hand. Without it an admin could
+  // export the upcoming week and read everyone's picks before they lock.
+  const lockTime = await getWeekLockTime(db, week, season)
+  if (!lockTime) throw new Error(`No games found for Week ${week} ${season}.`)
+  if (new Date() < lockTime) {
+    throw new Error(
+      `Week ${week} picks are still locked — they can be exported after the first kickoff.`,
+    )
+  }
 
   // ---------- Fetch data ----------
   const { data: users } = await db.from('users').select('*').order('name')
@@ -183,8 +195,7 @@ export async function generateWeeklyPicksSpreadsheet(
     const penaltyLosses = totalGamesInWeek - penaltyWins
 
     for (const uid of userIds) {
-      if ((userWeeks.get(uid) || new Set()).has(wk)) continue
-      if ((userWeeks.get(uid) || new Set()).size === 0) continue // never played — skip
+      if ((userWeeks.get(uid) || new Set()).has(wk)) continue // already counted
       totalW.set(uid, (totalW.get(uid) ?? 0) + penaltyWins)
       totalL.set(uid, (totalL.get(uid) ?? 0) + penaltyLosses)
       if (wk === week) {
@@ -220,8 +231,6 @@ export async function generateWeeklyPicksSpreadsheet(
 
   for (const wk of allDecidedWeeks) {
     for (const uid of userIds) {
-      if ((userWeeks.get(uid) || new Set()).size === 0) continue // never played — skip
-
       const tb = threeBestByUserWeek.get(`${uid}-${wk}`)
       const bestTeams: string[] = tb ? [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean) : []
 

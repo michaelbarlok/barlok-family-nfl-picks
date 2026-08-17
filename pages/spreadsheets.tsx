@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { computeLockTime } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
 
 function SheetsSkeleton() {
@@ -37,6 +38,7 @@ export default function SpreadsheetsPage() {
   const { user, loading } = useAuth()
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [latestWeek, setLatestWeek] = useState<number | null>(null)
+  const [lockedWeeks, setLockedWeeks] = useState<Set<number>>(new Set())
   const [dataLoading, setDataLoading] = useState(true)
   const [downloading, setDownloading] = useState<number | null>(null)
 
@@ -52,7 +54,7 @@ export default function SpreadsheetsPage() {
       try {
         const { data } = await supabase
           .from('games')
-          .select('week')
+          .select('week, kickoff_time')
           .eq('season', CURRENT_SEASON)
           .order('week')
 
@@ -60,6 +62,17 @@ export default function SpreadsheetsPage() {
           const weeks = [...new Set(data.map(g => g.week))].sort((a, b) => a - b)
           setAvailableWeeks(weeks)
           if (weeks.length > 0) setLatestWeek(weeks[weeks.length - 1])
+
+          // A week's sheet contains everyone's picks, so it can't be offered
+          // until that week locks. The server refuses either way; this keeps
+          // the button from appearing in the first place.
+          const now = new Date()
+          setLockedWeeks(new Set(
+            weeks.filter(w => {
+              const lt = computeLockTime(data.filter(g => g.week === w))
+              return !lt || now < lt
+            }),
+          ))
         }
       } catch (err) {
         console.error('Error fetching weeks:', err)
@@ -116,6 +129,7 @@ export default function SpreadsheetsPage() {
             {availableWeeks.map((week, idx) => {
               const isCurrent = week === latestWeek
               const isDownloading = downloading === week
+              const stillLocked = lockedWeeks.has(week)
 
               return (
                 <div
@@ -146,7 +160,12 @@ export default function SpreadsheetsPage() {
                     </div>
                   </div>
 
-                  {canDownload ? (
+                  {canDownload && stillLocked ? (
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <span>🔒</span>
+                      Available at kickoff
+                    </span>
+                  ) : canDownload ? (
                     <button
                       onClick={() => handleDownload(week)}
                       disabled={isDownloading}

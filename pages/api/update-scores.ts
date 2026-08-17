@@ -91,10 +91,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const awayScore = parseInt(awayComp.score) || 0
       const homeScore = parseInt(homeComp.score) || 0
 
-      // Detect tie: completed game where no competitor has winner === true
+      // Determine the winner. A missing `winner` flag is NOT on its own proof of
+      // a tie — ESPN occasionally omits it on a game that has just gone final,
+      // and writing 'TIE' would hand every player a tie for that game. Worse, it
+      // would stick: once winning_team is set nothing re-checks the game. So we
+      // only accept a tie when the scores actually agree, and skip anything
+      // ambiguous so the next sync run can pick it up.
+      // 0-0 is excluded deliberately: an unparsed or missing score also reads as
+      // 0-0, and a real 0-0 NFL game hasn't happened since 1943. If one ever
+      // does, set it by hand from the admin page.
       const winnerComp = competitors.find((c) => c.winner === true)
-      const isTie = !winnerComp
-      const ourWinner = isTie ? 'TIE' : normalizeTeam(winnerComp.team.abbreviation)
+      const scoresAgree = awayScore === homeScore && !(awayScore === 0 && homeScore === 0)
+      const isTie = !winnerComp && scoresAgree
+
+      if (!winnerComp && !isTie) {
+        skipped.push(`${espnAway} @ ${espnHome} (no winner flag, score ${awayScore}-${homeScore} — left undecided, will retry next sync)`)
+        continue
+      }
+
+      const ourWinner = isTie ? 'TIE' : normalizeTeam(winnerComp!.team.abbreviation)
 
       // Find matching game in our DB
       const ourGame = ourGames.find(

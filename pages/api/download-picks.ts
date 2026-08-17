@@ -27,6 +27,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.send(Buffer.from(buffer))
   } catch (error) {
     console.error('Download error:', error)
-    res.status(500).json({ error: 'Failed to generate spreadsheet' })
+    const message = error instanceof Error ? error.message : 'Failed to generate spreadsheet'
+    // A still-locked week is a refusal, not a server fault — say so plainly.
+    const locked = message.includes('still locked')
+    res.status(locked ? 403 : 500).json({ error: locked ? message : 'Failed to generate spreadsheet' })
   }
 }

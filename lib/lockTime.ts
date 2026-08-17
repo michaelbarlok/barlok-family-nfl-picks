@@ -17,14 +17,36 @@ export function parseUTC(iso: string): Date {
 }
 
 /**
- * Format a kickoff time for display in Eastern Time.
+ * Format a kickoff time for on-screen display.
+ *
+ * No `timeZone` is passed, deliberately: the browser formats in whatever zone
+ * the device is currently set to. Open the app in New York and kickoffs read
+ * ET; open it that evening in California and the same kickoffs read PT. There
+ * is nothing to configure and nothing to keep in sync — the device is already
+ * the source of truth. `timeZoneName` prints the abbreviation so it is always
+ * clear which zone you are looking at.
+ *
+ * Server-side callers must NOT use this. There is no device on the server, so
+ * Node would format in the server's own zone (UTC on Vercel) and quietly show
+ * everyone the wrong time. Emails and the Excel export state Eastern
+ * explicitly, as the league's shared reference.
  */
 export function formatKickoff(iso: string): string {
   const d = parseUTC(iso)
   return d.toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
-    timeZone: 'America/New_York',
+  })
+}
+
+/**
+ * Longer form used by the deadline banners. Same device-zone rule as
+ * formatKickoff — browser only.
+ */
+export function formatLockTime(date: Date): string {
+  return date.toLocaleString('en-US', {
+    weekday: 'long', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
   })
 }
 
@@ -92,6 +114,10 @@ export async function detectUpcomingWeek(
 /**
  * Get the current time components in Eastern Time.
  * Handles EDT/EST automatically via the IANA timezone database.
+ *
+ * Intentionally fixed to Eastern and NOT device-local: this is scheduling
+ * logic, not display. Cron handlers use it to check "is it 1am ET?" so a job
+ * fires once at a known hour regardless of where anyone happens to be.
  */
 export function getCurrentET(): { hour: number; dayOfWeek: number } {
   const now = new Date()

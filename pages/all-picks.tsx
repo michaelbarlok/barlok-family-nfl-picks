@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
-import { parseUTC, computeLockTime } from '@/lib/lockTime'
+import { parseUTC, computeLockTime, formatLockTime } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import { computeRecords } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
@@ -281,7 +281,7 @@ export default function AllPicksPage() {
               </div>
               <p className="text-slate-500 text-sm">
                 Week {selectedWeek} picks will be revealed {lockTime
-                  ? `on ${lockTime.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York' })}`
+                  ? `on ${formatLockTime(lockTime)}`
                   : 'after the Thursday deadline'}.
               </p>
             </div>

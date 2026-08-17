@@ -253,36 +253,39 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
             )}
           </div>
 
-          {/* Desktop pill tabs — hidden on mobile */}
-          <div className="hidden sm:flex gap-1 pb-3">
+          {/* Desktop pill tabs — hidden on mobile.
+              Deliberately NOT mirroring the mobile bar: there is room for every
+              destination here, so no More menu, and no raised centre button —
+              that shape only makes sense over a thumb-reach tab bar. What does
+              carry over is the state, expressed as a pill: My Picks turns amber
+              and counts down while picks are outstanding.
+              shrink-0 is what keeps the labels on one line: flex items shrink by
+              default, so seven tabs in a 768px row got squeezed until "My Picks"
+              broke across two lines. They now hold their natural width and the
+              row scrolls instead, on the rare screen where they don't all fit. */}
+          <div className="hidden sm:flex items-center gap-1 pb-3 overflow-x-auto no-scrollbar">
             {tabs.map(tab => {
               const isActive = router.pathname === tab.href
-              const showBadge = tab.href === '/picks' && hasOutstandingPicks
+              const needsAttention = tab.href === '/picks' && hasOutstandingPicks
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`relative flex flex-col items-center gap-0 px-4 py-2 text-sm font-medium rounded-full transition-all ${
-                    isActive
-                      ? 'bg-white/[0.10] text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                  aria-label={needsAttention ? `My Picks — ${outstanding} still to do` : undefined}
+                  className={`relative shrink-0 flex items-center gap-1.5 h-9 px-3 lg:px-4 text-sm font-medium rounded-full whitespace-nowrap transition-all ${
+                    needsAttention
+                      ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/20'
+                      : isActive
+                        ? 'bg-white/[0.10] text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-xs">{tab.icon}</span>
-                    {tab.label}
+                  <span className="text-xs leading-none">{tab.icon}</span>
+                  {/* The count replaces the label rather than sitting next to
+                      it in a badge — one number, not the same number twice. */}
+                  <span className="leading-none">
+                    {needsAttention ? `${outstanding} to pick` : tab.label}
                   </span>
-                  {/* Animated active indicator line */}
-                  <span
-                    className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-0.5 rounded-full bg-blue-400 transition-all duration-300 ease-out ${
-                      isActive ? 'w-4 opacity-100' : 'w-0 opacity-0'
-                    }`}
-                  />
-                  {showBadge && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1 shadow-lg shadow-red-500/30 animate-pulse-glow">
-                      {outstanding}
-                    </span>
-                  )}
                 </Link>
               )
             })}

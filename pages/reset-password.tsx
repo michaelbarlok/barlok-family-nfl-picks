@@ -3,6 +3,24 @@ import { useRouter } from 'next/router'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
 
+/**
+ * Turn Supabase's link failure into something the reader can act on.
+ * `otp_expired` covers both "already used" and "too old" — Supabase does not
+ * distinguish them, so the copy names both rather than guessing.
+ */
+function explainLinkError(code: string | null, description: string | null, invite: boolean): string {
+  const spent = code === 'otp_expired' || /expired|invalid|already/i.test(description ?? '')
+  if (spent) {
+    return invite
+      ? 'This invite link has already been used or has expired. Ask Michael to resend your invite.'
+      : 'This reset link has already been used or has expired. Request a new one from the sign-in page.'
+  }
+  if (description) return description
+  return invite
+    ? 'Something went wrong opening your invite. Ask Michael to resend it.'
+    : 'Invalid reset link. Request a new one from the sign-in page.'
+}
+
 export default function ResetPasswordPage() {
   const router = useRouter()
   const [password, setPassword] = useState('')
@@ -14,11 +32,12 @@ export default function ResetPasswordPage() {
   const [isInvite, setIsInvite] = useState(false)
 
   useEffect(() => {
-    setIsInvite(new URLSearchParams(window.location.search).get('invite') === '1')
-  }, [])
-
-  useEffect(() => {
     let cancelled = false
+
+    const params = new URLSearchParams(window.location.search)
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    const invite = params.get('invite') === '1'
+    setIsInvite(invite)
 
     // Listen for the PASSWORD_RECOVERY event (fires when the client processes the hash token)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -28,14 +47,49 @@ export default function ResetPasswordPage() {
     })
 
     async function initSession() {
+      // Supabase does not throw on a bad link — it redirects here and puts the
+      // reason in the URL (query on the PKCE flow, hash on the implicit one).
+      // Read it, or every distinct failure looks like the same dead end.
+      const errCode = params.get('error_code') ?? hashParams.get('error_code')
+      const errDesc = params.get('error_description') ?? hashParams.get('error_description')
+      if (errCode || params.get('error') || hashParams.get('error')) {
+        if (!cancelled) {
+          setError(explainLinkError(errCode, errDesc, invite))
+          setStatus('error')
+        }
+        return
+      }
+
+      // Preferred path: the emailed link carries the hashed token and we verify
+      // it here. The alternative — linking straight at Supabase's verify
+      // endpoint — burns the single-use token on the first GET, which means any
+      // scanner or previewer that follows the link consumes it before the
+      // person ever clicks. Verifying from JS keeps that from happening.
+      const tokenHash = params.get('token_hash')
+      if (tokenHash) {
+        const otpType = params.get('t') === 'magiclink' ? 'magiclink' : invite ? 'invite' : 'recovery'
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: otpType as 'invite' | 'recovery' | 'magiclink',
+        })
+        if (!cancelled) {
+          if (otpError) {
+            setError(explainLinkError(null, otpError.message, invite))
+            setStatus('error')
+          } else {
+            setStatus('ready')
+          }
+        }
+        return
+      }
+
       // PKCE flow: Supabase redirects with ?code=... in the query string
-      const params = new URLSearchParams(window.location.search)
       const code = params.get('code')
       if (code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
         if (!cancelled) {
           if (exchangeError) {
-            setError(linkErrorMessage())
+            setError(explainLinkError(null, null, invite))
             setStatus('error')
           } else {
             setStatus('ready')
@@ -57,7 +111,7 @@ export default function ResetPasswordPage() {
         if (session) {
           setStatus('ready')
         } else {
-          setError(linkErrorMessage())
+          setError(explainLinkError(null, null, invite))
           setStatus('error')
         }
       }
@@ -70,11 +124,6 @@ export default function ResetPasswordPage() {
       subscription.unsubscribe()
     }
   }, [])
-
-  const linkErrorMessage = () =>
-    new URLSearchParams(window.location.search).get('invite') === '1'
-      ? 'This invite link is invalid or has expired. Ask Michael to send you a new one.'
-      : 'Invalid or expired reset link. Please request a new one from your profile.'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

@@ -195,9 +195,9 @@ export default function AdminPage() {
     }
   }, [activeTab, user, loadManagedPlayersData])
 
-  // Invite a player who will have their own login
-  const handleInvitePlayer = async () => {
-    if (!inviteName.trim() || !inviteEmail.trim()) return
+  // Invite a player who will have their own login. Calling this for someone
+  // already invited but not yet signed in resends a fresh link.
+  const sendInvite = async (name: string, email: string) => {
     setInvitingPlayer(true)
     setMessage(null)
     try {
@@ -205,20 +205,30 @@ export default function AdminPage() {
       const res = await fetch('/api/invite-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: inviteName.trim(), email: inviteEmail.trim() }),
+        body: JSON.stringify({ name, email }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to send the invite')
-      setMessage({ type: 'success', text: json.message ?? `Invite sent to ${inviteEmail.trim()}.` })
-      setInviteName('')
-      setInviteEmail('')
+      setMessage({ type: 'success', text: json.message ?? `Invite sent to ${email}.` })
       await loadManagedPlayersData()
+      return true
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+      return false
     } finally {
       setInvitingPlayer(false)
     }
   }
+
+  const handleInvitePlayer = async () => {
+    if (!inviteName.trim() || !inviteEmail.trim()) return
+    if (await sendInvite(inviteName.trim(), inviteEmail.trim())) {
+      setInviteName('')
+      setInviteEmail('')
+    }
+  }
+
+  const handleResendInvite = (name: string, email: string) => sendInvite(name, email)
 
   // Create a managed player
   const handleCreateManagedPlayer = async () => {
@@ -1401,7 +1411,18 @@ export default function AdminPage() {
                           </div>
                           {/* Reset password button */}
                           {u.email && (
-                            <div className="mt-2">
+                            <div className="mt-2 flex items-center gap-3 flex-wrap">
+                              {/* Never signed in = invite still outstanding, so
+                                  offer a fresh link rather than a reset. */}
+                              {!u.last_sign_in_at && (
+                                <button
+                                  onClick={() => handleResendInvite(u.name, u.email!)}
+                                  disabled={invitingPlayer}
+                                  className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition disabled:opacity-50"
+                                >
+                                  {invitingPlayer ? 'Sending...' : '↻ Resend invite'}
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleSendResetEmail(u.email!)}
                                 disabled={sendingResetFor === u.email}

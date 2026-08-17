@@ -67,15 +67,12 @@ export default function ResetPasswordPage() {
       // person ever clicks. Verifying from JS keeps that from happening.
       const tokenHash = params.get('token_hash')
       if (tokenHash) {
-        // `t` names the token type when it isn't implied by the page. magiclink
-        // is only here for links sent before resends switched to recovery.
-        const t = params.get('t')
-        const otpType = t === 'magiclink' ? 'magiclink'
-          : t === 'recovery' ? 'recovery'
-          : invite ? 'invite' : 'recovery'
+        // Always recovery. Invites and resets both send recovery links, which
+        // is the only flow that asks for a password rather than just signing
+        // the person in — this app deliberately issues no magic links.
         const { error: otpError } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
-          type: otpType as 'invite' | 'recovery' | 'magiclink',
+          type: 'recovery',
         })
         if (!cancelled) {
           if (otpError) {

@@ -15,7 +15,6 @@ interface AuthContextType {
   loading: boolean
   configError: boolean
   signIn: (email: string, password: string) => Promise<void>
-  signUp: (email: string, password: string, name: string) => Promise<void>
   signOut: () => Promise<void>
   updateAvatarUrl: (url: string | null) => void
 }
@@ -113,47 +112,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(profiles[0])
   }
 
-  const signUp = async (email: string, password: string, name: string) => {
-    // Use direct fetch for sign-up to match the signIn approach
-    const res = await Promise.race([
-      fetch(`${supabaseUrl}/auth/v1/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supabaseAnonKey,
-        },
-        body: JSON.stringify({ email, password }),
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Sign up timed out')), 10000)
-      )
-    ])
-
-    const body = await res.json()
-    if (!res.ok) {
-      throw new Error(body.error_description || body.msg || 'Sign up failed')
-    }
-
-    // Insert user profile using the new user's access token
-    const token = body.access_token
-    if (token && body.user) {
-      const profileRes = await fetch(`${supabaseUrl}/rest/v1/users`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supabaseAnonKey,
-          'Authorization': `Bearer ${token}`,
-          'Prefer': 'return=minimal',
-        },
-        body: JSON.stringify({ id: body.user.id, email, name }),
-      })
-      if (!profileRes.ok) {
-        const err = await profileRes.json().catch(() => ({}))
-        throw new Error(err.message || 'Failed to create user profile')
-      }
-    }
-  }
-
   const signOut = async () => {
     // Clear user state and storage immediately — don't let a hanging
     // API call prevent the user from signing out
@@ -171,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, configError, signIn, signUp, signOut, updateAvatarUrl }}>
+    <AuthContext.Provider value={{ user, loading, configError, signIn, signOut, updateAvatarUrl }}>
       {children}
     </AuthContext.Provider>
   )

@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { parseUTC, computeLockTime } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import { computeRecords } from '@/lib/computeStandings'
+import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 
@@ -118,14 +119,20 @@ export default function AllPicksPage() {
         supabase.from('users').select('id, name').order('name'),
         supabase.from('picks').select('user_id, game_id')
           .eq('week', week).eq('season', CURRENT_SEASON),
-        supabase.from('three_best').select('user_id')
+        supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
           .eq('week', week).eq('season', CURRENT_SEASON),
       ])
       const countMap = new Map<string, number>()
       for (const p of pickCounts ?? []) {
         countMap.set(p.user_id, (countMap.get(p.user_id) || 0) + 1)
       }
-      const tbSet = new Set((threeBestRows ?? []).map((r: any) => r.user_id))
+      // A row exists as soon as the first star is set, so completeness has to
+      // count the filled slots — anything short of 3 is scored as losses.
+      const tbSet = new Set(
+        (threeBestRows ?? [])
+          .filter((r: any) => [r.pick_1, r.pick_2, r.pick_3].filter(Boolean).length >= MAX_BEST_PICKS)
+          .map((r: any) => r.user_id),
+      )
       setSubmissionStatus(
         (usersData ?? []).map((u: any) => ({
           userId: u.id,
@@ -143,7 +150,7 @@ export default function AllPicksPage() {
       { data: picksData },
       { data: threeBestsData },
       { data: allSeasonGames },
-      { data: allSeasonPicks },
+      allSeasonPicks,
       { data: allSeasonThreeBests },
     ] = await Promise.all([
       supabase.from('users').select('id, name').order('name'),
@@ -153,8 +160,10 @@ export default function AllPicksPage() {
         .eq('week', week).eq('season', CURRENT_SEASON),
       supabase.from('games').select('id, week, winning_team')
         .eq('season', CURRENT_SEASON),
-      supabase.from('picks').select('user_id, game_id, picked_team, week')
-        .eq('season', CURRENT_SEASON),
+      // Paged — a full season of picks exceeds PostgREST's row cap.
+      fetchAllRows<{ user_id: string; game_id: string; picked_team: string; week: number }>((from, to) =>
+        supabase.from('picks').select('user_id, game_id, picked_team, week')
+          .eq('season', CURRENT_SEASON).order('id').range(from, to)),
       supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3')
         .eq('season', CURRENT_SEASON),
     ])
@@ -166,7 +175,7 @@ export default function AllPicksPage() {
     })
     setSeasonData({
       games: allSeasonGames ?? [],
-      picks: allSeasonPicks ?? [],
+      picks: allSeasonPicks,
       threeBests: allSeasonThreeBests ?? [],
     })
     setPicksLoading(false)

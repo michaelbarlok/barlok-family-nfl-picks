@@ -4,7 +4,15 @@ import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { computeRecords, recordSort } from '@/lib/computeStandings'
+import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
+
+interface SeasonPick {
+  user_id: string
+  game_id: string
+  picked_team: string
+  week: number
+}
 
 // Canvas confetti burst — shown when a perfect week is spotted
 function ConfettiLayer({ active }: { active: boolean }) {
@@ -126,13 +134,16 @@ export default function StandingsPage() {
         const [
           { data: users },
           { data: scores },
-          { data: picks },
+          picks,
           { data: threeBests },
           { data: games },
         ] = await Promise.all([
           supabase.from('users').select('*').order('name'),
           supabase.from('scores').select('user_id, created_at').eq('season', CURRENT_SEASON).order('created_at', { ascending: false }).limit(1),
-          supabase.from('picks').select('user_id, game_id, picked_team, week').eq('season', CURRENT_SEASON),
+          // Paged — a full season of picks exceeds PostgREST's row cap.
+          fetchAllRows<SeasonPick>((from, to) =>
+            supabase.from('picks').select('user_id, game_id, picked_team, week')
+              .eq('season', CURRENT_SEASON).order('id').range(from, to)),
           supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
           supabase.from('games').select('id, away_team, home_team, kickoff_time, week, season, winning_team').eq('season', CURRENT_SEASON),
         ])
@@ -150,9 +161,9 @@ export default function StandingsPage() {
         const userIds = users.map(u => u.id)
         const allGames = games ?? []
         const decidedGames = allGames.filter((g: any) => g.winning_team)
-        const picksMap = new Map((picks || []).map(p => [`${p.user_id}-${p.game_id}`, p]))
+        const picksMap = new Map(picks.map(p => [`${p.user_id}-${p.game_id}`, p]))
         const userWeeks = new Map<string, Set<number>>()
-        ;(picks || []).forEach((p: any) => {
+        ;picks.forEach((p) => {
           if (!userWeeks.has(p.user_id)) userWeeks.set(p.user_id, new Set())
           userWeeks.get(p.user_id)!.add(p.week)
         })
@@ -161,7 +172,7 @@ export default function StandingsPage() {
         const records = computeRecords({
           userIds,
           games: allGames,
-          picks: picks ?? [],
+          picks,
           threeBests: threeBests ?? [],
         })
 

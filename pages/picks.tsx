@@ -454,6 +454,17 @@ export default function PicksPage() {
           </div>
         )}
 
+        {/* Incomplete Best 3 warning — every empty slot is scored as a loss */}
+        {!isLocked && totalGames > 0 && bestPicks.size < MAX_BEST_PICKS && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-2.5 text-red-400 text-xs">
+            <span>⭐</span>
+            <span>
+              Pick <strong>{MAX_BEST_PICKS - bestPicks.size} more best {MAX_BEST_PICKS - bestPicks.size === 1 ? 'pick' : 'picks'}</strong> —
+              any left empty at lock counts as a <strong>loss</strong> on your Best 3 record
+            </span>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm animate-slide-up">{error}</div>
         )}

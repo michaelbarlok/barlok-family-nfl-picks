@@ -6,7 +6,15 @@ import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { computeRecords, recordSort } from '@/lib/computeStandings'
+import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
+
+interface SeasonPick {
+  user_id: string
+  game_id: string
+  picked_team: string
+  week: number
+}
 
 interface ManagedPlayerSummary {
   id: string
@@ -105,12 +113,15 @@ export default function DashboardPage() {
       try {
         const [
           { data: users },
-          { data: allPicks },
+          allPicks,
           { data: allGames },
           { data: threeBests },
         ] = await Promise.all([
           supabase.from('users').select('id, name, avatar_url').order('name'),
-          supabase.from('picks').select('user_id, game_id, picked_team, week').eq('season', CURRENT_SEASON),
+          // Paged — a full season of picks exceeds PostgREST's row cap.
+          fetchAllRows<SeasonPick>((from, to) =>
+            supabase.from('picks').select('user_id, game_id, picked_team, week')
+              .eq('season', CURRENT_SEASON).order('id').range(from, to)),
           supabase.from('games').select('id, week, away_team, home_team, kickoff_time, winning_team, away_score, home_score').eq('season', CURRENT_SEASON).order('kickoff_time'),
           supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
         ])
@@ -125,7 +136,7 @@ export default function DashboardPage() {
         const records = computeRecords({
           userIds,
           games: allGames,
-          picks: allPicks ?? [],
+          picks: allPicks,
           threeBests: threeBests ?? [],
         })
 
@@ -143,7 +154,7 @@ export default function DashboardPage() {
         const lt = computeLockTime(currentWeekGames)
         const locked = lt ? now >= lt : false
 
-        const myPicks = (allPicks ?? []).filter(p => p.user_id === user.id && p.week === maxWeek)
+        const myPicks = allPicks.filter(p => p.user_id === user.id && p.week === maxWeek)
         const myBest = (threeBests ?? []).find(tb => tb.user_id === user.id && tb.week === maxWeek)
         const bestCount = myBest ? [myBest.pick_1, myBest.pick_2, myBest.pick_3].filter(Boolean).length : 0
 
@@ -188,7 +199,7 @@ export default function DashboardPage() {
             const players: Array<{ id: string; name: string }> = json.players ?? []
             const totalGamesThisWeek = currentWeekGames.length
             managedPlayers = players.map(p => {
-              const playerPicks = (allPicks ?? []).filter(pk => pk.user_id === p.id && pk.week === maxWeek)
+              const playerPicks = allPicks.filter(pk => pk.user_id === p.id && pk.week === maxWeek)
               const playerBest = (threeBests ?? []).find(tb => tb.user_id === p.id && tb.week === maxWeek)
               const playerBestCount = playerBest ? [playerBest.pick_1, playerBest.pick_2, playerBest.pick_3].filter(Boolean).length : 0
               const u = users.find(u => u.id === p.id)

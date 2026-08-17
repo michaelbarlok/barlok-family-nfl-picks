@@ -20,7 +20,14 @@
  *   4. Best 3: for each of the user's three_best picks in a week, look up
  *      the game in that week containing that team. Apply the same scoring,
  *      EXCEPT missing picks always count as losses (not tied with ties).
+ *   5. Best 3 is mandatory. Every user scored in a week owes MAX_BEST_PICKS
+ *      results for it. Any slot still empty when picks lock counts as a loss —
+ *      including all three for someone who set no Best 3 at all. Without this,
+ *      skipping Best 3 (0-0) beat picking it badly (0-3) on the tiebreaker,
+ *      which made opting out the optimal play.
  */
+import { MAX_BEST_PICKS } from '@/lib/constants'
+
 
 export interface ComputeInput {
   userIds: string[]
@@ -133,6 +140,11 @@ export function computeRecords(input: ComputeInput): Map<string, UserRecord> {
     }
   }
 
+  // A user is "in the pool" once they've submitted picks for any week. Those
+  // users are scored in every decided week — as a participant (phase 1) or via
+  // the no-show penalty (phase 2) — and owe a Best 3 for each (phase 3).
+  const hasPlayed = (uid: string) => (userWeeks.get(uid)?.size ?? 0) > 0
+
   // Phase 2: non-participant penalty
   const allDecidedWeeks = [...new Set(decidedGames.map(g => g.week))].sort((a, b) => a - b)
   for (const wk of allDecidedWeeks) {
@@ -167,31 +179,49 @@ export function computeRecords(input: ComputeInput): Map<string, UserRecord> {
   }
 
   // Phase 3: Best 3 scoring
-  for (const tb of threeBests) {
-    const rec = records.get(tb.user_id)
-    if (!rec) continue
-    const bestTeams = [tb.pick_1, tb.pick_2, tb.pick_3].filter((t): t is string => !!t)
-    for (const team of bestTeams) {
-      const game = decidedGames.find(g => g.week === tb.week && (g.away_team === team || g.home_team === team))
-      if (!game) continue
-      const isTie = game.winning_team === 'TIE'
-      const pick = picksMap.get(`${tb.user_id}-${game.id}`)
-      const wr = ensureWeek(rec, tb.week)
+  // Driven by (user, decided week) rather than by three_best rows, so that a
+  // user who set no Best 3 at all is still charged for the slots they left empty.
+  const threeBestByUserWeek = new Map(threeBests.map(tb => [`${tb.user_id}-${tb.week}`, tb]))
 
-      if (!pick) {
-        // Missing best-3 pick → always a loss (different from regular scoring on ties)
-        rec.bestLosses++
-        wr.bestLosses++
-      } else if (isTie) {
-        rec.bestTies++
-        wr.bestTies++
-      } else if (pick.picked_team === game.winning_team) {
-        rec.bestWins++
-        wr.bestWins++
-      } else {
-        rec.bestLosses++
-        wr.bestLosses++
+  for (const wk of allDecidedWeeks) {
+    for (const uid of userIds) {
+      if (!hasPlayed(uid)) continue // never played at all — excluded entirely
+      const rec = records.get(uid)!
+      const wr = ensureWeek(rec, wk)
+
+      const tb = threeBestByUserWeek.get(`${uid}-${wk}`)
+      const bestTeams = tb
+        ? [tb.pick_1, tb.pick_2, tb.pick_3].filter((t): t is string => !!t)
+        : []
+
+      for (const team of bestTeams) {
+        const game = decidedGames.find(g => g.week === wk && (g.away_team === team || g.home_team === team))
+        if (!game) continue // that game hasn't been decided yet — scored when it is
+        const isTie = game.winning_team === 'TIE'
+        const pick = picksMap.get(`${uid}-${game.id}`)
+
+        if (!pick) {
+          // Missing best-3 pick → always a loss (different from regular scoring on ties)
+          rec.bestLosses++
+          wr.bestLosses++
+        } else if (isTie) {
+          rec.bestTies++
+          wr.bestTies++
+        } else if (pick.picked_team === game.winning_team) {
+          rec.bestWins++
+          wr.bestWins++
+        } else {
+          rec.bestLosses++
+          wr.bestLosses++
+        }
       }
+
+      // Slots never filled before lock → a loss each. Counted off the stored
+      // selections, not the resolved ones, so a Best 3 sitting on a game that
+      // hasn't finished yet isn't charged early.
+      const unfilled = Math.max(0, MAX_BEST_PICKS - bestTeams.length)
+      rec.bestLosses += unfilled
+      wr.bestLosses += unfilled
     }
   }
 

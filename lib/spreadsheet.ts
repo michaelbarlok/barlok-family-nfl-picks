@@ -2,6 +2,8 @@ import { Workbook, Borders, Alignment } from 'exceljs'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import { parseUTC } from '@/lib/lockTime'
+import { fetchAllRows } from '@/lib/fetchAll'
+import { MAX_BEST_PICKS } from '@/lib/constants'
 
 function teamName(abbr: string): string { return NFL_TEAMS[abbr]?.name || abbr }
 
@@ -94,7 +96,9 @@ export async function generateWeeklyPicksSpreadsheet(
   const { data: picks } = await db.from('picks').select('*').eq('week', week).eq('season', season)
   const { data: threeBest } = await db.from('three_best').select('*').eq('week', week).eq('season', season)
   const { data: allGames } = await db.from('games').select('id, away_team, home_team, week, season, winning_team').eq('season', season)
-  const { data: allPicks } = await db.from('picks').select('*').eq('season', season)
+  // Paged — a full season of picks exceeds PostgREST's row cap.
+  const allPicks = await fetchAllRows<any>((from, to) =>
+    db.from('picks').select('*').eq('season', season).order('id').range(from, to))
   const { data: allThreeBest } = await db.from('three_best').select('*').eq('season', season)
 
   if (!users || !games) throw new Error('Failed to fetch data for spreadsheet')
@@ -199,31 +203,54 @@ export async function generateWeeklyPicksSpreadsheet(
   const bestWeekW = init(), bestWeekL = init(), bestWeekT = init()
   const bestPrevW = init(), bestPrevL = init(), bestPrevT = init()
 
-  allThreeBest?.forEach(tb => {
-    [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean).forEach(team => {
-      const game = decidedGames.find((g: any) =>
-        g.week === tb.week &&
-        (g.away_team === team || g.home_team === team)
-      )
-      if (!game) return
-      const isTie = game.winning_team === 'TIE'
-      const pick = allPicksMap.get(`${tb.user_id}-${game.id}`)
-      let result: 'w' | 'l' | 't'
-      if (!pick) {
-        result = 'l' // unpicked best 3 games always count as losses
-      } else if (isTie) {
-        result = 't'
-      } else if (pick.picked_team === game.winning_team) {
-        result = 'w'
-      } else {
-        result = 'l'
+  // Mirrors phase 3 of lib/computeStandings.ts — driven by (user, decided week)
+  // so an empty Best 3 slot is charged as a loss rather than simply skipped.
+  const threeBestByUserWeek = new Map(
+    (allThreeBest ?? []).map((tb: any) => [`${tb.user_id}-${tb.week}`, tb]),
+  )
+
+  const addBest = (uid: string, wk: number, result: 'w' | 'l' | 't', n = 1) => {
+    const maps = result === 'w' ? [bestTotalW, bestWeekW, bestPrevW]
+      : result === 'l' ? [bestTotalL, bestWeekL, bestPrevL]
+      : [bestTotalT, bestWeekT, bestPrevT]
+    maps[0].set(uid, (maps[0].get(uid) ?? 0) + n)
+    if (wk === week) maps[1].set(uid, (maps[1].get(uid) ?? 0) + n)
+    if (wk === week - 1) maps[2].set(uid, (maps[2].get(uid) ?? 0) + n)
+  }
+
+  for (const wk of allDecidedWeeks) {
+    for (const uid of userIds) {
+      if ((userWeeks.get(uid) || new Set()).size === 0) continue // never played — skip
+
+      const tb = threeBestByUserWeek.get(`${uid}-${wk}`)
+      const bestTeams: string[] = tb ? [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean) : []
+
+      for (const team of bestTeams) {
+        const game = decidedGames.find((g: any) =>
+          g.week === wk &&
+          (g.away_team === team || g.home_team === team)
+        )
+        if (!game) continue // not decided yet — scored when it is
+        const isTie = game.winning_team === 'TIE'
+        const pick = allPicksMap.get(`${uid}-${game.id}`)
+        let result: 'w' | 'l' | 't'
+        if (!pick) {
+          result = 'l' // unpicked best 3 games always count as losses
+        } else if (isTie) {
+          result = 't'
+        } else if (pick.picked_team === game.winning_team) {
+          result = 'w'
+        } else {
+          result = 'l'
+        }
+        addBest(uid, wk, result)
       }
-      const maps = result === 'w' ? [bestTotalW, bestWeekW, bestPrevW] : result === 'l' ? [bestTotalL, bestWeekL, bestPrevL] : [bestTotalT, bestWeekT, bestPrevT]
-      maps[0].set(tb.user_id, (maps[0].get(tb.user_id) ?? 0) + 1)
-      if (tb.week === week) maps[1].set(tb.user_id, (maps[1].get(tb.user_id) ?? 0) + 1)
-      if (tb.week === week - 1) maps[2].set(tb.user_id, (maps[2].get(tb.user_id) ?? 0) + 1)
-    })
-  })
+
+      // Slots left empty at lock → a loss each.
+      const unfilled = Math.max(0, MAX_BEST_PICKS - bestTeams.length)
+      if (unfilled > 0) addBest(uid, wk, 'l', unfilled)
+    }
+  }
 
   const places = computePlaces(userIds, totalW, totalL, bestTotalW, bestTotalL)
 

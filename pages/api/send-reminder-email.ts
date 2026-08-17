@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import nodemailer from 'nodemailer'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { detectUpcomingWeek } from '@/lib/lockTime'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { isAuthorized } from '@/lib/apiAuth'
@@ -56,11 +56,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Get three_best for this week
   const { data: allThreeBest } = await supabase
     .from('three_best')
-    .select('user_id')
+    .select('user_id, pick_1, pick_2, pick_3')
     .eq('week', week)
     .eq('season', CURRENT_SEASON)
 
-  const threeBestUserIds = new Set((allThreeBest ?? []).map((tb: any) => tb.user_id))
+  // A row exists as soon as the first star is set, so only a full set counts as
+  // done — an incomplete Best 3 is scored as a loss per empty slot.
+  const threeBestUserIds = new Set(
+    (allThreeBest ?? [])
+      .filter((tb: any) => [tb.pick_1, tb.pick_2, tb.pick_3].filter(Boolean).length >= MAX_BEST_PICKS)
+      .map((tb: any) => tb.user_id),
+  )
 
   // Count picks per user
   const pickCounts = new Map<string, number>()

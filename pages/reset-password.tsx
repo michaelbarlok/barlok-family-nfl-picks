@@ -9,6 +9,13 @@ export default function ResetPasswordPage() {
   const [confirm, setConfirm] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'done' | 'error'>('loading')
   const [error, setError] = useState('')
+  // Invite links land here too (?invite=1). Same flow, different wording — a new
+  // player has no account yet, so "reset your password" would make no sense.
+  const [isInvite, setIsInvite] = useState(false)
+
+  useEffect(() => {
+    setIsInvite(new URLSearchParams(window.location.search).get('invite') === '1')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -28,7 +35,7 @@ export default function ResetPasswordPage() {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
         if (!cancelled) {
           if (exchangeError) {
-            setError('Invalid or expired reset link. Please request a new one from your profile.')
+            setError(linkErrorMessage())
             setStatus('error')
           } else {
             setStatus('ready')
@@ -50,7 +57,7 @@ export default function ResetPasswordPage() {
         if (session) {
           setStatus('ready')
         } else {
-          setError('Invalid or expired reset link. Please request a new one from your profile.')
+          setError(linkErrorMessage())
           setStatus('error')
         }
       }
@@ -63,6 +70,11 @@ export default function ResetPasswordPage() {
       subscription.unsubscribe()
     }
   }, [])
+
+  const linkErrorMessage = () =>
+    new URLSearchParams(window.location.search).get('invite') === '1'
+      ? 'This invite link is invalid or has expired. Ask Michael to send you a new one.'
+      : 'Invalid or expired reset link. Please request a new one from your profile.'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -99,7 +111,7 @@ export default function ResetPasswordPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl mb-5 shadow-lg shadow-blue-500/25">
             <span className="text-3xl">🏈</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Reset Password</h1>
+          <h1 className="text-2xl font-bold text-white">{isInvite ? 'Welcome!' : 'Reset Password'}</h1>
           <p className="text-slate-400 mt-1.5 text-sm">NFL Picks &middot; {CURRENT_SEASON} Season</p>
         </div>
 
@@ -107,7 +119,7 @@ export default function ResetPasswordPage() {
           {status === 'loading' && (
             <div className="text-center py-4">
               <span className="w-6 h-6 border-2 border-slate-500 border-t-slate-300 rounded-full animate-spin inline-block mb-3" />
-              <p className="text-sm text-slate-400">Verifying reset link...</p>
+              <p className="text-sm text-slate-400">{isInvite ? 'Verifying your invite...' : 'Verifying reset link...'}</p>
             </div>
           )}
 
@@ -128,7 +140,7 @@ export default function ResetPasswordPage() {
           {status === 'done' && (
             <div className="text-center py-4">
               <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-sm">
-                Password updated successfully! Redirecting...
+                {isInvite ? "You're all set! Taking you to your picks..." : 'Password updated successfully! Redirecting...'}
               </div>
             </div>
           )}
@@ -144,7 +156,7 @@ export default function ResetPasswordPage() {
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                    New password
+                    {isInvite ? 'Choose a password' : 'New password'}
                   </label>
                   <input
                     type="password"
@@ -159,7 +171,7 @@ export default function ResetPasswordPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                    Confirm new password
+                    {isInvite ? 'Confirm password' : 'Confirm new password'}
                   </label>
                   <input
                     type="password"
@@ -181,7 +193,7 @@ export default function ResetPasswordPage() {
                       <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       Updating...
                     </span>
-                  ) : 'Update password'}
+                  ) : isInvite ? 'Create my account' : 'Update password'}
                 </button>
               </form>
             </>

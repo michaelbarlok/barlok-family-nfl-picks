@@ -72,6 +72,9 @@ export default function AdminPage() {
   const [newPlayerName, setNewPlayerName] = useState('')
   const [newPlayerManagers, setNewPlayerManagers] = useState<Set<string>>(new Set())
   const [creatingPlayer, setCreatingPlayer] = useState(false)
+  const [inviteName, setInviteName] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [invitingPlayer, setInvitingPlayer] = useState(false)
   const [playersLoading, setPlayersLoading] = useState(false)
   const [editingNameId, setEditingNameId] = useState<string | null>(null)
   const [editingNameValue, setEditingNameValue] = useState('')
@@ -191,6 +194,31 @@ export default function AdminPage() {
       loadManagedPlayersData()
     }
   }, [activeTab, user, loadManagedPlayersData])
+
+  // Invite a player who will have their own login
+  const handleInvitePlayer = async () => {
+    if (!inviteName.trim() || !inviteEmail.trim()) return
+    setInvitingPlayer(true)
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/invite-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: inviteName.trim(), email: inviteEmail.trim() }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to send the invite')
+      setMessage({ type: 'success', text: json.message ?? `Invite sent to ${inviteEmail.trim()}.` })
+      setInviteName('')
+      setInviteEmail('')
+      await loadManagedPlayersData()
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    } finally {
+      setInvitingPlayer(false)
+    }
+  }
 
   // Create a managed player
   const handleCreateManagedPlayer = async () => {
@@ -1169,6 +1197,37 @@ export default function AdminPage() {
               </div>
             ) : (
               <>
+                {/* Invite a player with their own account */}
+                <div className="glass-card rounded-xl p-4 mb-4">
+                  <p className="text-sm font-semibold text-slate-200 mb-1">Invite Player</p>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Emails them a link to set a password and make their own picks. They&apos;ll also get the weekly emails.
+                  </p>
+                  <div className="flex flex-col gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={inviteName}
+                      onChange={e => setInviteName(e.target.value)}
+                      placeholder="Full name (e.g. Sarah Barlok)"
+                      className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    />
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={e => setInviteEmail(e.target.value)}
+                      placeholder="sarah@example.com"
+                      className="w-full px-3 py-2 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    />
+                  </div>
+                  <button
+                    onClick={handleInvitePlayer}
+                    disabled={invitingPlayer || !inviteName.trim() || !inviteEmail.trim()}
+                    className="w-full py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+                  >
+                    {invitingPlayer ? 'Sending invite...' : 'Send Invite'}
+                  </button>
+                </div>
+
                 {/* Create managed player */}
                 <div className="glass-card rounded-xl p-4 mb-5">
                   <p className="text-sm font-semibold text-slate-200 mb-1">Create Managed Player</p>

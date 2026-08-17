@@ -78,15 +78,21 @@ INSERT INTO games (away_team, home_team, week, season, kickoff_time) VALUES
 
 ## STEP 6: Add League Members
 
-In Supabase SQL Editor:
+Sign in as the admin, go to **Admin → Players**, and use one of the two forms:
 
-```sql
-INSERT INTO users (email, name) VALUES
-('person1@email.com', 'Person 1'),
-('person2@email.com', 'Person 2');
-```
+- **Invite Player** — for anyone who wants their own login. Enter their name and
+  email; they get an email with a link to set a password. They're added to the
+  weekly email list automatically.
+- **Create Managed Player** — for someone who won't log in at all (a kid, a
+  grandparent). Pick who makes their picks for them. No email needed.
 
-Then send them the site URL and have them sign up with their email.
+> **Do not add members by hand in Supabase.** A working account needs two
+> records that share an id: the Auth user, and the row in `public.users`.
+> Inserting into `users` alone creates a row with a random id that no login will
+> ever match, and the Supabase dashboard's own "Invite user" button does the
+> opposite — it creates the Auth user with no profile row, so the person signs in
+> and gets *"Signed in but no user profile found"*. The Invite Player form
+> creates both together and rolls back if either half fails.
 
 ---
 

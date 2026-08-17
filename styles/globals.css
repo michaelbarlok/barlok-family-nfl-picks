@@ -55,6 +55,16 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Horizontal scroll without a visible scrollbar — used by the desktop tab row,
+   which scrolls only in the rare case the tabs outgrow the container. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Button press effect */
 .press {
   transition: transform 0.1s ease;

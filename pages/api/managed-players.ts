@@ -3,6 +3,7 @@ import { ADMIN_EMAIL } from '@/lib/constants'
 import { isValidOrigin } from '@/lib/validation'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser } from '@/lib/apiAuth'
+import { sendPasswordResetEmail } from '@/lib/passwordReset'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
@@ -291,24 +292,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ success: true })
       }
 
-      // Send a password reset email to a user (using service role to bypass rate limits)
+      // Send a password reset email to a user. Goes through the shared helper
+      // so every reset in the app is delivered and verified the same way.
       if (action === 'send_reset_email') {
         const { email } = req.body
         if (!email) return res.status(400).json({ error: 'email is required' })
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-        const emailRes = await fetch(`${url}/auth/v1/recover`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': serviceKey,
-            'Authorization': `Bearer ${serviceKey}`,
-          },
-          body: JSON.stringify({ email }),
-        })
-        if (!emailRes.ok) {
-          const body = await emailRes.json().catch(() => ({}))
-          return res.status(500).json({ error: body.msg || 'Failed to send reset email' })
+        const protocol = req.headers['x-forwarded-proto'] || 'https'
+        const host = req.headers['x-forwarded-host'] || req.headers.host
+        try {
+          await sendPasswordResetEmail(`${protocol}://${host}`, email)
+        } catch (err) {
+          // An admin acting on a known player should see the real reason.
+          return res.status(500).json({
+            error: err instanceof Error ? err.message : 'Failed to send reset email',
+          })
         }
         return res.status(200).json({ success: true })
       }

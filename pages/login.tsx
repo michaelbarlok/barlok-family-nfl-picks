@@ -10,6 +10,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<'signin' | 'forgot'>('signin')
+  const [resetSent, setResetSent] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,6 +26,35 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setResetSent('')
+    setLoading(true)
+
+    try {
+      const res = await fetch('/api/request-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Could not send the reset email')
+      setResetSent(json.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send the reset email')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const switchMode = (next: 'signin' | 'forgot') => {
+    setMode(next)
+    setError('')
+    setResetSent('')
+    setPassword('')
   }
 
   return (
@@ -85,48 +116,93 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                Email address
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/30 transition"
-                placeholder="you@example.com"
-                required
-              />
+          {mode === 'forgot' && resetSent ? (
+            <div className="animate-slide-up">
+              <div className="mb-5 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-sm">
+                {resetSent}
+              </div>
+              <p className="text-xs text-slate-500 mb-5">
+                The link works once and expires in 24 hours.
+              </p>
+              <button
+                type="button"
+                onClick={() => switchMode('signin')}
+                className="w-full press bg-white/[0.06] border border-white/[0.08] text-slate-200 font-semibold py-3 rounded-xl hover:bg-white/[0.10] transition"
+              >
+                Back to sign in
+              </button>
             </div>
+          ) : (
+            <form onSubmit={mode === 'forgot' ? handleForgot : handleSubmit} className="space-y-5">
+              {mode === 'forgot' && (
+                <p className="text-sm text-slate-400">
+                  Enter your email and we&apos;ll send you a link to choose a new password.
+                </p>
+              )}
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/30 transition"
-                placeholder="••••••••"
-                required
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  Email address
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/30 transition"
+                  placeholder="you@example.com"
+                  required
+                />
+              </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full press bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold py-3 rounded-xl hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 focus:ring-offset-surface disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg shadow-blue-600/20"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Signing in...
-                </span>
-              ) : 'Sign in'}
-            </button>
-          </form>
+              {mode === 'signin' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-slate-300">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('forgot')}
+                      className="text-xs text-blue-400 hover:text-blue-300 transition"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/30 transition"
+                    placeholder="••••••••"
+                    required
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full press bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold py-3 rounded-xl hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 focus:ring-offset-surface disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg shadow-blue-600/20"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {mode === 'forgot' ? 'Sending...' : 'Signing in...'}
+                  </span>
+                ) : mode === 'forgot' ? 'Send reset link' : 'Sign in'}
+              </button>
+
+              {mode === 'forgot' && (
+                <button
+                  type="button"
+                  onClick={() => switchMode('signin')}
+                  className="w-full text-sm text-slate-400 hover:text-slate-200 transition"
+                >
+                  Back to sign in
+                </button>
+              )}
+            </form>
+          )}
         </div>
 
         <p className="text-center text-sm text-slate-500 mt-6">

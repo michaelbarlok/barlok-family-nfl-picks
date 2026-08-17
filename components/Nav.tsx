@@ -21,7 +21,7 @@ interface NavProps {
 
 export default function Nav({ incompleteCount }: NavProps = {}) {
   const router = useRouter()
-  const { user, signOut, resetPassword, updateAvatarUrl } = useAuth()
+  const { user, signOut, updateAvatarUrl } = useAuth()
   const [showMenu, setShowMenu] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
@@ -45,7 +45,12 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
     if (!user?.email) return
     setResetStatus('sending')
     try {
-      await resetPassword(user.email)
+      const res = await fetch('/api/request-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email }),
+      })
+      if (!res.ok) throw new Error('Failed')
       setResetStatus('sent')
     } catch {
       setResetStatus('error')

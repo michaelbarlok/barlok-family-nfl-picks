@@ -152,9 +152,9 @@ export default function StandingsPage() {
 
         // Last updated banner from most recent score row
         if (scores && scores.length > 0) {
+          // Device-local, like every other time on screen.
           setLastUpdated(new Date(scores[0].created_at).toLocaleString('en-US', {
             month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-            timeZone: 'America/New_York',
           }))
         }
 

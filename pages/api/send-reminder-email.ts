@@ -89,6 +89,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   })
 
   // Format lock time for display
+  // Eastern on purpose. This renders on the server, where there is no device to
+  // read a zone from, and it lands in an inbox that could be opened anywhere —
+  // so it states one explicit zone rather than guessing. On-screen times follow
+  // the reader's device instead (see formatKickoff).
   const lockTimeStr = lockTime.toLocaleString('en-US', {
     weekday: 'long', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short',

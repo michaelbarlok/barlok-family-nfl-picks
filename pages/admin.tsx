@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON, ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
 import { processAvatarFile } from '@/lib/avatarUtils'
 import { getTeam } from '@/lib/nflTeams'
-import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
+import { parseUTC, computeLockTime, formatKickoff, formatLockTime } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
 
 interface Game {
@@ -1035,7 +1035,7 @@ export default function AdminPage() {
               <p className="text-white font-medium">Picks not yet locked</p>
               <p className="text-slate-500 text-sm mt-1.5">
                 Override is available after picks lock{weekLockTime
-                  ? ` on ${weekLockTime.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York' })}`
+                  ? ` on ${formatLockTime(weekLockTime)}`
                   : ''}.
               </p>
             </div>

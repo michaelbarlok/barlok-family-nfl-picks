@@ -11,7 +11,9 @@ function teamName(abbr: string): string { return NFL_TEAMS[abbr]?.name || abbr }
 function getDayLabel(kickoffTime: string): string {
   const d = parseUTC(kickoffTime)
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat']
-  // Format in Eastern time
+  // Eastern on purpose: this workbook is generated server-side and shared
+  // around, so every copy has to show the same day labels no matter who
+  // opens it or where. Screen times follow the device (see formatKickoff).
   const etDay = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(d)
   const etMonth = new Intl.DateTimeFormat('en-US', { month: 'numeric', timeZone: 'America/New_York' }).format(d)
   const etDate = new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: 'America/New_York' }).format(d)

@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
-import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { CURRENT_SEASON, ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
+import { computeLockTime } from '@/lib/lockTime'
 import { supabase } from '@/lib/supabase'
 import { processAvatarFile } from '@/lib/avatarUtils'
 
@@ -15,6 +16,10 @@ const baseTabs = [
   { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 
+// Mobile shows Home, All Picks, My Picks, Standings; everything else moves into
+// the More sheet so the bar never gets denser than five slots.
+const MOBILE_MORE = ['/spreadsheets', '/champions'] as const
+
 interface NavProps {
   incompleteCount?: number
 }
@@ -24,6 +29,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const { user, signOut, updateAvatarUrl } = useAuth()
   const [showMenu, setShowMenu] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
+  const [showMore, setShowMore] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [avatarUploading, setAvatarUploading] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -34,6 +40,64 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const tabs = isAdmin || isManager
     ? [...baseTabs, { label: 'Admin', icon: '🔧', href: '/admin' }]
     : baseTabs
+
+  const byHref = (href: string) => tabs.find(t => t.href === href)!
+  // Home | All Picks | (My Picks) | Standings — the centre slot is rendered
+  // separately, so this is split either side of it.
+  const leftTabs = [byHref('/'), byHref('/all-picks')]
+  const rightTabs = [byHref('/standings')]
+  const moreTabs = tabs.filter(t =>
+    (MOBILE_MORE as readonly string[]).includes(t.href) || t.href === '/admin',
+  )
+  const moreIsActive = moreTabs.some(t => router.pathname === t.href)
+
+  // A prompt that only appears on the two pages that pass a count is no prompt
+  // at all — the point is to catch you from anywhere in the app. When the page
+  // doesn't supply one, work it out here.
+  const [ownCount, setOwnCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (typeof incompleteCount === 'number' || !user) return
+    let cancelled = false
+
+    const loadOutstanding = async () => {
+      const { data: games } = await supabase
+        .from('games').select('id, week, kickoff_time')
+        .eq('season', CURRENT_SEASON).order('week')
+      if (!games || games.length === 0) return
+
+      const week = Math.max(...games.map(g => g.week))
+      const weekGames = games.filter(g => g.week === week)
+      const lockTime = computeLockTime(weekGames)
+      if (!lockTime || new Date() >= lockTime) return // locked — nothing left to do
+
+      const [{ data: picks }, { data: best }] = await Promise.all([
+        supabase.from('picks').select('game_id')
+          .eq('user_id', user.id).eq('week', week).eq('season', CURRENT_SEASON),
+        supabase.from('three_best').select('pick_1, pick_2, pick_3')
+          .eq('user_id', user.id).eq('week', week).eq('season', CURRENT_SEASON).maybeSingle(),
+      ])
+
+      const bestCount = best ? [best.pick_1, best.pick_2, best.pick_3].filter(Boolean).length : 0
+      const remaining = (weekGames.length - (picks?.length ?? 0)) + (bestCount < MAX_BEST_PICKS ? 1 : 0)
+      if (!cancelled) setOwnCount(remaining)
+    }
+
+    loadOutstanding().catch(() => {})
+    return () => { cancelled = true }
+  }, [incompleteCount, user])
+
+  const outstanding = typeof incompleteCount === 'number' ? incompleteCount : ownCount ?? 0
+  const hasOutstandingPicks = outstanding > 0
+  const picksIsActive = router.pathname === '/picks'
+
+  // Close the More sheet whenever navigation happens, so it can't linger over
+  // the page it just opened.
+  useEffect(() => {
+    const close = () => setShowMore(false)
+    router.events.on('routeChangeStart', close)
+    return () => router.events.off('routeChangeStart', close)
+  }, [router.events])
 
   const handleSignOut = async () => {
     setShowMenu(false)
@@ -193,7 +257,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
           <div className="hidden sm:flex gap-1 pb-3">
             {tabs.map(tab => {
               const isActive = router.pathname === tab.href
-              const showBadge = tab.href === '/picks' && typeof incompleteCount === 'number' && incompleteCount > 0
+              const showBadge = tab.href === '/picks' && hasOutstandingPicks
               return (
                 <Link
                   key={tab.href}
@@ -216,7 +280,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   />
                   {showBadge && (
                     <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1 shadow-lg shadow-red-500/30 animate-pulse-glow">
-                      {incompleteCount}
+                      {outstanding}
                     </span>
                   )}
                 </Link>
@@ -378,40 +442,130 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
         </div>
       )}
 
-      {/* Mobile bottom tab bar */}
+      {/* More sheet — overflow destinations for mobile */}
+      {showMore && (
+        <div className="fixed inset-0 z-40 sm:hidden">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={() => setShowMore(false)}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-[#1a1d23] border-t border-white/[0.08] rounded-t-2xl shadow-2xl shadow-black/40 animate-slide-up safe-bottom">
+            <div className="flex justify-center pt-2.5 pb-1">
+              <span className="w-9 h-1 rounded-full bg-white/[0.15]" />
+            </div>
+            <div className="px-2 pb-3">
+              {moreTabs.map(tab => {
+                const isActive = router.pathname === tab.href
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    onClick={() => setShowMore(false)}
+                    className={`flex items-center gap-3 px-4 py-3.5 rounded-xl transition ${
+                      isActive ? 'bg-white/[0.06] text-blue-400' : 'text-slate-300 active:bg-white/[0.04]'
+                    }`}
+                  >
+                    <span className="text-xl leading-none">{tab.icon}</span>
+                    <span className="text-sm font-medium">{tab.label}</span>
+                    {isActive && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile bottom tab bar — five slots, My Picks raised in the centre */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 sm:hidden border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-bottom">
-        <div className="flex justify-around items-center px-1 pt-1.5 pb-1">
-          {tabs.map(tab => {
-            const isActive = router.pathname === tab.href
-            const showBadge = tab.href === '/picks' && typeof incompleteCount === 'number' && incompleteCount > 0
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className={`relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 flex-1 ${
-                  isActive
-                    ? 'text-blue-400'
-                    : 'text-slate-500 active:text-slate-300'
-                }`}
-              >
-                <span className={`text-lg leading-none transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}>{tab.icon}</span>
-                <span className={`text-[10px] font-medium truncate w-full text-center ${isActive ? 'text-blue-400' : ''}`}>{tab.label}</span>
-                {/* Active dot indicator */}
-                <span
-                  className={`h-0.5 rounded-full bg-blue-400 transition-all duration-300 ease-out ${
-                    isActive ? 'w-4 opacity-100' : 'w-0 opacity-0'
-                  }`}
-                />
-                {showBadge && (
-                  <span className="absolute -top-0.5 right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white px-0.5 shadow-lg shadow-red-500/30">
-                    {incompleteCount}
-                  </span>
-                )}
-              </Link>
-            )
-          })}
+        <div className="grid grid-cols-5 items-end px-1 pt-1.5 pb-1">
+          {leftTabs.map(tab => (
+            <BottomTab key={tab.href} tab={tab} isActive={router.pathname === tab.href} />
+          ))}
+
+          {/* Centre action. Sits proud of the bar so it reads as the primary
+              thing to do, and carries the outstanding-picks state: amber and
+              pulsing while picks are due, blue once the card is complete. */}
+          <Link
+            href="/picks"
+            aria-label={hasOutstandingPicks ? `My Picks — ${outstanding} still to do` : 'My Picks'}
+            className="relative flex flex-col items-center -mt-6"
+          >
+            <span
+              className={`relative flex items-center justify-center w-14 h-14 rounded-full border-4 border-surface transition-all duration-300 ${
+                hasOutstandingPicks
+                  ? 'bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-amber-500/40 animate-pulse-glow'
+                  : picksIsActive
+                    ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-600/40'
+                    : 'bg-white/[0.10] shadow-lg shadow-black/30'
+              }`}
+            >
+              <span className="text-2xl leading-none">🏈</span>
+              {hasOutstandingPicks && (
+                <span className="absolute -top-1 -right-1 min-w-[20px] h-[20px] flex items-center justify-center rounded-full bg-red-500 text-[11px] font-bold text-white px-1 border-2 border-surface">
+                  {outstanding}
+                </span>
+              )}
+            </span>
+            <span
+              className={`text-[10px] font-semibold mt-0.5 ${
+                hasOutstandingPicks ? 'text-amber-400' : picksIsActive ? 'text-blue-400' : 'text-slate-500'
+              }`}
+            >
+              {hasOutstandingPicks ? `${outstanding} to pick` : 'My Picks'}
+            </span>
+          </Link>
+
+          {rightTabs.map(tab => (
+            <BottomTab key={tab.href} tab={tab} isActive={router.pathname === tab.href} />
+          ))}
+
+          <button
+            type="button"
+            onClick={() => setShowMore(true)}
+            aria-label="More"
+            aria-expanded={showMore}
+            className={`relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 ${
+              moreIsActive || showMore ? 'text-blue-400' : 'text-slate-500 active:text-slate-300'
+            }`}
+          >
+            <span className="text-lg leading-none">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="mx-auto">
+                <circle cx="5" cy="12" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="19" cy="12" r="1.8" />
+              </svg>
+            </span>
+            <span className="text-[10px] font-medium truncate w-full text-center">More</span>
+            <span
+              className={`h-0.5 rounded-full bg-blue-400 transition-all duration-300 ease-out ${
+                moreIsActive ? 'w-4 opacity-100' : 'w-0 opacity-0'
+              }`}
+            />
+          </button>
         </div>
       </nav>
     </>
+  )
+}
+
+function BottomTab({ tab, isActive }: { tab: { label: string; icon: string; href: string }; isActive: boolean }) {
+  return (
+    <Link
+      href={tab.href}
+      className={`relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 ${
+        isActive ? 'text-blue-400' : 'text-slate-500 active:text-slate-300'
+      }`}
+    >
+      <span className={`text-lg leading-none transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}>
+        {tab.icon}
+      </span>
+      <span className="text-[10px] font-medium truncate w-full text-center">{tab.label}</span>
+      <span
+        className={`h-0.5 rounded-full bg-blue-400 transition-all duration-300 ease-out ${
+          isActive ? 'w-4 opacity-100' : 'w-0 opacity-0'
+        }`}
+      />
+    </Link>
   )
 }

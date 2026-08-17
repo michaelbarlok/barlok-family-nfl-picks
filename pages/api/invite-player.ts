@@ -16,8 +16,8 @@ const LEAGUE_NAME = 'Barlok Family NFL Picks'
  * makes the auth user and nothing else.
  *
  * So this does both in one step:
- *   1. generateLink({ type: 'invite' }) creates the auth user and hands back an
- *      action link WITHOUT sending mail, so we control delivery.
+ *   1. generateLink() creates the auth user and hands back a token WITHOUT
+ *      sending mail, so we control delivery.
  *   2. The profile row is inserted with the id that call returns, which is what
  *      keeps the two in sync. On failure the auth user is deleted again rather
  *      than left orphaned.
@@ -26,8 +26,18 @@ const LEAGUE_NAME = 'Barlok Family NFL Picks'
  *      mailer is rate-limited to a handful of messages an hour and would need
  *      separate SMTP config.
  *
- * The link lands on /reset-password, which already handles both the PKCE and
- * implicit callback shapes; ?invite=1 just switches its wording.
+ * We email a link to our own /reset-password page carrying the hashed token,
+ * NOT the ready-made action_link. Supabase's verify endpoint spends the
+ * single-use token on the first GET, so anything that follows links in mail —
+ * a scanner, a preview generator, an antivirus proxy — consumes the invite and
+ * the player then gets "already used or expired" on a link they never opened.
+ * Verifying from JavaScript on our own page avoids that, since those fetchers
+ * don't execute it.
+ *
+ * Calling this again for a player who was invited but never signed in resends:
+ * `invite` can't be reissued for an existing address, so a resend mints a
+ * magiclink for the same account instead (?t=magiclink tells the page which
+ * type to verify).
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -54,34 +64,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = getAdminClient()
 
-  // Refuse before creating anything if this email is already on the roster.
   const { data: existing } = await supabase
     .from('users')
     .select('id, name')
     .eq('email', cleanEmail)
     .maybeSingle()
 
+  // An already-invited player who never finished setup needs a fresh link, not
+  // a rejection — the invite email itself tells them to ask for one.
+  let resending = false
   if (existing) {
-    return res.status(409).json({
-      error: `${existing.name} is already using ${cleanEmail}. Use "Send password reset" on their row instead.`,
-    })
+    const { data: authUser } = await supabase.auth.admin.getUserById(existing.id)
+    if (authUser?.user?.last_sign_in_at) {
+      return res.status(409).json({
+        error: `${existing.name} already has a working account. Use "Send password reset email" on their row instead.`,
+      })
+    }
+    resending = true
   }
 
   const protocol = req.headers['x-forwarded-proto'] || 'https'
   const host = req.headers['x-forwarded-host'] || req.headers.host
-  const redirectTo = `${protocol}://${host}/reset-password?invite=1`
+  const origin = `${protocol}://${host}`
+  const redirectTo = `${origin}/reset-password?invite=1`
 
-  let newUserId: string | null = null
+  let newUserId: string | null = existing?.id ?? null
 
   try {
-    // 1. Create the auth user and mint an invite link (no mail sent by Supabase).
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'invite',
-      email: cleanEmail,
-      options: { redirectTo },
-    })
+    // A fresh invite creates the auth user; a resend can't invite an address
+    // that already exists, so it mints a magic link for the same account
+    // instead. Either way we take the hashed token, not the ready-made link.
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink(
+      resending
+        ? { type: 'magiclink', email: cleanEmail, options: { redirectTo } }
+        : { type: 'invite', email: cleanEmail, options: { redirectTo } },
+    )
 
-    if (linkError || !linkData?.user || !linkData?.properties?.action_link) {
+    if (linkError || !linkData?.user || !linkData?.properties?.hashed_token) {
       const message = linkError?.message ?? 'Failed to generate the invite link'
       // An auth user can exist without a profile row (e.g. a half-finished
       // manual setup), which the roster check above cannot see.
@@ -94,18 +113,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     newUserId = linkData.user.id
-    const actionLink = linkData.properties.action_link
 
-    // 2. Profile row, keyed to the auth user's id. New players are on the
-    //    weekly email list from day one.
-    const { error: profileError } = await supabase.from('users').insert({
-      id: newUserId,
-      email: cleanEmail,
-      name: cleanName,
-      email_recipient: true,
-    })
+    // Link to our own page carrying the hashed token, rather than to Supabase's
+    // verify endpoint. That endpoint spends the single-use token on the first
+    // GET, so an email scanner or link preview following it burns the invite
+    // before the player ever clicks. Our page spends it from JavaScript, which
+    // those fetchers don't run.
+    const setupLink =
+      `${origin}/reset-password?invite=1&token_hash=${encodeURIComponent(linkData.properties.hashed_token)}` +
+      `${resending ? '&t=magiclink' : ''}`
 
-    if (profileError) throw new Error(`Failed to create the player profile: ${profileError.message}`)
+    // Profile row, keyed to the auth user's id. New players are on the weekly
+    // email list from day one. A resend keeps the existing row as-is.
+    if (!resending) {
+      const { error: profileError } = await supabase.from('users').insert({
+        id: newUserId,
+        email: cleanEmail,
+        name: cleanName,
+        email_recipient: true,
+      })
+      if (profileError) throw new Error(`Failed to create the player profile: ${profileError.message}`)
+    }
 
     // 3. Deliver the link ourselves.
     const transporter = nodemailer.createTransport({
@@ -113,19 +141,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       auth: { user: gmailAddress, pass: gmailAppPassword },
     })
 
+    const displayName = resending ? existing!.name : cleanName
+
     await transporter.sendMail({
       from: `${LEAGUE_NAME} <${gmailAddress}>`,
       to: cleanEmail,
-      subject: `You're in — set up your ${LEAGUE_NAME} account`,
+      subject: resending
+        ? `Your new ${LEAGUE_NAME} setup link`
+        : `You're in — set up your ${LEAGUE_NAME} account`,
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #14181f;">
           <p style="font-size: 28px; margin: 0 0 8px;">🏈</p>
-          <h1 style="font-size: 20px; margin: 0 0 16px;">Welcome to ${LEAGUE_NAME}, ${cleanName}!</h1>
+          <h1 style="font-size: 20px; margin: 0 0 16px;">Welcome to ${LEAGUE_NAME}, ${displayName}!</h1>
           <p style="font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
             You've been added to the league. Set a password to finish creating your account, then you can start making picks.
           </p>
           <p style="margin: 0 0 24px;">
-            <a href="${actionLink}"
+            <a href="${setupLink}"
                style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 10px;">
               Set your password
             </a>
@@ -138,7 +170,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             Picks lock at the first kickoff of each week.
           </p>
           <p style="font-size: 12px; color: #8a93a0; margin: 0; border-top: 1px solid #e0e3e9; padding-top: 16px;">
-            This link expires in 24 hours. If it stops working, ask Michael to send another.
+            This link expires in 24 hours and can only be used once. If it stops working, ask Michael to resend it.
           </p>
         </div>
       `,
@@ -147,12 +179,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       success: true,
       userId: newUserId,
-      message: `Invite sent to ${cleanEmail}.`,
+      resent: resending,
+      message: resending
+        ? `New setup link sent to ${cleanEmail}.`
+        : `Invite sent to ${cleanEmail}.`,
     })
   } catch (err) {
     // Never leave an auth user without a matching profile — that is the exact
     // broken state this route exists to avoid.
-    if (newUserId) {
+    if (newUserId && !resending) {
       await supabase.from('users').delete().eq('id', newUserId)
       await supabase.auth.admin.deleteUser(newUserId).catch(() => {})
     }

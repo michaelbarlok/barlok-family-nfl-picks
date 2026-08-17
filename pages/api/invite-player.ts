@@ -34,10 +34,12 @@ const LEAGUE_NAME = 'Barlok Family NFL Picks'
  * Verifying from JavaScript on our own page avoids that, since those fetchers
  * don't execute it.
  *
- * Calling this again for a player who was invited but never signed in resends:
- * `invite` can't be reissued for an existing address, so a resend mints a
- * magiclink for the same account instead (?t=magiclink tells the page which
- * type to verify).
+ * Calling this again for a player who was invited but never signed in resends.
+ * `invite` can't be reissued for an existing address, so a resend sends a
+ * recovery link (?t=recovery tells the page which type to verify). Deliberately
+ * NOT a magic link: that signs the person straight into the app, leaving them
+ * with a session and no password, and nothing afterwards ever prompts them for
+ * one. Recovery is the flow whose whole purpose is setting a password.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -91,12 +93,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let newUserId: string | null = existing?.id ?? null
 
   try {
-    // A fresh invite creates the auth user; a resend can't invite an address
-    // that already exists, so it mints a magic link for the same account
-    // instead. Either way we take the hashed token, not the ready-made link.
+    if (resending && newUserId) {
+      // Recovery needs a confirmed address, and an invite that was never
+      // accepted leaves it unconfirmed. The admin vouched for it by inviting,
+      // so confirm it here rather than making them accept first.
+      await supabase.auth.admin.updateUserById(newUserId, { email_confirm: true })
+    }
+
+    // A fresh invite creates the auth user. A resend can't reissue `invite` for
+    // an address that already exists, so it sends a recovery link — NOT a magic
+    // link. A magic link just signs the person in, which leaves them with a
+    // working session and still no password; recovery is the flow that actually
+    // asks them to set one.
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink(
       resending
-        ? { type: 'magiclink', email: cleanEmail, options: { redirectTo } }
+        ? { type: 'recovery', email: cleanEmail, options: { redirectTo } }
         : { type: 'invite', email: cleanEmail, options: { redirectTo } },
     )
 
@@ -121,7 +132,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // those fetchers don't run.
     const setupLink =
       `${origin}/reset-password?invite=1&token_hash=${encodeURIComponent(linkData.properties.hashed_token)}` +
-      `${resending ? '&t=magiclink' : ''}`
+      `${resending ? '&t=recovery' : ''}`
 
     // Profile row, keyed to the auth user's id. New players are on the weekly
     // email list from day one. A resend keeps the existing row as-is.

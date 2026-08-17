@@ -319,6 +319,24 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               {/* Reset password */}
               <div className="border-t border-white/[0.06] pt-4">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Security</p>
+
+                {/* Set one directly, in this session. Emailing a link is no use
+                    to someone who got here from an invite and has no password
+                    yet — they'd be round-tripping links forever. */}
+                <button
+                  onClick={() => { setShowProfile(false); router.push('/reset-password') }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 mb-2 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-500 transition"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  Set a new password
+                </button>
+                <p className="text-[11px] text-slate-500 mb-3">
+                  Changes it right here. Use the email option below only if you get signed out.
+                </p>
+
                 {resetStatus === 'sent' ? (
                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-sm text-emerald-400">
                     Password reset link sent to {user.email}. Check your inbox.
@@ -344,7 +362,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                         </svg>
-                        Reset password
+                        Email me a reset link
                       </>
                     )}
                   </button>

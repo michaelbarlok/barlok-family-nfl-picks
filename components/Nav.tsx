@@ -259,10 +259,21 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               that shape only makes sense over a thumb-reach tab bar. What does
               carry over is the state, expressed as a pill: My Picks turns amber
               and counts down while picks are outstanding.
-              shrink-0 is what keeps the labels on one line: flex items shrink by
-              default, so seven tabs in a 768px row got squeezed until "My Picks"
-              broke across two lines. They now hold their natural width and the
-              row scrolls instead, on the rare screen where they don't all fit. */}
+              Text only, no icons. This row has to hold seven tabs for admins
+              inside a parent fixed at 768px, and the emoji cost ~18px each —
+              enough that keeping them meant shrinking the padding until the
+              pills looked cramped, and still only bought ~17px of margin.
+              Measured widths for the worst case (admin, "17 to pick"):
+                with icons, px-2.5 → 719px, 17px spare
+                text only,  px-4   → 656px, 80px spare
+              The labels are self-explanatory at this size; the icons earn their
+              place on the mobile bar, where they're the primary affordance.
+
+              shrink-0 keeps labels on one line — flex items shrink by default,
+              which is what wrapped "My Picks" across two lines. And padding is
+              constant across breakpoints: the parent never widens, so a larger
+              lg padding just spends room that doesn't exist, which is what
+              pushed Admin off the right edge. */}
           <div className="hidden sm:flex items-center gap-1 pb-3 overflow-x-auto no-scrollbar">
             {tabs.map(tab => {
               const isActive = router.pathname === tab.href
@@ -272,7 +283,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   key={tab.href}
                   href={tab.href}
                   aria-label={needsAttention ? `My Picks — ${outstanding} still to do` : undefined}
-                  className={`relative shrink-0 flex items-center gap-1.5 h-9 px-3 lg:px-4 text-sm font-medium rounded-full whitespace-nowrap transition-all ${
+                  className={`shrink-0 flex items-center h-9 px-4 text-sm font-medium rounded-full whitespace-nowrap transition-all ${
                     needsAttention
                       ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/20'
                       : isActive
@@ -280,12 +291,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                         : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span className="text-xs leading-none">{tab.icon}</span>
-                  {/* The count replaces the label rather than sitting next to
-                      it in a badge — one number, not the same number twice. */}
-                  <span className="leading-none">
-                    {needsAttention ? `${outstanding} to pick` : tab.label}
-                  </span>
+                  {/* The count replaces the label rather than sitting next to it
+                      in a badge — one number, not the same number twice. */}
+                  {needsAttention ? `${outstanding} to pick` : tab.label}
                 </Link>
               )
             })}

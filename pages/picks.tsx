@@ -151,6 +151,14 @@ export default function PicksPage() {
   // The effective user ID for picks: self or managed player
   const effectiveUserId = activePlayerId ?? user?.id
 
+  const refreshGrace = useCallback(async (userId: string, week: number) => {
+    const { data } = await supabase
+      .from('pick_grace').select('expires_at')
+      .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+      .maybeSingle()
+    setGraceUntil(graceExpiry(data))
+  }, [])
+
   const loadPicksForUser = useCallback(async (userId: string, week: number) => {
     try {
       const { data: picksData } = await supabase
@@ -161,11 +169,7 @@ export default function PicksPage() {
       picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
       setPicks(picksMap)
 
-      const { data: graceRow } = await supabase
-        .from('pick_grace').select('expires_at')
-        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
-        .maybeSingle()
-      setGraceUntil(graceExpiry(graceRow))
+      await refreshGrace(userId, week)
 
       const { data: threeBestData } = await supabase
         .from('three_best').select('*')
@@ -183,7 +187,7 @@ export default function PicksPage() {
     } catch (err) {
       console.error('Error fetching picks:', err)
     }
-  }, [])
+  }, [refreshGrace])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -215,6 +219,15 @@ export default function PicksPage() {
   // every second, so the window closes on its own without a refresh.
   const graceActive = !!graceUntil && now < graceUntil
   const isLocked = weekLocked && !graceActive
+
+  // Watch for an admin opening a window while this page is already sitting on
+  // the locked screen. Only polls when locked and not already in a window, so
+  // it stops the moment either changes.
+  useEffect(() => {
+    if (!weekLocked || graceActive || !effectiveUserId || currentWeek === null) return
+    const id = setInterval(() => { refreshGrace(effectiveUserId, currentWeek) }, 15_000)
+    return () => clearInterval(id)
+  }, [weekLocked, graceActive, effectiveUserId, currentWeek, refreshGrace])
 
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession()

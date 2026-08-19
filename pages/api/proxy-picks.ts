@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { validateThreeBest, isValidOrigin } from '@/lib/validation'
 import { getWeekLockTime } from '@/lib/lockTime'
+import { getActiveGrace } from '@/lib/pickGrace'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser } from '@/lib/apiAuth'
 
@@ -32,10 +33,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ error: 'You are not a manager for this player' })
   }
 
-  // Enforce lock time: picks lock at the earliest kickoff of the week
+  // Enforce lock time: picks lock at the earliest kickoff of the week, unless
+  // an admin has reopened this particular player's picks for a grace window.
+  // The check is on playerId, not the caller — the extension belongs to whoever
+  // the picks are for.
   const lockTime = await getWeekLockTime(supabase, week, season)
   if (lockTime && new Date() >= lockTime) {
-    return res.status(400).json({ error: 'Picks are locked for this week' })
+    const graceUntil = await getActiveGrace(supabase, playerId, week, season)
+    if (!graceUntil) {
+      return res.status(400).json({ error: 'Picks are locked for this week' })
+    }
   }
 
   try {

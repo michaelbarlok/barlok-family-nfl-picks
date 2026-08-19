@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
+import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
 import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 
@@ -76,6 +77,8 @@ export default function PicksPage() {
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
+  // Admin-granted extension for THIS player and week, if any.
+  const [graceUntil, setGraceUntil] = useState<Date | null>(null)
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Tick every second for live countdown — paused when tab hidden to save battery
@@ -158,6 +161,12 @@ export default function PicksPage() {
       picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
       setPicks(picksMap)
 
+      const { data: graceRow } = await supabase
+        .from('pick_grace').select('expires_at')
+        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+        .maybeSingle()
+      setGraceUntil(graceExpiry(graceRow))
+
       const { data: threeBestData } = await supabase
         .from('three_best').select('*')
         .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
@@ -201,7 +210,11 @@ export default function PicksPage() {
   }, [user, currentWeek, effectiveUserId, loadPicksForUser])
 
   const lockTime = computeLockTime(games)
-  const isLocked = lockTime ? now >= lockTime : false
+  const weekLocked = lockTime ? now >= lockTime : false
+  // An admin can reopen one player's picks after the week locks. `now` ticks
+  // every second, so the window closes on its own without a refresh.
+  const graceActive = !!graceUntil && now < graceUntil
+  const isLocked = weekLocked && !graceActive
 
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -363,6 +376,22 @@ export default function PicksPage() {
           </div>
         )}
 
+        {/* Grace period banner — the week is locked, but this player was given
+            extra time, so show the clock they are actually racing. */}
+        {graceActive && graceUntil && (
+          <div className="mb-5 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-start gap-3 animate-slide-up">
+            <span className="text-xl">⏳</span>
+            <div className="flex-1">
+              <p className="font-semibold text-emerald-400 text-sm">
+                Extra time to submit &mdash; {formatGraceRemaining(graceUntil, now)} left
+              </p>
+              <p className="text-emerald-400/70 text-xs mt-0.5">
+                Picks for this week already locked, but an admin reopened yours. Get them in before the timer runs out.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Lock banner */}
         {isLocked && (
           <div className="mb-5 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3">
@@ -370,7 +399,9 @@ export default function PicksPage() {
             <div>
               <p className="font-semibold text-red-400 text-sm">Picks are locked</p>
               <p className="text-red-400/70 text-xs mt-0.5">
-                The deadline of {lockTime ? formatKickoff(lockTime.toISOString()) : ''} has passed.
+                {graceUntil
+                  ? `Your extra ${GRACE_PERIOD_MINUTES} minutes ran out. Ask Michael to reopen them if you still need to submit.`
+                  : `The deadline of ${lockTime ? formatKickoff(lockTime.toISOString()) : ''} has passed.`}
               </p>
             </div>
           </div>

@@ -6,6 +6,7 @@ import { CURRENT_SEASON, ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
 import { processAvatarFile } from '@/lib/avatarUtils'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff, formatLockTime } from '@/lib/lockTime'
+import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
 import Nav from '@/components/Nav'
 
 interface Game {
@@ -59,6 +60,10 @@ export default function AdminPage() {
   const [overridePicks, setOverridePicks] = useState<PickMap>({})
   const [overrideBestGames, setOverrideBestGames] = useState<Set<string>>(new Set())
   const [savingOverride, setSavingOverride] = useState(false)
+  // Active grace windows for the selected week, keyed by user id.
+  const [graceByUser, setGraceByUser] = useState<Record<string, string>>({})
+  const [grantingGrace, setGrantingGrace] = useState<string | null>(null)
+  const [graceNow, setGraceNow] = useState(new Date())
   const [loadingUserPicks, setLoadingUserPicks] = useState(false)
 
   // Manage Players tab state
@@ -568,6 +573,54 @@ export default function AdminPage() {
     }
   }
 
+  // Grace periods for the selected week — loaded together so the admin can see
+  // at a glance who currently has extra time.
+  const loadGrace = useCallback(async () => {
+    if (!selectedWeek) return
+    const { data } = await supabase
+      .from('pick_grace').select('user_id, expires_at')
+      .eq('week', selectedWeek).eq('season', CURRENT_SEASON)
+    const map: Record<string, string> = {}
+    for (const row of data ?? []) map[row.user_id] = row.expires_at
+    setGraceByUser(map)
+  }, [selectedWeek])
+
+  useEffect(() => { loadGrace() }, [loadGrace])
+
+  // Tick so the admin's countdown runs down live, and the button flips back to
+  // "Give 20 minutes" the moment a window closes.
+  useEffect(() => {
+    const id = setInterval(() => setGraceNow(new Date()), 1_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const handleGrace = async (userId: string, playerName: string, revoke = false) => {
+    if (!selectedWeek) return
+    setGrantingGrace(userId)
+    setMessage(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/grant-pick-grace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId, week: selectedWeek, season: CURRENT_SEASON, revoke }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update the grace period')
+      setMessage({
+        type: 'success',
+        text: revoke
+          ? `Closed ${playerName}'s extra time for Week ${selectedWeek}.`
+          : json.message,
+      })
+      await loadGrace()
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed' })
+    } finally {
+      setGrantingGrace(null)
+    }
+  }
+
   // Override a single pick for a user
   const handleOverridePick = async (gameId: string, pickedTeam: string | null) => {
     if (!selectedUserId || !selectedWeek) return
@@ -1056,6 +1109,9 @@ export default function AdminPage() {
                     }`}
                   >
                     {u.name}
+                    {graceExpiry({ expires_at: graceByUser[u.id] ?? '' }, graceNow) && (
+                      <span className="ml-1.5 text-emerald-400" title="Has extra time to submit">⏳</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -1066,6 +1122,55 @@ export default function AdminPage() {
                 <p className="text-slate-500 text-sm">Select a player above to view and override their picks.</p>
               </div>
             )}
+
+            {selectedUserId && (() => {
+              const until = graceExpiry({ expires_at: graceByUser[selectedUserId] ?? '' }, graceNow)
+              const busy = grantingGrace === selectedUserId
+              return (
+                <div className={`glass-card rounded-xl p-4 mb-5 ${until ? 'ring-1 ring-emerald-500/30' : ''}`}>
+                  <p className="text-sm font-semibold text-slate-200 mb-1">Late Picks</p>
+                  {until ? (
+                    <>
+                      <p className="text-xs text-emerald-400 mb-3">
+                        {selectedUser?.name} can submit Week {selectedWeek} picks for another{' '}
+                        <span className="font-mono font-bold">{formatGraceRemaining(until, graceNow)}</span>.
+                        Nobody else is unlocked.
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleGrace(selectedUserId, selectedUser?.name ?? 'Player')}
+                          disabled={busy}
+                          className="flex-1 py-2.5 bg-white/[0.06] border border-white/[0.08] text-slate-200 text-sm font-semibold rounded-lg hover:bg-white/[0.10] disabled:opacity-50 transition"
+                        >
+                          {busy ? 'Working...' : `Restart ${GRACE_PERIOD_MINUTES} min`}
+                        </button>
+                        <button
+                          onClick={() => handleGrace(selectedUserId, selectedUser?.name ?? 'Player', true)}
+                          disabled={busy}
+                          className="flex-1 py-2.5 bg-red-600/80 text-white text-sm font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition"
+                        >
+                          Lock now
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-500 mb-3">
+                        Reopen picks for {selectedUser?.name} only, for {GRACE_PERIOD_MINUTES} minutes starting now.
+                        Everyone else stays locked.
+                      </p>
+                      <button
+                        onClick={() => handleGrace(selectedUserId, selectedUser?.name ?? 'Player')}
+                        disabled={busy}
+                        className="w-full py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+                      >
+                        {busy ? 'Working...' : `Give ${selectedUser?.name ?? 'player'} ${GRACE_PERIOD_MINUTES} minutes`}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            })()}
 
             {selectedUserId && (
               <>

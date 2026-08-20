@@ -191,7 +191,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   return (
     <>
       {/* Top bar — branding + settings */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl safe-top">
         <div className="max-w-3xl mx-auto px-4">
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-2.5">
@@ -488,7 +488,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       )}
 
       {/* Mobile bottom tab bar — five slots, My Picks raised in the centre */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 sm:hidden border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-bottom">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 sm:hidden border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-bottom safe-x">
         <div className="grid grid-cols-5 items-end px-1 pt-1.5 pb-1">
           {leftTabs.map(tab => (
             <BottomTab key={tab.href} tab={tab} isActive={router.pathname === tab.href} />

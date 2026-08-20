@@ -59,12 +59,17 @@ export default function App({ Component, pageProps }: AppProps) {
             <div className="h-full progress-gradient" />
           </div>
 
-          {/* Page content — fades out on nav start, new page fades in via animate-fade-in */}
-          <div
-            className={`transition-opacity duration-150 ${navState === 'loading' ? 'opacity-0' : 'opacity-100'}`}
-          >
-            <Component key={router.asPath} {...pageProps} />
-          </div>
+          {/* Rendered without a wrapper on purpose.
+              This used to sit inside a div that transitioned its opacity on
+              navigation. WebKit promotes an element animating opacity to its
+              own compositing layer, and that layer becomes the containing block
+              for any position:fixed descendant — which includes the mobile
+              bottom nav. On iOS the nav therefore anchored to this page-height
+              div instead of the viewport and scrolled away with the content.
+              Blink doesn't do this, which is why it only showed up on iPhone.
+              The cross-fade is no loss: every page already fades its own <main>
+              in with animate-fade-in. */}
+          <Component key={router.asPath} {...pageProps} />
         </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>

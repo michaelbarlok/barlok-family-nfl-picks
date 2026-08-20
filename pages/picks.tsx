@@ -33,7 +33,7 @@ interface UserPick {
 function PicksSkeleton() {
   return (
     <div className="min-h-screen bg-surface">
-      <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl">
+      <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl safe-top">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <div className="skeleton h-5 w-48 rounded-lg mb-3" />
           <div className="flex gap-2">

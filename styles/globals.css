@@ -13,10 +13,23 @@ body {
   color: #F1F5F9;
 }
 
-/* Safe area padding for iOS */
+/* Safe area padding for iOS.
+   The viewport meta sets viewport-fit=cover, so the page paints edge to edge —
+   underneath the status bar and the home indicator. That only looks right if
+   every fixed/sticky chrome element pads itself back out of those areas. A
+   missing .safe-top is why the header sat behind the iPhone clock. */
 @supports (padding: env(safe-area-inset-bottom)) {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Background still fills the status bar; only the content is pushed clear. */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Landscape on a notched phone insets the sides too. */
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 }
 

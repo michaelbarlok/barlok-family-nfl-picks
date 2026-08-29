@@ -67,7 +67,7 @@ export default function AllPicksPage() {
   const [isLocked, setIsLocked] = useState(false)
   const [lockTime, setLockTime] = useState<Date | null>(null)
   const [seasonData, setSeasonData] = useState<SeasonData | null>(null)
-  const [submissionStatus, setSubmissionStatus] = useState<{ userId: string; name: string; pickCount: number; hasThreeBest: boolean }[]>([])
+  const [submissionStatus, setSubmissionStatus] = useState<{ userId: string; name: string; pickCount: number; bestCount: number; hasThreeBest: boolean }[]>([])
   const [totalGames, setTotalGames] = useState(0)
 
   useEffect(() => {
@@ -114,33 +114,30 @@ export default function AllPicksPage() {
     setTotalGames(weekGames.length)
 
     if (!locked) {
-      // Fetch submission status (pick counts per user) without revealing actual picks
-      const [{ data: usersData }, { data: pickCounts }, { data: threeBestRows }] = await Promise.all([
-        supabase.from('users').select('id, name').order('name'),
-        supabase.from('picks').select('user_id, game_id')
-          .eq('week', week).eq('season', CURRENT_SEASON),
-        supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
-          .eq('week', week).eq('season', CURRENT_SEASON),
-      ])
-      const countMap = new Map<string, number>()
-      for (const p of pickCounts ?? []) {
-        countMap.set(p.user_id, (countMap.get(p.user_id) || 0) + 1)
+      // Counts come from the server, not from a direct query. RLS on `picks`
+      // only returns your own rows before the week locks, so counting them here
+      // reported 0 for everybody else. /api/pick-status counts on the service
+      // role and returns aggregates only — never a picked team.
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch(`/api/pick-status?week=${week}&season=${CURRENT_SEASON}`, {
+          headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        })
+        const json = await res.json()
+        if (res.ok) {
+          setSubmissionStatus(
+            (json.players ?? []).map((p: any) => ({
+              userId: p.id,
+              name: p.name,
+              pickCount: p.pickCount,
+              bestCount: p.bestCount,
+              hasThreeBest: p.bestCount >= MAX_BEST_PICKS,
+            })),
+          )
+        }
+      } catch (err) {
+        console.error('Failed to load pick status:', err)
       }
-      // A row exists as soon as the first star is set, so completeness has to
-      // count the filled slots — anything short of 3 is scored as losses.
-      const tbSet = new Set(
-        (threeBestRows ?? [])
-          .filter((r: any) => [r.pick_1, r.pick_2, r.pick_3].filter(Boolean).length >= MAX_BEST_PICKS)
-          .map((r: any) => r.user_id),
-      )
-      setSubmissionStatus(
-        (usersData ?? []).map((u: any) => ({
-          userId: u.id,
-          name: u.name,
-          pickCount: countMap.get(u.id) || 0,
-          hasThreeBest: tbSet.has(u.id),
-        }))
-      )
       setPicksLoading(false)
       return
     }
@@ -314,16 +311,15 @@ export default function AllPicksPage() {
                         </div>
                         <span className="text-sm text-slate-300">{s.name}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {!complete && partial && (
-                          <span className="text-[11px] text-slate-500">{s.pickCount}/{totalGames}{!s.hasThreeBest ? ' + B3' : ''}</span>
-                        )}
-                        {!complete && !partial && (
-                          <span className="text-[11px] text-slate-600">0/{totalGames}</span>
-                        )}
-                        {complete && (
-                          <span className="text-[11px] text-emerald-500/70">{totalGames}/{totalGames}</span>
-                        )}
+                      {/* Always show both counts, for everyone. Progress is not
+                          secret — only the picks themselves are. */}
+                      <div className="flex items-center gap-3 tabular-nums">
+                        <span className={`text-[11px] ${complete ? 'text-emerald-500/70' : partial ? 'text-slate-400' : 'text-slate-600'}`}>
+                          {s.pickCount}/{totalGames} games
+                        </span>
+                        <span className={`text-[11px] ${s.hasThreeBest ? 'text-amber-400/80' : 'text-slate-600'}`}>
+                          ⭐ {s.bestCount}/{MAX_BEST_PICKS}
+                        </span>
                       </div>
                     </div>
                   )

@@ -237,3 +237,30 @@ export function recordSort(a: UserRecord, b: UserRecord): number {
   if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
   return a.bestLosses - b.bestLosses
 }
+
+/**
+ * Standard competition ranking — 1, T-2, T-2, 4.
+ *
+ * Entries level on every tiebreaker share a rank, and the next entry skips the
+ * places they occupy. Without this, a sort alone leaves two identical records
+ * in whatever order they arrived (alphabetical, here) and hands one of them the
+ * better placing and the better medal for no reason a player could point at.
+ *
+ * `sorted` must already be ordered with recordSort.
+ */
+export function assignRanks<T>(
+  sorted: T[],
+  recordOf: (item: T) => UserRecord,
+): { rank: number; isTied: boolean }[] {
+  const ranks: number[] = []
+
+  for (let i = 0; i < sorted.length; i++) {
+    const tiedWithPrev = i > 0 && recordSort(recordOf(sorted[i]), recordOf(sorted[i - 1])) === 0
+    ranks[i] = tiedWithPrev ? ranks[i - 1] : i + 1
+  }
+
+  const counts = new Map<number, number>()
+  for (const rank of ranks) counts.set(rank, (counts.get(rank) ?? 0) + 1)
+
+  return ranks.map(rank => ({ rank, isTied: (counts.get(rank) ?? 0) > 1 }))
+}

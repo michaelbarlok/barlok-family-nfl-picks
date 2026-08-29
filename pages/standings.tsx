@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
-import { computeRecords, recordSort } from '@/lib/computeStandings'
+import { computeRecords, recordSort, assignRanks } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
 
@@ -92,6 +92,8 @@ interface UserStanding {
   weekRecords: WeekRecord[]
   rankChange: number | null // positive = moved up, negative = moved down, 0 = same, null = no prior data
   winStreak: number // consecutive correct picks (current streak)
+  rank: number // shared by players level on every tiebreaker
+  isTied: boolean // another player holds the same rank
 }
 
 function StandingsSkeleton() {
@@ -190,33 +192,50 @@ export default function StandingsPage() {
             weekRecords,
             rankChange: null,
             winStreak: 0,
+            rank: 0,
+            isTied: false,
           }
         })
 
         // Sort by current record
         result.sort((a, b) => recordSort(records.get(a.user.id)!, records.get(b.user.id)!))
 
+        // Standard competition ranking: players level on every tiebreaker share
+        // a rank and the next player skips (1, T-2, T-2, 4). Without this the
+        // sort fell back to alphabetical and quietly handed one of two
+        // identical records the better placing — very possible early in a
+        // season, when two people can easily match on all four keys.
+        const ranked = assignRanks(result, s => records.get(s.user.id)!)
+        result.forEach((s, i) => {
+          s.rank = ranked[i].rank
+          s.isTied = ranked[i].isTied
+        })
+
         // Rank change: compare current rank to rank WITHOUT the latest decided week
         const allDecidedWeeks = [...new Set(decidedGames.map((g: any) => g.week))].sort((a: number, b: number) => a - b)
         if (allDecidedWeeks.length >= 2) {
           const latestWeek = allDecidedWeeks[allDecidedWeeks.length - 1]
+          // Last week's standing, i.e. this record minus the latest week.
+          // Sorted with recordSort, the same comparator the live ranking uses —
+          // an inline copy here would drift the arrows out of agreement with
+          // the ranks the moment the tiebreakers change.
           const prevResult = result.map(s => {
             const r = records.get(s.user.id)!
             const lwr = r.weekRecords.get(latestWeek)
             return {
               userId: s.user.id,
-              wins: r.wins - (lwr?.wins ?? 0),
-              losses: r.losses - (lwr?.losses ?? 0),
-              bestWins: r.bestWins - (lwr?.bestWins ?? 0),
-              bestLosses: r.bestLosses - (lwr?.bestLosses ?? 0),
+              rec: {
+                wins: r.wins - (lwr?.wins ?? 0),
+                losses: r.losses - (lwr?.losses ?? 0),
+                ties: r.ties - (lwr?.ties ?? 0),
+                bestWins: r.bestWins - (lwr?.bestWins ?? 0),
+                bestLosses: r.bestLosses - (lwr?.bestLosses ?? 0),
+                bestTies: r.bestTies - (lwr?.bestTies ?? 0),
+                weekRecords: new Map(),
+              },
             }
           })
-          prevResult.sort((a, b) => {
-            if (b.wins !== a.wins) return b.wins - a.wins
-            if (a.losses !== b.losses) return a.losses - b.losses
-            if (b.bestWins !== a.bestWins) return b.bestWins - a.bestWins
-            return a.bestLosses - b.bestLosses
-          })
+          prevResult.sort((a, b) => recordSort(a.rec, b.rec))
           const prevRankMap = new Map(prevResult.map((r, i) => [r.userId, i + 1]))
           result.forEach((s, i) => {
             const prevRank = prevRankMap.get(s.user.id)
@@ -462,12 +481,14 @@ export default function StandingsPage() {
             {standings.map((s, idx) => {
               const isMe = s.user.id === user.id
               const winPct = s.totalPicks > 0 ? Math.round((s.wins / s.totalPicks) * 100) : null
-              const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
-              const podium = idx < 3 ? [
+              // Medal and number both come from rank, not row position, so tied
+              // players show the same placing instead of one being pushed down.
+              const medal = s.rank === 1 ? '🥇' : s.rank === 2 ? '🥈' : s.rank === 3 ? '🥉' : null
+              const podium = s.rank <= 3 ? [
                 { bg: 'from-amber-500/20 to-amber-600/10', border: 'border-amber-500/30', text: 'text-amber-400' },
                 { bg: 'from-slate-300/15 to-slate-400/5', border: 'border-slate-400/20', text: 'text-slate-300' },
                 { bg: 'from-orange-600/15 to-orange-700/5', border: 'border-orange-600/20', text: 'text-orange-400' },
-              ][idx] : null
+              ][s.rank - 1] : null
               const isExpanded = expandedUserId === s.user.id
               const hasWeekData = s.weekRecords.length > 0
 
@@ -490,9 +511,14 @@ export default function StandingsPage() {
                     <div className="col-span-1 text-center">
                       <div className="flex flex-col items-center">
                         {medal ? (
-                          <span className="text-lg">{medal}</span>
+                          <span className="text-lg" title={s.isTied ? `Tied for ${s.rank}` : undefined}>{medal}</span>
                         ) : (
-                          <span className="text-sm text-slate-500 font-medium">{idx + 1}</span>
+                          <span className="text-sm text-slate-500 font-medium tabular-nums">
+                            {s.isTied ? 'T-' : ''}{s.rank}
+                          </span>
+                        )}
+                        {medal && s.isTied && (
+                          <span className="text-[9px] font-semibold text-slate-500 leading-none">TIED</span>
                         )}
                         {s.rankChange !== null && s.rankChange !== 0 && (
                           <span className={`text-[9px] font-bold leading-none ${s.rankChange > 0 ? 'text-emerald-400' : 'text-red-400'}`}>

@@ -2,10 +2,12 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+
 import { computeRecords, recordSort, assignRanks } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
+import SeasonSelector, { type SeasonRow } from '@/components/SeasonSelector'
 
 interface SeasonPick {
   user_id: string
@@ -118,6 +120,19 @@ function StandingsSkeleton() {
 export default function StandingsPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { season: liveSeason } = useSeason()
+  // A finished season shows its frozen final table rather than a fresh
+  // recomputation — that snapshot is the archive, and it cannot drift if a
+  // result is later corrected or a player leaves.
+  const [season, setSeason] = useState(liveSeason)
+  const [seasonRows, setSeasonRows] = useState<SeasonRow[]>([])
+  const [archived, setArchived] = useState<null | Array<{
+    rank: number; is_tied: boolean; player_name: string
+    wins: number; losses: number; ties: number
+    best_wins: number; best_losses: number; best_ties: number
+  }>>(null)
+  useEffect(() => { setSeason(liveSeason) }, [liveSeason])
+  const isArchivedSeason = seasonRows.some(r => r.season === season && !!r.completed_at)
   const [standings, setStandings] = useState<UserStanding[]>([])
   const [dataLoading, setDataLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -141,13 +156,13 @@ export default function StandingsPage() {
           { data: games },
         ] = await Promise.all([
           supabase.from('users').select('*').order('name'),
-          supabase.from('scores').select('user_id, created_at').eq('season', CURRENT_SEASON).order('created_at', { ascending: false }).limit(1),
+          supabase.from('scores').select('user_id, created_at').eq('season', season).order('created_at', { ascending: false }).limit(1),
           // Paged — a full season of picks exceeds PostgREST's row cap.
           fetchAllRows<SeasonPick>((from, to) =>
             supabase.from('picks').select('user_id, game_id, picked_team, week')
-              .eq('season', CURRENT_SEASON).order('id').range(from, to)),
-          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
-          supabase.from('games').select('id, away_team, home_team, kickoff_time, week, season, winning_team').eq('season', CURRENT_SEASON),
+              .eq('season', season).order('id').range(from, to)),
+          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', season),
+          supabase.from('games').select('id, away_team, home_team, kickoff_time, week, season, winning_team').eq('season', season),
         ])
 
         if (!users) return
@@ -268,10 +283,24 @@ export default function StandingsPage() {
       } finally {
         setDataLoading(false)
       }
-  }, [user])
+  }, [user, season])
+
+  // Frozen final table for a completed season.
+  useEffect(() => {
+    if (!isArchivedSeason) { setArchived(null); return }
+    const load = async () => {
+      const { data } = await supabase
+        .from('season_standings')
+        .select('rank, is_tied, player_name, wins, losses, ties, best_wins, best_losses, best_ties')
+        .eq('season', season)
+        .order('rank')
+      setArchived(data ?? [])
+    }
+    load().catch(() => setArchived([]))
+  }, [season, isArchivedSeason])
 
   // Fetch on mount
-  useEffect(() => { fetchStandings() }, [fetchStandings])
+  useEffect(() => { if (!isArchivedSeason) fetchStandings() }, [fetchStandings, isArchivedSeason])
 
   // Real-time: re-fetch when games or picks change.
   // Debounced so a burst of pick updates only triggers one refetch.
@@ -349,14 +378,63 @@ export default function StandingsPage() {
 
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            {CURRENT_SEASON} Season Standings
+            {season} Season Standings{isArchivedSeason ? ' — Final' : ''}
           </h2>
           {lastUpdated && (
             <p className="text-xs text-slate-500">Updated {lastUpdated}</p>
           )}
         </div>
 
-        {!hasScores ? (
+        <SeasonSelector value={season} onChange={setSeason} onSeasonsLoaded={setSeasonRows} />
+
+        {isArchivedSeason ? (
+          archived === null ? (
+            <div className="glass-card rounded-2xl p-12 text-center">
+              <span className="w-5 h-5 border-2 border-slate-400/30 border-t-slate-400 rounded-full animate-spin inline-block" />
+            </div>
+          ) : archived.length === 0 ? (
+            <div className="glass-card rounded-2xl p-12 text-center">
+              <p className="text-4xl mb-3">📦</p>
+              <p className="text-white font-medium">No saved standings for {season}</p>
+              <p className="text-slate-500 text-sm mt-1.5">This season finished before final standings were archived.</p>
+            </div>
+          ) : (
+            <div className="glass-card rounded-2xl overflow-hidden">
+              <div className="grid grid-cols-12 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <div className="col-span-1 text-center">#</div>
+                <div className="col-span-5">Player</div>
+                <div className="col-span-3 text-center">Overall</div>
+                <div className="col-span-3 text-center">Best 3</div>
+              </div>
+              {archived.map(row => (
+                <div key={`${row.rank}-${row.player_name}`} className="grid grid-cols-12 px-4 py-4 items-center border-b border-white/[0.04] last:border-0">
+                  <div className="col-span-1 text-center">
+                    {row.rank === 1 ? <span className="text-lg">🥇</span>
+                      : row.rank === 2 ? <span className="text-lg">🥈</span>
+                      : row.rank === 3 ? <span className="text-lg">🥉</span>
+                      : <span className="text-sm text-slate-500 font-medium tabular-nums">{row.is_tied ? 'T-' : ''}{row.rank}</span>}
+                  </div>
+                  <div className="col-span-5 text-sm font-semibold text-white truncate">{row.player_name}</div>
+                  <div className="col-span-3 text-center text-sm font-bold tabular-nums">
+                    <span className="text-emerald-400">{row.wins}</span>
+                    <span className="text-slate-500 mx-0.5">&ndash;</span>
+                    <span className="text-red-400">{row.losses}</span>
+                    {row.ties > 0 && <><span className="text-slate-500 mx-0.5">&ndash;</span><span className="text-slate-400">{row.ties}</span></>}
+                  </div>
+                  <div className="col-span-3 text-center text-sm font-bold tabular-nums">
+                    <span className="text-amber-400">{row.best_wins}</span>
+                    <span className="text-slate-500 mx-0.5">&ndash;</span>
+                    <span className="text-amber-600">{row.best_losses}</span>
+                    {row.best_ties > 0 && <><span className="text-slate-500 mx-0.5">&ndash;</span><span className="text-slate-400">{row.best_ties}</span></>}
+                  </div>
+                </div>
+              ))}
+              <p className="px-4 py-3 text-[11px] text-slate-600 border-t border-white/[0.04]">
+                Final standings, saved when the season closed. Week-by-week picks are still on the All Picks page.
+              </p>
+            </div>
+          )
+        ) : !hasScores ? (
           <div className="glass-card rounded-2xl p-12 text-center">
             <p className="text-4xl mb-3">🏈</p>
             <p className="text-white font-medium">Season hasn&apos;t started yet</p>

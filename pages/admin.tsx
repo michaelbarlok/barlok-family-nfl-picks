@@ -2,12 +2,14 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
 import { processAvatarFile } from '@/lib/avatarUtils'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff, formatLockTime } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
 import Nav from '@/components/Nav'
+import SaveSeasonButton from '@/components/SaveSeasonButton'
 
 interface Game {
   id: string
@@ -33,6 +35,7 @@ interface PickMap {
 export default function AdminPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { season } = useSeason()
 
   const isAdmin = user?.email === ADMIN_EMAIL || (user as any)?.is_admin === true
   const isManager = (user as any)?.is_manager === true
@@ -100,7 +103,7 @@ export default function AdminPage() {
   useEffect(() => {
     const fetchWeeks = async () => {
       const { data } = await supabase
-        .from('games').select('week').eq('season', CURRENT_SEASON).order('week')
+        .from('games').select('week').eq('season', season).order('week')
       if (data) {
         const weeks = [...new Set(data.map((g: { week: number }) => g.week))].sort((a, b) => a - b)
         setAvailableWeeks(weeks)
@@ -127,10 +130,10 @@ export default function AdminPage() {
     if (!selectedWeek) return
     const { data } = await supabase
       .from('games').select('*')
-      .eq('week', selectedWeek).eq('season', CURRENT_SEASON)
+      .eq('week', selectedWeek).eq('season', season)
       .order('kickoff_time')
     if (data) setGames(data)
-  }, [selectedWeek])
+  }, [selectedWeek, season])
 
   useEffect(() => { loadGames() }, [loadGames])
 
@@ -142,7 +145,7 @@ export default function AdminPage() {
       // Load picks
       const { data: picks } = await supabase
         .from('picks').select('game_id, picked_team')
-        .eq('user_id', selectedUserId).eq('week', selectedWeek).eq('season', CURRENT_SEASON)
+        .eq('user_id', selectedUserId).eq('week', selectedWeek).eq('season', season)
       const pickMap: PickMap = {}
       for (const p of picks ?? []) {
         pickMap[p.game_id] = p.picked_team
@@ -152,7 +155,7 @@ export default function AdminPage() {
       // Load three best — convert team abbreviations to game IDs
       const { data: tb } = await supabase
         .from('three_best').select('pick_1, pick_2, pick_3')
-        .eq('user_id', selectedUserId).eq('week', selectedWeek).eq('season', CURRENT_SEASON)
+        .eq('user_id', selectedUserId).eq('week', selectedWeek).eq('season', season)
         .maybeSingle()
       const bestGameIds = new Set<string>()
       if (tb) {
@@ -166,7 +169,7 @@ export default function AdminPage() {
       setLoadingUserPicks(false)
     }
     fetchUserPicks()
-  }, [selectedUserId, selectedWeek])
+  }, [selectedUserId, selectedWeek, season])
 
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -262,17 +265,30 @@ export default function AdminPage() {
   }
 
   // Delete a managed player
-  const handleDeleteManagedPlayer = async (playerId: string, playerName: string) => {
-    if (!confirm(`Delete "${playerName}"? This will remove all their picks and scores.`)) return
+  const handleDeleteManagedPlayer = async (playerId: string, playerName: string, force = false) => {
+    if (!force && !confirm(`Delete "${playerName}"?`)) return
     setMessage(null)
     try {
       const token = await getToken()
       const res = await fetch('/api/managed-players', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ playerId }),
+        body: JSON.stringify({ playerId, force }),
       })
-      if (!res.ok) throw new Error('Failed to delete player')
+      const json = await res.json().catch(() => ({}))
+
+      // The server refuses when the player has picks on record, because
+      // removing them rewrites finished weeks for everyone else. Relay that and
+      // make the override an explicit second decision rather than a surprise.
+      if (res.status === 409 && json.requiresForce) {
+        if (confirm(`${json.error}\n\nDelete anyway and accept the change to past standings?`)) {
+          return handleDeleteManagedPlayer(playerId, playerName, true)
+        }
+        setMessage({ type: 'error', text: 'Delete cancelled — nothing was changed.' })
+        return
+      }
+
+      if (!res.ok) throw new Error(json.error ?? 'Failed to delete player')
       setMessage({ type: 'success', text: `Deleted "${playerName}".` })
       await loadManagedPlayersData()
     } catch (err) {
@@ -468,7 +484,7 @@ export default function AdminPage() {
     setMessage(null)
     try {
       const token = await getToken()
-      const res = await fetch(`/api/sync-schedule?week=${selectedWeek}&season=${CURRENT_SEASON}`, {
+      const res = await fetch(`/api/sync-schedule?week=${selectedWeek}&season=${season}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -478,7 +494,7 @@ export default function AdminPage() {
       await loadGames()
       // Refresh available weeks
       const { data } = await supabase
-        .from('games').select('week').eq('season', CURRENT_SEASON).order('week')
+        .from('games').select('week').eq('season', season).order('week')
       if (data) {
         const weeks = [...new Set(data.map((g: { week: number }) => g.week))].sort((a, b) => a - b)
         setAvailableWeeks(weeks)
@@ -497,7 +513,7 @@ export default function AdminPage() {
     setMessage(null)
     try {
       const token = await getToken()
-      const res = await fetch(`/api/update-scores?week=${selectedWeek}&season=${CURRENT_SEASON}`, {
+      const res = await fetch(`/api/update-scores?week=${selectedWeek}&season=${season}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -531,7 +547,7 @@ export default function AdminPage() {
     setMessage(null)
     try {
       const token = await getToken()
-      const res = await fetch(`/api/send-weekly-email?week=${selectedWeek}&season=${CURRENT_SEASON}`, {
+      const res = await fetch(`/api/send-weekly-email?week=${selectedWeek}&season=${season}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -579,11 +595,11 @@ export default function AdminPage() {
     if (!selectedWeek) return
     const { data } = await supabase
       .from('pick_grace').select('user_id, expires_at')
-      .eq('week', selectedWeek).eq('season', CURRENT_SEASON)
+      .eq('week', selectedWeek).eq('season', season)
     const map: Record<string, string> = {}
     for (const row of data ?? []) map[row.user_id] = row.expires_at
     setGraceByUser(map)
-  }, [selectedWeek])
+  }, [selectedWeek, season])
 
   useEffect(() => { loadGrace() }, [loadGrace])
 
@@ -603,7 +619,7 @@ export default function AdminPage() {
       const res = await fetch('/api/grant-pick-grace', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ userId, week: selectedWeek, season: CURRENT_SEASON, revoke }),
+        body: JSON.stringify({ userId, week: selectedWeek, season: season, revoke }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to update the grace period')
@@ -631,7 +647,7 @@ export default function AdminPage() {
       body: JSON.stringify({
         userId: selectedUserId,
         week: selectedWeek,
-        season: CURRENT_SEASON,
+        season: season,
         gameId,
         pickedTeam,
       }),
@@ -677,7 +693,7 @@ export default function AdminPage() {
         body: JSON.stringify({
           userId: selectedUserId,
           week: selectedWeek,
-          season: CURRENT_SEASON,
+          season: season,
           threeBest: { pick_1: bestTeams[0] ?? '', pick_2: bestTeams[1] ?? '', pick_3: bestTeams[2] ?? '' },
         }),
       })
@@ -851,6 +867,7 @@ export default function AdminPage() {
           )}
 
         {/* ── GAME RESULTS TAB ── */}
+        {activeTab === 'results' && isAdmin && <SaveSeasonButton />}
         {activeTab === 'results' && selectedWeek && (
           <>
             {/* Action buttons row */}

@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { CURRENT_SEASON } from '@/lib/constants'
+
 import { detectUpcomingWeek } from '@/lib/lockTime'
 import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getCurrentSeason } from '@/lib/season'
 import { callInternal } from '@/lib/callInternal'
 
 /**
@@ -19,6 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const supabase = getAdminClient()
+  const season = await getCurrentSeason(supabase)
 
   const upcoming = await detectUpcomingWeek(supabase)
   if (!upcoming) {
@@ -54,7 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // only the first insert succeeds, all others get a conflict error.
   const { error: claimError } = await supabase.from('cron_log').insert({
     week,
-    season: CURRENT_SEASON,
+    season,
     warning_type: warningType,
   })
 
@@ -76,7 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Email failed — remove the log so it can be retried next run
       await supabase.from('cron_log').delete()
         .eq('week', week)
-        .eq('season', CURRENT_SEASON)
+        .eq('season', season)
         .eq('warning_type', warningType)
 
       return res.status(500).json({
@@ -96,7 +98,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Send failed — remove the log so it can be retried next run
     await supabase.from('cron_log').delete()
       .eq('week', week)
-      .eq('season', CURRENT_SEASON)
+      .eq('season', season)
       .eq('warning_type', warningType)
 
     console.error(`cron-deadline-warnings (${warningType}) error:`, err)

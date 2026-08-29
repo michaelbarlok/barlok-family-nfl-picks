@@ -1,9 +1,13 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
+import { supabase } from '@/lib/supabase'
 import Nav from '@/components/Nav'
 
-const champions = [
+// Seasons before the app existed. Everything from 2026 on is written by
+// "Save Season" into the seasons table, so a new champion no longer needs a
+// code change — this list is only the history that predates it.
+const historicChampions = [
   { year: 1996, winner: 'Mike & Amy', record: '123-117' },
   { year: 1997, winner: 'D Nelson', record: '134-106' },
   { year: 1998, winner: 'Junior', record: '123-116' },
@@ -36,13 +40,41 @@ const champions = [
   { year: 2025, winner: 'Thomas', record: '174-98' },
 ]
 
+interface Champion { year: number; winner: string; record: string }
+
 export default function ChampionsPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const [champions, setChampions] = useState<Champion[]>(historicChampions)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
+
+  useEffect(() => {
+    if (!user) return
+    const load = async () => {
+      const { data } = await supabase
+        .from('seasons')
+        .select('season, champion_name, champion_record')
+        .not('completed_at', 'is', null)
+        .order('season')
+      if (!data) return // table not created yet — the historic list stands alone
+
+      // A season saved in the app wins over any hardcoded row for the same year.
+      const merged = new Map<number, Champion>(historicChampions.map(c => [c.year, c]))
+      for (const row of data) {
+        if (!row.champion_name) continue
+        merged.set(row.season, {
+          year: row.season,
+          winner: row.champion_name,
+          record: row.champion_record ?? '',
+        })
+      }
+      setChampions([...merged.values()].sort((a, b) => a.year - b.year))
+    }
+    load().catch(err => console.error('Failed to load champions:', err))
+  }, [user])
 
   if (loading) {
     return (

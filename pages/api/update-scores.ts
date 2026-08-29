@@ -1,16 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { CURRENT_SEASON } from '@/lib/constants'
+
 import { normalizeTeam } from '@/lib/nflTeams'
 import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getCurrentSeason } from '@/lib/season'
 import { isAuthorized } from '@/lib/apiAuth'
 
 // Auto-detect which week to update: the most recent week with any game already kicked off
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function detectCurrentWeek(supabase: any): Promise<number | null> {
+async function detectCurrentWeek(supabase: any, season: number): Promise<number | null> {
   const { data } = await supabase
     .from('games')
     .select('week')
-    .eq('season', CURRENT_SEASON)
+    .eq('season', season)
     .lt('kickoff_time', new Date().toISOString())
     .order('week', { ascending: false })
     .limit(1)
@@ -29,17 +30,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = getAdminClient()
 
-  // Determine week — explicit param or auto-detect
+  const season = req.query.season ? parseInt(req.query.season as string) : await getCurrentSeason(supabase)
+
+  // Determine week — explicit param or auto-detect within that season
   let week: number
   if (req.query.week) {
     week = parseInt(req.query.week as string)
   } else {
-    const detected = await detectCurrentWeek(supabase)
+    const detected = await detectCurrentWeek(supabase, season)
     if (!detected) return res.status(200).json({ message: 'No games have started yet — nothing to update.' })
     week = detected
   }
-
-  const season = req.query.season ? parseInt(req.query.season as string) : CURRENT_SEASON
 
   try {
     // Fetch ESPN scores

@@ -3,11 +3,13 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { MAX_BEST_PICKS, ADMIN_EMAIL } from '@/lib/constants'
 import { computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { computeRecords, recordSort } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
+import SaveSeasonButton from '@/components/SaveSeasonButton'
 
 interface SeasonPick {
   user_id: string
@@ -76,8 +78,10 @@ function DashboardSkeleton() {
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading, configError } = useAuth()
+  const { season } = useSeason()
   const [data, setData] = useState<DashboardData | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [now, setNow] = useState(new Date())
 
   // Tick every second for live countdown — paused when tab hidden to save battery
@@ -121,12 +125,16 @@ export default function DashboardPage() {
           // Paged — a full season of picks exceeds PostgREST's row cap.
           fetchAllRows<SeasonPick>((from, to) =>
             supabase.from('picks').select('user_id, game_id, picked_team, week')
-              .eq('season', CURRENT_SEASON).order('id').range(from, to)),
-          supabase.from('games').select('id, week, away_team, home_team, kickoff_time, winning_team, away_score, home_score').eq('season', CURRENT_SEASON).order('kickoff_time'),
-          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
+              .eq('season', season).order('id').range(from, to)),
+          supabase.from('games').select('id, week, away_team, home_team, kickoff_time, winning_team, away_score, home_score').eq('season', season).order('kickoff_time'),
+          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', season),
         ])
 
-        if (!users || !allGames) { setDataLoading(false); return }
+        if (!users || !allGames) {
+          setLoadError('Could not load your dashboard. Check your connection and try again.')
+          setDataLoading(false)
+          return
+        }
 
         const userIds = users.map(u => u.id)
         const decidedGames = allGames.filter(g => g.winning_team)
@@ -243,12 +251,13 @@ export default function DashboardPage() {
         })
       } catch (err) {
         console.error('Dashboard error:', err)
+        setLoadError('Could not load your dashboard. Check your connection and try again.')
       } finally {
         setDataLoading(false)
       }
     }
     fetchDashboard()
-  }, [user])
+  }, [user, season])
 
   if (configError) {
     return (
@@ -262,7 +271,29 @@ export default function DashboardPage() {
 
   if (loading || dataLoading) return <DashboardSkeleton />
   if (!user) return null
-  if (!data) return <DashboardSkeleton />
+
+  // Anything that leaves us without data is an error, not a load still in
+  // flight. Falling back to the skeleton here left the home screen shimmering
+  // forever on a network blip, with nothing to read and nothing to click.
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-surface pb-20">
+        <Nav />
+        <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
+          <div className="glass-card rounded-2xl p-8 text-center">
+            <p className="text-3xl mb-3">⚠️</p>
+            <p className="text-white font-medium">{loadError || 'Something went wrong loading your dashboard.'}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-500 transition"
+            >
+              Try again
+            </button>
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   const d = data
   const hasRecord = d.wins + d.losses + d.ties > 0
@@ -284,10 +315,11 @@ export default function DashboardPage() {
       <Nav incompleteCount={incomplete} />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
+        {(user.email === ADMIN_EMAIL || user.is_admin) && <SaveSeasonButton />}
         <h1 className="text-lg font-bold text-white mb-1">
           Hey, {user.name?.split(' ')[0]}
         </h1>
-        <p className="text-xs text-slate-500 mb-6">{CURRENT_SEASON} Season</p>
+        <p className="text-xs text-slate-500 mb-6">{season} Season</p>
 
         {/* ── YOUR RECORD ── */}
         <div className="grid grid-cols-2 gap-3 mb-5">

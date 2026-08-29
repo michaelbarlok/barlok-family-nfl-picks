@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { MAX_BEST_PICKS } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
@@ -65,6 +66,7 @@ function PicksSkeleton() {
 export default function PicksPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { season } = useSeason()
   const [currentWeek, setCurrentWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
   const [picks, setPicks] = useState<UserPick>({})
@@ -79,6 +81,10 @@ export default function PicksPage() {
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
   // Admin-granted extension for THIS player and week, if any.
   const [graceUntil, setGraceUntil] = useState<Date | null>(null)
+  // Write feedback. Picks save on click, so the only thing missing was proof
+  // it reached the database — 'selected' and 'saved' looked identical before.
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Tick every second for live countdown — paused when tab hidden to save battery
@@ -135,7 +141,7 @@ export default function PicksPage() {
       if (!user) return
       const { data } = await supabase
         .from('games').select('week')
-        .eq('season', CURRENT_SEASON)
+        .eq('season', season)
         .order('week')
       if (data && data.length > 0) {
         const weeks = [...new Set(data.map(g => g.week))].sort((a, b) => a - b)
@@ -146,7 +152,7 @@ export default function PicksPage() {
       }
     }
     detectWeek()
-  }, [user])
+  }, [user, season])
 
   // The effective user ID for picks: self or managed player
   const effectiveUserId = activePlayerId ?? user?.id
@@ -154,16 +160,16 @@ export default function PicksPage() {
   const refreshGrace = useCallback(async (userId: string, week: number) => {
     const { data } = await supabase
       .from('pick_grace').select('expires_at')
-      .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+      .eq('user_id', userId).eq('week', week).eq('season', season)
       .maybeSingle()
     setGraceUntil(graceExpiry(data))
-  }, [])
+  }, [season])
 
   const loadPicksForUser = useCallback(async (userId: string, week: number) => {
     try {
       const { data: picksData } = await supabase
         .from('picks').select('*')
-        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+        .eq('user_id', userId).eq('week', week).eq('season', season)
 
       const picksMap: UserPick = {}
       picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
@@ -173,7 +179,7 @@ export default function PicksPage() {
 
       const { data: threeBestData } = await supabase
         .from('three_best').select('*')
-        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+        .eq('user_id', userId).eq('week', week).eq('season', season)
         .single()
 
       if (threeBestData) {
@@ -187,7 +193,7 @@ export default function PicksPage() {
     } catch (err) {
       console.error('Error fetching picks:', err)
     }
-  }, [refreshGrace])
+  }, [refreshGrace, season])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -195,7 +201,7 @@ export default function PicksPage() {
       try {
         const { data: gamesData } = await supabase
           .from('games').select('*')
-          .eq('week', currentWeek).eq('season', CURRENT_SEASON)
+          .eq('week', currentWeek).eq('season', season)
           .order('kickoff_time')
 
         if (gamesData) setGames(gamesData)
@@ -211,7 +217,7 @@ export default function PicksPage() {
       }
     }
     fetchData()
-  }, [user, currentWeek, effectiveUserId, loadPicksForUser])
+  }, [user, currentWeek, effectiveUserId, loadPicksForUser, season])
 
   const lockTime = computeLockTime(games)
   const weekLocked = lockTime ? now >= lockTime : false
@@ -234,25 +240,38 @@ export default function PicksPage() {
     return session?.access_token ?? ''
   }
 
+  // Flash "Saved" briefly after a successful write, and clear any pending
+  // flash first so rapid picking doesn't leave a stale timer running.
+  const markSaved = () => {
+    if (savedTimeout.current) clearTimeout(savedTimeout.current)
+    setSaveState('saved')
+    savedTimeout.current = setTimeout(() => setSaveState('idle'), 1800)
+  }
+
+  useEffect(() => () => { if (savedTimeout.current) clearTimeout(savedTimeout.current) }, [])
+
   // Save a single game pick to the DB immediately
   const savePick = async (gameId: string, team: string) => {
     if (!user || currentWeek === null) return
+    setSaveState('saving')
     try {
       if (activePlayerId) {
         const token = await getToken()
         const res = await fetch('/api/proxy-picks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: CURRENT_SEASON, gameId, pickedTeam: team }),
+          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: season, gameId, pickedTeam: team }),
         })
         if (!res.ok) { const json = await res.json(); throw new Error(json.error ?? 'Failed') }
       } else {
         const { error } = await supabase.from('picks').upsert({
-          user_id: user.id, game_id: gameId, picked_team: team, week: currentWeek, season: CURRENT_SEASON,
+          user_id: user.id, game_id: gameId, picked_team: team, week: currentWeek, season: season,
         }, { onConflict: 'user_id,game_id' })
         if (error) throw error
       }
+      markSaved()
     } catch (err) {
+      setSaveState('idle')
       setError(err instanceof Error ? err.message : 'Failed to save pick')
     }
   }
@@ -274,16 +293,18 @@ export default function PicksPage() {
         const res = await fetch('/api/proxy-picks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: CURRENT_SEASON, threeBest }),
+          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: season, threeBest }),
         })
         if (!res.ok) { const json = await res.json(); throw new Error(json.error ?? 'Failed') }
       } else {
         const { error } = await supabase.from('three_best').upsert({
-          user_id: user.id, week: currentWeek, season: CURRENT_SEASON, ...threeBest,
+          user_id: user.id, week: currentWeek, season: season, ...threeBest,
         }, { onConflict: 'user_id,week,season' })
         if (error) throw error
       }
+      markSaved()
     } catch (err) {
+      setSaveState('idle')
       setError(err instanceof Error ? err.message : 'Failed to save best picks')
     }
   }
@@ -476,7 +497,20 @@ export default function PicksPage() {
         {totalGames > 0 && (
           <div className="mb-5">
             <div className="flex justify-between text-xs text-slate-400 mb-2">
-              <span>{pickedCount} of {totalGames} games picked</span>
+              <span className="flex items-center gap-2">
+                {pickedCount} of {totalGames} games picked
+                {saveState === 'saving' && (
+                  <span className="text-slate-500">Saving…</span>
+                )}
+                {saveState === 'saved' && (
+                  <span className="flex items-center gap-1 text-emerald-400 animate-fade-in">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Saved
+                  </span>
+                )}
+              </span>
               <span className={bestPicks.size === MAX_BEST_PICKS ? 'text-amber-400 font-medium' : ''}>
                 ⭐ {bestPicks.size}/{MAX_BEST_PICKS} best picks
               </span>

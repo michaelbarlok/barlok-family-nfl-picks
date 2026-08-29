@@ -155,10 +155,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     if (!isAdmin) return res.status(403).json({ error: 'Admin only' })
 
-    const { playerId } = req.body
+    const { playerId, force } = req.body
     if (!playerId) return res.status(400).json({ error: 'playerId is required' })
 
     try {
+      // Deleting a player who has already played rewrites finished weeks for
+      // everyone else. users cascades to picks, and the no-show penalty is
+      // "one worse than the worst participant that week" — so removing someone
+      // who had a bad week raises that floor and silently changes the record of
+      // every player who missed it. Refuse by default and say so.
+      const { count: pickCount } = await supabase
+        .from('picks')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', playerId)
+
+      if ((pickCount ?? 0) > 0 && !force) {
+        const { data: player } = await supabase
+          .from('users').select('name').eq('id', playerId).maybeSingle()
+        return res.status(409).json({
+          error:
+            `${player?.name ?? 'This player'} has ${pickCount} picks on record. Deleting them removes those ` +
+            `picks and changes the standings for weeks that are already finished, because the no-show ` +
+            `penalty is calculated from the worst score in each week. Consider leaving them in place instead.`,
+          requiresForce: true,
+          pickCount,
+        })
+      }
+
       // Delete manager links first (cascade should handle but be explicit)
       await supabase.from('player_managers').delete().eq('player_id', playerId)
       // Delete the player (cascades to picks, three_best, scores)

@@ -1,19 +1,20 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import nodemailer from 'nodemailer'
 import { generateWeeklyPicksSpreadsheet } from '@/lib/spreadsheet'
-import { CURRENT_SEASON } from '@/lib/constants'
+
 import { isValidEmail } from '@/lib/validation'
 import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getCurrentSeason } from '@/lib/season'
 import { isAuthorized } from '@/lib/apiAuth'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
 
 // Detect the current NFL week: most recent week where any game has kicked off
-async function detectCurrentWeek(supabase: any): Promise<number | null> {
+async function detectCurrentWeek(supabase: any, currentSeason: number): Promise<number | null> {
   const { data } = await supabase
     .from('games')
     .select('week')
-    .eq('season', CURRENT_SEASON)
+    .eq('season', currentSeason)
     .lt('kickoff_time', new Date().toISOString())
     .order('week', { ascending: false })
     .limit(1)
@@ -31,18 +32,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const supabase = getAdminClient()
+  const currentSeason = await getCurrentSeason(supabase)
 
   // Determine week
   let week: number
   if (req.query.week) {
     week = parseInt(req.query.week as string)
   } else {
-    const detected = await detectCurrentWeek(supabase)
+    const detected = await detectCurrentWeek(supabase, currentSeason)
     if (!detected) return res.status(200).json({ message: 'No games have started yet — nothing to send.' })
     week = detected
   }
 
-  const season = req.query.season ? parseInt(req.query.season as string) : CURRENT_SEASON
+  const season = req.query.season ? parseInt(req.query.season as string) : currentSeason
 
   // Parse custom message and recipient list from request body
   let customMessage = ''

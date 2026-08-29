@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { CURRENT_SEASON } from '@/lib/constants'
 import { validateThreeBest, isValidOrigin } from '@/lib/validation'
 import { getWeekLockTime } from '@/lib/lockTime'
 import { getActiveGrace } from '@/lib/pickGrace'

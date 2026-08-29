@@ -3,6 +3,7 @@ import Head from 'next/head'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { AuthProvider } from '@/lib/auth'
+import { SeasonProvider } from '@/lib/season'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
@@ -37,6 +38,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <SeasonProvider>
         <ToastProvider>
           <Head>
             <title>Barlok Family NFL Picks {CURRENT_SEASON}</title>
@@ -71,6 +73,7 @@ export default function App({ Component, pageProps }: AppProps) {
               in with animate-fade-in. */}
           <Component key={router.asPath} {...pageProps} />
         </ToastProvider>
+        </SeasonProvider>
       </AuthProvider>
     </ErrorBoundary>
   )

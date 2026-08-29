@@ -262,17 +262,30 @@ export default function AdminPage() {
   }
 
   // Delete a managed player
-  const handleDeleteManagedPlayer = async (playerId: string, playerName: string) => {
-    if (!confirm(`Delete "${playerName}"? This will remove all their picks and scores.`)) return
+  const handleDeleteManagedPlayer = async (playerId: string, playerName: string, force = false) => {
+    if (!force && !confirm(`Delete "${playerName}"?`)) return
     setMessage(null)
     try {
       const token = await getToken()
       const res = await fetch('/api/managed-players', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ playerId }),
+        body: JSON.stringify({ playerId, force }),
       })
-      if (!res.ok) throw new Error('Failed to delete player')
+      const json = await res.json().catch(() => ({}))
+
+      // The server refuses when the player has picks on record, because
+      // removing them rewrites finished weeks for everyone else. Relay that and
+      // make the override an explicit second decision rather than a surprise.
+      if (res.status === 409 && json.requiresForce) {
+        if (confirm(`${json.error}\n\nDelete anyway and accept the change to past standings?`)) {
+          return handleDeleteManagedPlayer(playerId, playerName, true)
+        }
+        setMessage({ type: 'error', text: 'Delete cancelled — nothing was changed.' })
+        return
+      }
+
+      if (!res.ok) throw new Error(json.error ?? 'Failed to delete player')
       setMessage({ type: 'success', text: `Deleted "${playerName}".` })
       await loadManagedPlayersData()
     } catch (err) {

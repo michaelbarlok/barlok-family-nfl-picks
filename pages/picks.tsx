@@ -79,6 +79,10 @@ export default function PicksPage() {
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
   // Admin-granted extension for THIS player and week, if any.
   const [graceUntil, setGraceUntil] = useState<Date | null>(null)
+  // Write feedback. Picks save on click, so the only thing missing was proof
+  // it reached the database — 'selected' and 'saved' looked identical before.
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Tick every second for live countdown — paused when tab hidden to save battery
@@ -234,9 +238,20 @@ export default function PicksPage() {
     return session?.access_token ?? ''
   }
 
+  // Flash "Saved" briefly after a successful write, and clear any pending
+  // flash first so rapid picking doesn't leave a stale timer running.
+  const markSaved = () => {
+    if (savedTimeout.current) clearTimeout(savedTimeout.current)
+    setSaveState('saved')
+    savedTimeout.current = setTimeout(() => setSaveState('idle'), 1800)
+  }
+
+  useEffect(() => () => { if (savedTimeout.current) clearTimeout(savedTimeout.current) }, [])
+
   // Save a single game pick to the DB immediately
   const savePick = async (gameId: string, team: string) => {
     if (!user || currentWeek === null) return
+    setSaveState('saving')
     try {
       if (activePlayerId) {
         const token = await getToken()
@@ -252,7 +267,9 @@ export default function PicksPage() {
         }, { onConflict: 'user_id,game_id' })
         if (error) throw error
       }
+      markSaved()
     } catch (err) {
+      setSaveState('idle')
       setError(err instanceof Error ? err.message : 'Failed to save pick')
     }
   }
@@ -283,7 +300,9 @@ export default function PicksPage() {
         }, { onConflict: 'user_id,week,season' })
         if (error) throw error
       }
+      markSaved()
     } catch (err) {
+      setSaveState('idle')
       setError(err instanceof Error ? err.message : 'Failed to save best picks')
     }
   }
@@ -476,7 +495,20 @@ export default function PicksPage() {
         {totalGames > 0 && (
           <div className="mb-5">
             <div className="flex justify-between text-xs text-slate-400 mb-2">
-              <span>{pickedCount} of {totalGames} games picked</span>
+              <span className="flex items-center gap-2">
+                {pickedCount} of {totalGames} games picked
+                {saveState === 'saving' && (
+                  <span className="text-slate-500">Saving…</span>
+                )}
+                {saveState === 'saved' && (
+                  <span className="flex items-center gap-1 text-emerald-400 animate-fade-in">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Saved
+                  </span>
+                )}
+              </span>
               <span className={bestPicks.size === MAX_BEST_PICKS ? 'text-amber-400 font-medium' : ''}>
                 ⭐ {bestPicks.size}/{MAX_BEST_PICKS} best picks
               </span>

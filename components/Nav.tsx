@@ -32,6 +32,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const [showMore, setShowMore] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -125,6 +126,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
     const file = e.target.files?.[0]
     if (!file || !user) return
     setAvatarUploading(true)
+    setAvatarError('')
     try {
       const { base64, contentType } = await processAvatarFile(file)
       const { data: { session } } = await supabase.auth.getSession()
@@ -140,7 +142,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       if (!res.ok) throw new Error(data.error)
       updateAvatarUrl(data.avatar_url)
     } catch (err: any) {
-      alert(err.message || 'Failed to upload avatar')
+      setAvatarError(err.message || 'Failed to upload avatar')
     } finally {
       setAvatarUploading(false)
       if (avatarInputRef.current) avatarInputRef.current.value = ''
@@ -150,6 +152,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const handleRemoveAvatar = async () => {
     if (!user) return
     setAvatarUploading(true)
+    setAvatarError('')
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/avatar', {
@@ -166,7 +169,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       }
       updateAvatarUrl(null)
     } catch (err: any) {
-      alert(err.message || 'Failed to remove avatar')
+      setAvatarError(err.message || 'Failed to remove avatar')
     } finally {
       setAvatarUploading(false)
     }
@@ -185,7 +188,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
 
   // Reset status when profile panel closes
   useEffect(() => {
-    if (!showProfile) setResetStatus('idle')
+    if (!showProfile) { setResetStatus('idle'); setAvatarError('') }
   }, [showProfile])
 
   return (
@@ -395,6 +398,12 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   </span>
                 </div>
               </div>
+
+              {avatarError && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm animate-slide-up">
+                  {avatarError}
+                </div>
+              )}
 
               {/* Reset password */}
               <div className="border-t border-white/[0.06] pt-4">

@@ -28,7 +28,7 @@ interface AllPicksData {
 }
 
 interface SeasonData {
-  games: { id: string; week: number; winning_team: string | null }[]
+  games: { id: string; week: number; winning_team: string | null; away_team: string; home_team: string }[]
   picks: { user_id: string; game_id: string; picked_team: string; week: number }[]
   threeBests: { user_id: string; week: number; pick_1: string; pick_2: string; pick_3: string }[]
 }
@@ -155,7 +155,7 @@ export default function AllPicksPage() {
         .eq('week', week).eq('season', CURRENT_SEASON),
       supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
         .eq('week', week).eq('season', CURRENT_SEASON),
-      supabase.from('games').select('id, week, winning_team')
+      supabase.from('games').select('id, week, winning_team, away_team, home_team')
         .eq('season', CURRENT_SEASON),
       // Paged — a full season of picks exceeds PostgREST's row cap.
       fetchAllRows<{ user_id: string; game_id: string; picked_team: string; week: number }>((from, to) =>
@@ -196,30 +196,27 @@ export default function AllPicksPage() {
   const gameResultLookup = new Map<string, string | null>()
   games.forEach(g => gameResultLookup.set(g.id, g.winning_team))
 
-  // Compute records via the shared module. We pass only weeks <= selectedWeek
-  // so totals don't include future weeks. The Best 3 logic needs team
-  // abbreviations on games, so we hydrate from the current-week games list
-  // (other weeks are looked up via this map below).
+  // Compute records via the shared module, over every week up to the selected
+  // one so totals don't include future weeks.
+  //
+  // The season games query now carries team abbreviations. It used to select
+  // only id/week/winning_team, and the gap was filled from the *selected week's*
+  // game list — so every other week resolved to empty team names, the Best 3
+  // lookup (which matches by team) never found them, and season Best 3 totals
+  // silently collapsed to just the selected week.
   const userIdsForRecords = allPicksData?.users.map(u => u.id) ?? []
-
-  // Games lookup with team abbrs — needed because seasonData.games only has id/week/winning_team
-  const gameTeamsLookup = new Map<string, { away_team: string; home_team: string }>()
-  games.forEach(g => gameTeamsLookup.set(g.id, { away_team: g.away_team, home_team: g.home_team }))
 
   const recordsWithBest3 = (seasonData && selectedWeek != null)
     ? computeRecords({
         userIds: userIdsForRecords,
         games: seasonData.games
           .filter(g => g.week <= selectedWeek)
-          .map(g => {
-            const teams = gameTeamsLookup.get(g.id)
-            return {
-              id: g.id, week: g.week,
-              away_team: teams?.away_team ?? '',
-              home_team: teams?.home_team ?? '',
-              winning_team: g.winning_team,
-            }
-          }),
+          .map(g => ({
+            id: g.id, week: g.week,
+            away_team: g.away_team,
+            home_team: g.home_team,
+            winning_team: g.winning_team,
+          })),
         picks: seasonData.picks
           .filter(p => p.week <= selectedWeek)
           .map(p => ({ user_id: p.user_id, game_id: p.game_id, picked_team: p.picked_team, week: p.week })),

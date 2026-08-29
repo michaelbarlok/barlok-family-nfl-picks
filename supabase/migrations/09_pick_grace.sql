@@ -26,6 +26,7 @@ ALTER TABLE pick_grace ENABLE ROW LEVEL SECURITY;
 -- of the league seeing that someone was given extra time is a feature, not a
 -- leak. Writes are service-role only (no INSERT/UPDATE/DELETE policy), so a
 -- grant can only come from the admin API route.
+DROP POLICY IF EXISTS "Users can read all pick_grace" ON pick_grace;
 CREATE POLICY "Users can read all pick_grace" ON pick_grace FOR SELECT USING (true);
 
 CREATE INDEX IF NOT EXISTS idx_pick_grace_week_season ON pick_grace(week, season);

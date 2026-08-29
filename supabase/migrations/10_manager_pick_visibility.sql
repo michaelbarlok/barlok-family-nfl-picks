@@ -11,6 +11,7 @@
 -- the caller actually manages, and nothing else. Everyone else's picks stay
 -- hidden until lock exactly as before.
 
+DROP POLICY IF EXISTS "Managers can read their players' picks" ON picks;
 CREATE POLICY "Managers can read their players' picks"
   ON picks FOR SELECT
   USING (
@@ -21,6 +22,7 @@ CREATE POLICY "Managers can read their players' picks"
     )
   );
 
+DROP POLICY IF EXISTS "Managers can read their players' three_best" ON three_best;
 CREATE POLICY "Managers can read their players' three_best"
   ON three_best FOR SELECT
   USING (
@@ -30,3 +32,5 @@ CREATE POLICY "Managers can read their players' three_best"
         AND pm.manager_id = (SELECT auth.uid())
     )
   );
+
+-- Every statement above is guarded, so this file is safe to run more than once.

@@ -1,8 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import nodemailer from 'nodemailer'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { MAX_BEST_PICKS } from '@/lib/constants'
 import { detectUpcomingWeek } from '@/lib/lockTime'
 import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getCurrentSeason } from '@/lib/season'
 import { isAuthorized } from '@/lib/apiAuth'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
@@ -16,6 +17,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const supabase = getAdminClient()
+  const season = await getCurrentSeason(supabase)
 
   // Determine the upcoming week
   const upcoming = await detectUpcomingWeek(supabase)
@@ -42,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .from('games')
     .select('id')
     .eq('week', week)
-    .eq('season', CURRENT_SEASON)
+    .eq('season', season)
 
   const totalGames = weekGames?.length ?? 0
 
@@ -51,14 +53,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .from('picks')
     .select('user_id, game_id')
     .eq('week', week)
-    .eq('season', CURRENT_SEASON)
+    .eq('season', season)
 
   // Get three_best for this week
   const { data: allThreeBest } = await supabase
     .from('three_best')
     .select('user_id, pick_1, pick_2, pick_3')
     .eq('week', week)
-    .eq('season', CURRENT_SEASON)
+    .eq('season', season)
 
   // A row exists as soon as the first star is set, so only a full set counts as
   // done — an incomplete Best 3 is scored as a loss per empty slot.
@@ -123,7 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           </p>
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
           <p style="color: #9ca3af; font-size: 12px;">
-            ${LEAGUE_NAME} &middot; ${CURRENT_SEASON} Season &middot; Week ${week}
+            ${LEAGUE_NAME} &middot; ${season} Season &middot; Week ${week}
           </p>
         </div>
       `,
@@ -188,7 +190,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             </p>
             <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
             <p style="color: #9ca3af; font-size: 12px;">
-              ${LEAGUE_NAME} &middot; ${CURRENT_SEASON} Season &middot; Week ${week}
+              ${LEAGUE_NAME} &middot; ${season} Season &middot; Week ${week}
             </p>
           </div>
         `,
@@ -249,7 +251,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           </p>
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
           <p style="color: #9ca3af; font-size: 12px;">
-            ${LEAGUE_NAME} &middot; ${CURRENT_SEASON} Season &middot; Week ${week}
+            ${LEAGUE_NAME} &middot; ${season} Season &middot; Week ${week}
           </p>
         </div>
       `,

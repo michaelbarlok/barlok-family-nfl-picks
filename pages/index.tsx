@@ -3,11 +3,13 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { MAX_BEST_PICKS, ADMIN_EMAIL } from '@/lib/constants'
 import { computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { computeRecords, recordSort } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
+import SaveSeasonButton from '@/components/SaveSeasonButton'
 
 interface SeasonPick {
   user_id: string
@@ -76,6 +78,7 @@ function DashboardSkeleton() {
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading, configError } = useAuth()
+  const { season } = useSeason()
   const [data, setData] = useState<DashboardData | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -122,9 +125,9 @@ export default function DashboardPage() {
           // Paged — a full season of picks exceeds PostgREST's row cap.
           fetchAllRows<SeasonPick>((from, to) =>
             supabase.from('picks').select('user_id, game_id, picked_team, week')
-              .eq('season', CURRENT_SEASON).order('id').range(from, to)),
-          supabase.from('games').select('id, week, away_team, home_team, kickoff_time, winning_team, away_score, home_score').eq('season', CURRENT_SEASON).order('kickoff_time'),
-          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', CURRENT_SEASON),
+              .eq('season', season).order('id').range(from, to)),
+          supabase.from('games').select('id, week, away_team, home_team, kickoff_time, winning_team, away_score, home_score').eq('season', season).order('kickoff_time'),
+          supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', season),
         ])
 
         if (!users || !allGames) {
@@ -254,7 +257,7 @@ export default function DashboardPage() {
       }
     }
     fetchDashboard()
-  }, [user])
+  }, [user, season])
 
   if (configError) {
     return (
@@ -312,10 +315,11 @@ export default function DashboardPage() {
       <Nav incompleteCount={incomplete} />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
+        {(user.email === ADMIN_EMAIL || user.is_admin) && <SaveSeasonButton />}
         <h1 className="text-lg font-bold text-white mb-1">
           Hey, {user.name?.split(' ')[0]}
         </h1>
-        <p className="text-xs text-slate-500 mb-6">{CURRENT_SEASON} Season</p>
+        <p className="text-xs text-slate-500 mb-6">{season} Season</p>
 
         {/* ── YOUR RECORD ── */}
         <div className="grid grid-cols-2 gap-3 mb-5">

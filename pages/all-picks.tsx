@@ -2,13 +2,15 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { MAX_BEST_PICKS } from '@/lib/constants'
 import { parseUTC, computeLockTime, formatLockTime } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import { computeRecords } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
+import SeasonSelector from '@/components/SeasonSelector'
 
 interface Game {
   id: string
@@ -58,6 +60,11 @@ function AllPicksSkeleton() {
 export default function AllPicksPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { season: liveSeason } = useSeason()
+  // Which season is on screen. Defaults to the live one; past seasons stay
+  // fully browsable because their picks and games are never moved.
+  const [season, setSeason] = useState(liveSeason)
+  useEffect(() => { setSeason(liveSeason) }, [liveSeason])
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
@@ -80,7 +87,7 @@ export default function AllPicksPage() {
       if (!user) return
       const { data } = await supabase
         .from('games').select('week')
-        .eq('season', CURRENT_SEASON)
+        .eq('season', season)
         .order('week')
       if (data) {
         const weeks = [...new Set(data.map(g => g.week))].sort((a, b) => a - b)
@@ -92,7 +99,7 @@ export default function AllPicksPage() {
       setDataLoading(false)
     }
     fetchWeeks()
-  }, [user])
+  }, [user, season])
 
   // Fetch games + picks for selected week
   const fetchWeekData = useCallback(async (week: number) => {
@@ -101,7 +108,7 @@ export default function AllPicksPage() {
 
     const { data: gamesData } = await supabase
       .from('games').select('*')
-      .eq('week', week).eq('season', CURRENT_SEASON)
+      .eq('week', week).eq('season', season)
       .order('kickoff_time')
 
     const weekGames = gamesData ?? []
@@ -120,7 +127,7 @@ export default function AllPicksPage() {
       // role and returns aggregates only — never a picked team.
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        const res = await fetch(`/api/pick-status?week=${week}&season=${CURRENT_SEASON}`, {
+        const res = await fetch(`/api/pick-status?week=${week}&season=${season}`, {
           headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
         })
         const json = await res.json()
@@ -152,17 +159,17 @@ export default function AllPicksPage() {
     ] = await Promise.all([
       supabase.from('users').select('id, name').order('name'),
       supabase.from('picks').select('user_id, game_id, picked_team')
-        .eq('week', week).eq('season', CURRENT_SEASON),
+        .eq('week', week).eq('season', season),
       supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
-        .eq('week', week).eq('season', CURRENT_SEASON),
+        .eq('week', week).eq('season', season),
       supabase.from('games').select('id, week, winning_team, away_team, home_team')
-        .eq('season', CURRENT_SEASON),
+        .eq('season', season),
       // Paged — a full season of picks exceeds PostgREST's row cap.
       fetchAllRows<{ user_id: string; game_id: string; picked_team: string; week: number }>((from, to) =>
         supabase.from('picks').select('user_id, game_id, picked_team, week')
-          .eq('season', CURRENT_SEASON).order('id').range(from, to)),
+          .eq('season', season).order('id').range(from, to)),
       supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3')
-        .eq('season', CURRENT_SEASON),
+        .eq('season', season),
     ])
 
     setAllPicksData({
@@ -176,7 +183,7 @@ export default function AllPicksPage() {
       threeBests: allSeasonThreeBests ?? [],
     })
     setPicksLoading(false)
-  }, [])
+  }, [season])
 
   useEffect(() => {
     if (selectedWeek !== null) fetchWeekData(selectedWeek)
@@ -254,6 +261,8 @@ export default function AllPicksPage() {
         </h2>
 
         {/* Week selector */}
+        <SeasonSelector value={season} onChange={setSeason} />
+
         <WeekNavigator
           selectedWeek={selectedWeek}
           onWeekChange={setSelectedWeek}

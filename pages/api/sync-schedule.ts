@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { CURRENT_SEASON } from '@/lib/constants'
+
 import { normalizeTeam } from '@/lib/nflTeams'
 import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getCurrentSeason } from '@/lib/season'
 import { isAuthorized } from '@/lib/apiAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -14,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const week = req.query.week ? parseInt(req.query.week as string) : null
-  const season = req.query.season ? parseInt(req.query.season as string) : CURRENT_SEASON
+  const season = req.query.season ? parseInt(req.query.season as string) : await getCurrentSeason(getAdminClient())
 
   if (!week || week < 1 || week > 18) {
     return res.status(400).json({ error: 'Valid week (1-18) is required' })

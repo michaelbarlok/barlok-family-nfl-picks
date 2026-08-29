@@ -2,9 +2,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
-import { CURRENT_SEASON, ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
+import { ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
 import { computeLockTime } from '@/lib/lockTime'
 import { supabase } from '@/lib/supabase'
+import { useSeason } from '@/lib/season'
 import { processAvatarFile } from '@/lib/avatarUtils'
 
 const baseTabs = [
@@ -27,6 +28,7 @@ interface NavProps {
 export default function Nav({ incompleteCount }: NavProps = {}) {
   const router = useRouter()
   const { user, signOut, updateAvatarUrl } = useAuth()
+  const { season } = useSeason()
   const [showMenu, setShowMenu] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [showMore, setShowMore] = useState(false)
@@ -64,7 +66,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
     const loadOutstanding = async () => {
       const { data: games } = await supabase
         .from('games').select('id, week, kickoff_time')
-        .eq('season', CURRENT_SEASON).order('week')
+        .eq('season', season).order('week')
       if (!games || games.length === 0) return
 
       const week = Math.max(...games.map(g => g.week))
@@ -74,9 +76,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
 
       const [{ data: picks }, { data: best }] = await Promise.all([
         supabase.from('picks').select('game_id')
-          .eq('user_id', user.id).eq('week', week).eq('season', CURRENT_SEASON),
+          .eq('user_id', user.id).eq('week', week).eq('season', season),
         supabase.from('three_best').select('pick_1, pick_2, pick_3')
-          .eq('user_id', user.id).eq('week', week).eq('season', CURRENT_SEASON).maybeSingle(),
+          .eq('user_id', user.id).eq('week', week).eq('season', season).maybeSingle(),
       ])
 
       const bestCount = best ? [best.pick_1, best.pick_2, best.pick_3].filter(Boolean).length : 0
@@ -86,7 +88,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
 
     loadOutstanding().catch(() => {})
     return () => { cancelled = true }
-  }, [incompleteCount, user])
+  }, [incompleteCount, user, season])
 
   const outstanding = typeof incompleteCount === 'number' ? incompleteCount : ownCount ?? 0
   const hasOutstandingPicks = outstanding > 0
@@ -203,7 +205,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               </div>
               <div>
                 <p className="font-semibold text-white text-sm leading-tight">Barlok Family NFL Picks</p>
-                <p className="text-[11px] text-slate-500">{CURRENT_SEASON} Season</p>
+                <p className="text-[11px] text-slate-500">{season} Season</p>
               </div>
             </div>
             {user && (

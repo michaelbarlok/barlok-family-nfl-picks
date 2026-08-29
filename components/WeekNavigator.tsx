@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+
 
 interface WeekNavigatorProps {
   selectedWeek: number | null
@@ -10,6 +11,7 @@ interface WeekNavigatorProps {
 }
 
 export default function WeekNavigator({ selectedWeek, onWeekChange, availableWeeks: externalWeeks }: WeekNavigatorProps) {
+  const { season } = useSeason()
   const [internalWeeks, setInternalWeeks] = useState<number[]>([])
   const weeks = externalWeeks ?? internalWeeks
 
@@ -18,14 +20,14 @@ export default function WeekNavigator({ selectedWeek, onWeekChange, availableWee
     const fetchWeeks = async () => {
       const { data } = await supabase
         .from('games').select('week')
-        .eq('season', CURRENT_SEASON)
+        .eq('season', season)
         .order('week')
       if (data) {
         setInternalWeeks([...new Set(data.map(g => g.week))].sort((a, b) => a - b))
       }
     }
     fetchWeeks()
-  }, [externalWeeks])
+  }, [externalWeeks, season])
 
   if (weeks.length === 0 || selectedWeek === null) return null
 

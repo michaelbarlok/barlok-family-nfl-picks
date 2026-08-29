@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, ADMIN_EMAIL } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { ADMIN_EMAIL } from '@/lib/constants'
 import { computeLockTime } from '@/lib/lockTime'
 import Nav from '@/components/Nav'
 
@@ -36,6 +37,7 @@ function SheetsSkeleton() {
 export default function SpreadsheetsPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { season } = useSeason()
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [latestWeek, setLatestWeek] = useState<number | null>(null)
   const [lockedWeeks, setLockedWeeks] = useState<Set<number>>(new Set())
@@ -55,7 +57,7 @@ export default function SpreadsheetsPage() {
         const { data } = await supabase
           .from('games')
           .select('week, kickoff_time')
-          .eq('season', CURRENT_SEASON)
+          .eq('season', season)
           .order('week')
 
         if (data) {
@@ -81,14 +83,14 @@ export default function SpreadsheetsPage() {
       }
     }
     fetchWeeks()
-  }, [user])
+  }, [user, season])
 
   const handleDownload = async (week: number) => {
     setDownloading(week)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token ?? ''
-      const url = `/api/download-picks?week=${week}&season=${CURRENT_SEASON}`
+      const url = `/api/download-picks?week=${week}&season=${season}`
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -96,7 +98,7 @@ export default function SpreadsheetsPage() {
       const blob = await response.blob()
       const link = document.createElement('a')
       link.href = URL.createObjectURL(blob)
-      link.download = `Week_${week}_Picks_${CURRENT_SEASON}.xlsx`
+      link.download = `Week_${week}_Picks_${season}.xlsx`
       link.click()
       URL.revokeObjectURL(link.href)
     } catch (err) {
@@ -115,7 +117,7 @@ export default function SpreadsheetsPage() {
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-          {CURRENT_SEASON} Season Spreadsheets
+          {season} Season Spreadsheets
         </h2>
 
         {availableWeeks.length === 0 ? (
@@ -155,7 +157,7 @@ export default function SpreadsheetsPage() {
                         )}
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {CURRENT_SEASON} NFL Season
+                        {season} NFL Season
                       </p>
                     </div>
                   </div>

@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { useSeason } from '@/lib/season'
+import { MAX_BEST_PICKS } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
@@ -65,6 +66,7 @@ function PicksSkeleton() {
 export default function PicksPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { season } = useSeason()
   const [currentWeek, setCurrentWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
   const [picks, setPicks] = useState<UserPick>({})
@@ -139,7 +141,7 @@ export default function PicksPage() {
       if (!user) return
       const { data } = await supabase
         .from('games').select('week')
-        .eq('season', CURRENT_SEASON)
+        .eq('season', season)
         .order('week')
       if (data && data.length > 0) {
         const weeks = [...new Set(data.map(g => g.week))].sort((a, b) => a - b)
@@ -150,7 +152,7 @@ export default function PicksPage() {
       }
     }
     detectWeek()
-  }, [user])
+  }, [user, season])
 
   // The effective user ID for picks: self or managed player
   const effectiveUserId = activePlayerId ?? user?.id
@@ -158,16 +160,16 @@ export default function PicksPage() {
   const refreshGrace = useCallback(async (userId: string, week: number) => {
     const { data } = await supabase
       .from('pick_grace').select('expires_at')
-      .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+      .eq('user_id', userId).eq('week', week).eq('season', season)
       .maybeSingle()
     setGraceUntil(graceExpiry(data))
-  }, [])
+  }, [season])
 
   const loadPicksForUser = useCallback(async (userId: string, week: number) => {
     try {
       const { data: picksData } = await supabase
         .from('picks').select('*')
-        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+        .eq('user_id', userId).eq('week', week).eq('season', season)
 
       const picksMap: UserPick = {}
       picksData?.forEach(p => { picksMap[p.game_id] = p.picked_team })
@@ -177,7 +179,7 @@ export default function PicksPage() {
 
       const { data: threeBestData } = await supabase
         .from('three_best').select('*')
-        .eq('user_id', userId).eq('week', week).eq('season', CURRENT_SEASON)
+        .eq('user_id', userId).eq('week', week).eq('season', season)
         .single()
 
       if (threeBestData) {
@@ -191,7 +193,7 @@ export default function PicksPage() {
     } catch (err) {
       console.error('Error fetching picks:', err)
     }
-  }, [refreshGrace])
+  }, [refreshGrace, season])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -199,7 +201,7 @@ export default function PicksPage() {
       try {
         const { data: gamesData } = await supabase
           .from('games').select('*')
-          .eq('week', currentWeek).eq('season', CURRENT_SEASON)
+          .eq('week', currentWeek).eq('season', season)
           .order('kickoff_time')
 
         if (gamesData) setGames(gamesData)
@@ -215,7 +217,7 @@ export default function PicksPage() {
       }
     }
     fetchData()
-  }, [user, currentWeek, effectiveUserId, loadPicksForUser])
+  }, [user, currentWeek, effectiveUserId, loadPicksForUser, season])
 
   const lockTime = computeLockTime(games)
   const weekLocked = lockTime ? now >= lockTime : false
@@ -258,12 +260,12 @@ export default function PicksPage() {
         const res = await fetch('/api/proxy-picks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: CURRENT_SEASON, gameId, pickedTeam: team }),
+          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: season, gameId, pickedTeam: team }),
         })
         if (!res.ok) { const json = await res.json(); throw new Error(json.error ?? 'Failed') }
       } else {
         const { error } = await supabase.from('picks').upsert({
-          user_id: user.id, game_id: gameId, picked_team: team, week: currentWeek, season: CURRENT_SEASON,
+          user_id: user.id, game_id: gameId, picked_team: team, week: currentWeek, season: season,
         }, { onConflict: 'user_id,game_id' })
         if (error) throw error
       }
@@ -291,12 +293,12 @@ export default function PicksPage() {
         const res = await fetch('/api/proxy-picks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: CURRENT_SEASON, threeBest }),
+          body: JSON.stringify({ playerId: activePlayerId, week: currentWeek, season: season, threeBest }),
         })
         if (!res.ok) { const json = await res.json(); throw new Error(json.error ?? 'Failed') }
       } else {
         const { error } = await supabase.from('three_best').upsert({
-          user_id: user.id, week: currentWeek, season: CURRENT_SEASON, ...threeBest,
+          user_id: user.id, week: currentWeek, season: season, ...threeBest,
         }, { onConflict: 'user_id,week,season' })
         if (error) throw error
       }

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { CURRENT_SEASON, MAX_BEST_PICKS } from '@/lib/constants'
+import { MAX_BEST_PICKS } from '@/lib/constants'
 import { getAdminClient } from '@/lib/supabaseAdmin'
+import { getCurrentSeason } from '@/lib/season'
 import { getAuthUser } from '@/lib/apiAuth'
 
 /**
@@ -29,10 +30,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!authUser) return res.status(401).json({ error: 'Unauthorized' })
 
   const week = parseInt(req.query.week as string)
-  const season = req.query.season ? parseInt(req.query.season as string) : CURRENT_SEASON
   if (!week || isNaN(week)) return res.status(400).json({ error: 'A valid week is required' })
 
   const supabase = getAdminClient()
+  const season = req.query.season ? parseInt(req.query.season as string) : await getCurrentSeason(supabase)
 
   try {
     const [{ data: users }, { data: games }, { data: picks }, { data: threeBest }] = await Promise.all([

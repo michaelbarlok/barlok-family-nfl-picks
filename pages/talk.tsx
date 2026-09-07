@@ -21,6 +21,14 @@ interface MessageReaction {
   mine: boolean
 }
 
+interface QuotedMessage {
+  id: string
+  author_name: string
+  /** null when the quoted message has since been deleted. */
+  excerpt: string | null
+  deleted: boolean
+}
+
 interface Message {
   id: string
   user_id: string | null
@@ -32,10 +40,16 @@ interface Message {
   avatar_url: string | null
   mentions: string[]
   reactions: MessageReaction[]
+  reply_to: QuotedMessage | null
 }
 
 /** Messages from the same person inside this window share one bubble group. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
+/** Hold this long to open a message's actions. Matches the platform feel. */
+const LONG_PRESS_MS = 450
+/** Moving further than this during the hold means you're scrolling, not pressing. */
+const LONG_PRESS_SLOP_PX = 10
+const HOLD_HINT_KEY = 'nfl-talk-hold-hint'
 
 /** Renders @mentions as highlighted chips, leaving the rest as plain text. */
 function MessageBody({ text, players, mine }: { text: string; players: Player[]; mine: boolean }) {
@@ -74,6 +88,12 @@ function dayLabel(iso: string): string {
   })
 }
 
+function flashMessage(el: HTMLElement) {
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.classList.add('quote-flash')
+  window.setTimeout(() => el.classList.remove('quote-flash'), 1200)
+}
+
 const clockTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 
@@ -105,6 +125,20 @@ export default function TalkPage() {
   // Which of my own bubbles is showing its Delete affordance. Tap-to-reveal,
   // because hover doesn't exist on the phones this is mostly read on.
   const [openActions, setOpenActions] = useState<string | null>(null)
+  const [replyTo, setReplyTo] = useState<QuotedMessage | null>(null)
+  // Hold-to-act is invisible until someone tries it, and nobody tries a gesture
+  // they haven't been told about. Shown once, retired the first time it's used.
+  const [showHoldHint, setShowHoldHint] = useState(false)
+  // Long-press bookkeeping. A ref, not state — it changes on every pointer
+  // move and must not re-render the thread while a finger is down.
+  const pressRef = useRef<{ timer: number; x: number; y: number } | null>(null)
+  // When the last long press fired. A timestamp rather than a flag: if the
+  // browser doesn't follow a press with a click, a flag would stay set and
+  // swallow the next outside tap instead.
+  const pressFiredAtRef = useRef(0)
+  // Set when a quoted message isn't loaded yet, so the jump can retry after
+  // the older page arrives.
+  const jumpRef = useRef<{ id: string; tries: number } | null>(null)
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)               // is the view parked at the bottom?
@@ -143,6 +177,9 @@ export default function TalkPage() {
       if (mode !== 'refresh') setHasMore(json.hasMore)
       setLoadError('')
     } catch (err) {
+      // A failed page means the pending jump will never resolve, and leaving it
+      // armed would make some later, unrelated message scroll and flash.
+      jumpRef.current = null
       setLoadError(err instanceof Error ? err.message : 'Failed to load the thread')
     } finally {
       setDataLoading(false)
@@ -155,6 +192,10 @@ export default function TalkPage() {
     load('initial')
     supabase.from('users').select('id, name, avatar_url').order('name')
       .then(({ data }) => setPlayers(data ?? []))
+
+    try {
+      setShowHoldHint(!window.localStorage.getItem(HOLD_HINT_KEY))
+    } catch { /* blocked storage just means the hint shows again */ }
 
     setPushState(getPushState())
     getTalkEnabled().then(setNotifyOn).catch(() => {})
@@ -211,6 +252,27 @@ export default function TalkPage() {
   useLayoutEffect(() => {
     const el = scrollerRef.current
     if (!el) return
+    // A jump waiting on an older page wins over both anchoring rules — it is
+    // the only one the reader explicitly asked for. Bounded, so a quote whose
+    // original has been paged past can't loop forever.
+    const pending = jumpRef.current
+    if (pending) {
+      const target = document.getElementById(`msg-${pending.id}`)
+      if (target) {
+        jumpRef.current = null
+        prevLenRef.current = ordered.length
+        flashMessage(target)
+        return
+      }
+      if (pending.tries < 3 && hasMore) {
+        jumpRef.current = { id: pending.id, tries: pending.tries + 1 }
+        loadOlder()
+      } else {
+        jumpRef.current = null
+        setPostError('That message is further back than the thread has loaded.')
+      }
+    }
+
     if (restoreRef.current !== null) {
       el.scrollTop += el.scrollHeight - restoreRef.current
       restoreRef.current = null
@@ -312,12 +374,15 @@ export default function TalkPage() {
       const res = await fetch('/api/talk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ body: draft.trim(), imageUrl: pendingImage, mentionIds }),
+        body: JSON.stringify({
+          body: draft.trim(), imageUrl: pendingImage, mentionIds, replyToId: replyTo?.id ?? null,
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Could not post')
       setDraft('')
       setPendingImage(null)
+      setReplyTo(null)
       setShowMentions(false)
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
       await load('refresh')
@@ -335,6 +400,56 @@ export default function TalkPage() {
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
     e.preventDefault()
     post()
+  }
+
+  // ── Long press ────────────────────────────────────────────────────────
+  // Signal's gesture: hold a message to get its actions, and a tap does
+  // nothing. Pointer events cover finger and mouse in one path; a right-click
+  // is the desktop equivalent and is wired separately.
+  const dismissHoldHint = () => {
+    setShowHoldHint(false)
+    try { window.localStorage.setItem(HOLD_HINT_KEY, '1') } catch { /* fine */ }
+  }
+
+  const cancelPress = () => {
+    if (pressRef.current) window.clearTimeout(pressRef.current.timer)
+    pressRef.current = null
+  }
+
+  const startPress = (e: React.PointerEvent, messageId: string, deleted: boolean) => {
+    if (deleted || e.button === 2) return
+    const { clientX: x, clientY: y } = e
+    const timer = window.setTimeout(() => {
+      pressRef.current = null
+      pressFiredAtRef.current = Date.now()
+      setOpenActions(messageId)
+      dismissHoldHint()
+      // A short buzz makes the gesture legible on a phone; absent everywhere
+      // else, which is fine.
+      navigator.vibrate?.(15)
+    }, LONG_PRESS_MS)
+    pressRef.current = { timer, x, y }
+  }
+
+  const movePress = (e: React.PointerEvent) => {
+    const press = pressRef.current
+    if (!press) return
+    if (Math.abs(e.clientX - press.x) > LONG_PRESS_SLOP_PX ||
+        Math.abs(e.clientY - press.y) > LONG_PRESS_SLOP_PX) {
+      cancelPress()
+    }
+  }
+
+  /** Scroll a quoted message into view, loading older pages until it's there. */
+  const jumpToMessage = (id: string) => {
+    const el = document.getElementById(`msg-${id}`)
+    if (el) return flashMessage(el)
+    if (!hasMore) {
+      setPostError('That message is further back than the thread has loaded.')
+      return
+    }
+    jumpRef.current = { id, tries: 0 }
+    loadOlder()
   }
 
   const toggleReaction = async (messageId: string, code: string) => {
@@ -478,7 +593,16 @@ export default function TalkPage() {
         onScroll={onScroll}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       >
-        <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4" onClick={() => setOpenActions(null)}>
+        <div
+          className="max-w-3xl mx-auto px-3 sm:px-4 py-4"
+          onClick={() => {
+            // A long press is followed by a click on the same element. Without
+            // this the press would open the actions and the click would shut
+            // them again, one frame later.
+            if (Date.now() - pressFiredAtRef.current < 500) return
+            setOpenActions(null)
+          }}
+        >
           {pushState === 'needs-install' && (
             <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300/90">
               To get notified of new messages on iPhone, tap Share → <strong>Add to Home Screen</strong> and open
@@ -568,26 +692,33 @@ export default function TalkPage() {
                       </span>
                     )}
 
-                    {/* A div, not a button: everyone can react, so every
-                        message is tappable, and a <button> would swallow the
-                        long-press that selects text on a phone. The selection
-                        check keeps a drag-select on desktop from also opening
-                        the picker on mouse-up. */}
+                    {/* Hold to open the actions; a tap does nothing, as in
+                        Signal. select-none and the callout suppression are what
+                        stop iOS answering the same gesture with its own text
+                        selection popover — the platform gesture and ours are
+                        the same gesture, so only one of them can win. */}
                     <div
+                      id={`msg-${m.id}`}
                       role="button"
+                      aria-haspopup="true"
                       tabIndex={m.deleted_at ? -1 : 0}
-                      onClick={e => {
-                        e.stopPropagation()
+                      onPointerDown={e => startPress(e, m.id, !!m.deleted_at)}
+                      onPointerMove={movePress}
+                      onPointerUp={cancelPress}
+                      onPointerCancel={cancelPress}
+                      onPointerLeave={cancelPress}
+                      onContextMenu={e => {
                         if (m.deleted_at) return
-                        if ((window.getSelection()?.toString() ?? '').length > 0) return
-                        setOpenActions(openActions === m.id ? null : m.id)
+                        e.preventDefault()   // right-click is the desktop hold
+                        setOpenActions(m.id)
+                        dismissHoldHint()
                       }}
                       onKeyDown={e => {
                         if (m.deleted_at || (e.key !== 'Enter' && e.key !== ' ')) return
                         e.preventDefault()
                         setOpenActions(openActions === m.id ? null : m.id)
                       }}
-                      className={`text-left rounded-2xl ${m.deleted_at ? '' : 'cursor-pointer'} ${corners} ${
+                      className={`text-left rounded-2xl select-none [-webkit-touch-callout:none] ${corners} ${
                         m.deleted_at
                           ? 'px-3.5 py-2 bg-white/[0.03] border border-white/[0.06]'
                           : imageOnly
@@ -601,6 +732,27 @@ export default function TalkPage() {
                         <span className="text-sm text-slate-600 italic">Message deleted</span>
                       ) : (
                         <>
+                          {m.reply_to && (
+                            <button
+                              onClick={e => { e.stopPropagation(); jumpToMessage(m.reply_to!.id) }}
+                              className={`flex flex-col items-start w-full text-left mb-1.5 pl-2 border-l-2 rounded-r ${
+                                mine
+                                  ? 'border-white/50 bg-white/10'
+                                  : 'border-blue-400/70 bg-white/[0.04]'
+                              } py-1 pr-2 transition hover:opacity-80`}
+                            >
+                              <span className={`text-[11px] font-semibold ${mine ? 'text-white/90' : 'text-blue-300'}`}>
+                                {m.reply_to.author_name}
+                              </span>
+                              <span className={`text-[12px] leading-snug line-clamp-2 ${
+                                m.reply_to.deleted
+                                  ? 'italic ' + (mine ? 'text-white/50' : 'text-slate-600')
+                                  : mine ? 'text-white/80' : 'text-slate-400'
+                              }`}>
+                                {m.reply_to.deleted ? 'Message deleted' : m.reply_to.excerpt}
+                              </span>
+                            </button>
+                          )}
                           {m.body && (
                             <p className={`text-[15px] leading-snug whitespace-pre-wrap break-words ${mine ? 'text-white' : 'text-slate-100'}`}>
                               <MessageBody text={m.body} players={players} mine={mine} />
@@ -657,6 +809,22 @@ export default function TalkPage() {
                             </button>
                           )
                         })}
+                        <span className="w-px h-5 bg-white/[0.10] mx-0.5" />
+                        <button
+                          onClick={() => {
+                            setReplyTo({
+                              id: m.id,
+                              author_name: m.author_name,
+                              excerpt: m.body?.replace(/\s+/g, ' ').trim().slice(0, 140) ||
+                                (m.image_url ? '📷 Photo' : ''),
+                              deleted: false,
+                            })
+                            textareaRef.current?.focus()
+                          }}
+                          className="px-2.5 h-8 text-[11px] font-medium text-slate-300 hover:text-white transition"
+                        >
+                          Reply
+                        </button>
                         {deletable && (
                           <button
                             onClick={() => remove(m.id)}
@@ -683,6 +851,16 @@ export default function TalkPage() {
 
       {/* ── Composer ─────────────────────────────────────────────────────── */}
       <div className={`shrink-0 relative border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-x ${keyboardOpen ? '' : 'pb-nav'}`}>
+        {/* Never both at once — they occupy the same spot. */}
+        {showHoldHint && !showJump && ordered.length > 0 && (
+          <button
+            onClick={dismissHoldHint}
+            className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full bg-white/[0.10] backdrop-blur-xl text-[11px] text-slate-300 shadow-lg shadow-black/40"
+          >
+            Hold a message to react or reply ✕
+          </button>
+        )}
+
         {showJump && (
           <button
             onClick={jumpToBottom}
@@ -694,6 +872,24 @@ export default function TalkPage() {
 
         <div className="max-w-3xl mx-auto px-3 sm:px-4 py-2.5">
           {postError && <p className="mb-2 text-xs text-red-400">{postError}</p>}
+
+          {replyTo && (
+            <div className="flex items-center gap-2 mb-2 pl-2 pr-1 py-1.5 border-l-2 border-blue-400/70 bg-white/[0.04] rounded-r-lg">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-blue-300">Replying to {replyTo.author_name}</p>
+                <p className="text-[12px] text-slate-400 truncate">{replyTo.excerpt}</p>
+              </div>
+              <button
+                onClick={() => setReplyTo(null)}
+                aria-label="Cancel reply"
+                className="shrink-0 w-7 h-7 rounded-full text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] flex items-center justify-center transition"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          )}
 
           {pendingImage && (
             <div className="relative mb-2 inline-block">

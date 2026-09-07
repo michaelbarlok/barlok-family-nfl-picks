@@ -6,6 +6,22 @@ import { sendPush, pushConfigured } from '@/lib/push'
 
 const MAX_BODY_LENGTH = 4000
 const PAGE_SIZE = 50
+const QUOTE_LENGTH = 140
+
+interface ParentRow {
+  id: string
+  author_name: string
+  body: string | null
+  image_url: string | null
+  deleted_at: string | null
+}
+
+/** One line of the quoted message — enough to recognise it, never the whole thing. */
+function excerpt(body: string | null, imageUrl: string | null): string {
+  const text = (body ?? '').replace(/\s+/g, ' ').trim()
+  if (!text) return imageUrl ? '📷 Photo' : ''
+  return text.length > QUOTE_LENGTH ? `${text.slice(0, QUOTE_LENGTH)}…` : text
+}
 
 /**
  * The 💩 Talk thread.
@@ -33,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const before = req.query.before as string | undefined
     let query = supabase
       .from('talk_messages')
-      .select('id, user_id, author_name, body, image_url, created_at, deleted_at')
+      .select('id, user_id, author_name, body, image_url, created_at, deleted_at, reply_to_id')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE)
     if (before) query = query.lt('created_at', before)
@@ -49,7 +65,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const ids = (messages ?? []).map(m => m.id)
-    const [{ data: mentions }, { data: authors }, { data: reactions }] = await Promise.all([
+    // The quoted message is usually on this page, but not always — a reply to
+    // something from last week sits fifty messages later. Fetch the parents by
+    // id so a quote renders whether or not its original has been scrolled to.
+    const parentIds = [...new Set(
+      (messages ?? []).map(m => m.reply_to_id).filter((id): id is string => !!id),
+    )]
+    const [{ data: mentions }, { data: authors }, { data: reactions }, { data: parents }] = await Promise.all([
       ids.length
         ? supabase.from('talk_mentions').select('message_id, user_id').in('message_id', ids)
         : Promise.resolve({ data: [] as { message_id: string; user_id: string }[] }),
@@ -60,6 +82,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ids.length
         ? supabase.from('talk_reactions').select('message_id, user_id, reaction').in('message_id', ids)
         : Promise.resolve({ data: [] as { message_id: string; user_id: string; reaction: string }[] }),
+      parentIds.length
+        ? supabase.from('talk_messages')
+            .select('id, author_name, body, image_url, deleted_at').in('id', parentIds)
+        : Promise.resolve({ data: [] as ParentRow[] }),
     ])
 
     const avatarById = new Map((authors ?? []).map(u => [u.id, u.avatar_url]))
@@ -82,6 +108,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       forMessage.set(r.reaction, entry)
     }
 
+    // Reduced to what a quote shows: a name and a line of text. The full body
+    // never travels twice, and a deleted parent ships no content at all.
+    const quoteById = new Map((parents ?? []).map(pm => [pm.id, {
+      id: pm.id,
+      author_name: pm.author_name,
+      excerpt: pm.deleted_at ? null : excerpt(pm.body, pm.image_url),
+      deleted: !!pm.deleted_at,
+    }]))
+
     return res.status(200).json({
       messages: (messages ?? []).map(m => ({
         ...m,
@@ -94,6 +129,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         reactions: [...(reactionsByMessage.get(m.id) ?? new Map()).entries()].map(
           ([reaction, e]) => ({ reaction, count: e.names.length, names: e.names.sort(), mine: e.mine }),
         ),
+        // null when the quoted message has since been hard-deleted, which the
+        // ON DELETE SET NULL on reply_to_id already turns into a plain message.
+        reply_to: m.reply_to_id ? quoteById.get(m.reply_to_id) ?? null : null,
       })),
       hasMore: (messages ?? []).length === PAGE_SIZE,
     })
@@ -121,7 +159,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // ── Post ──────────────────────────────────────────────────────────────────
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { body, imageUrl, mentionIds } = req.body ?? {}
+  const { body, imageUrl, mentionIds, replyToId } = req.body ?? {}
   const text = typeof body === 'string' ? body.trim() : ''
 
   if (!text && !imageUrl) {
@@ -135,12 +173,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .from('users').select('name').eq('id', authUser.id).maybeSingle()
   if (!author) return res.status(403).json({ error: 'No player profile found for this account' })
 
+  // Verified rather than trusted: the id decides who gets the "replied to you"
+  // notification, and an unknown id would otherwise store a dangling quote.
+  let parent: { user_id: string | null } | null = null
+  if (replyToId) {
+    const { data } = await supabase
+      .from('talk_messages').select('user_id').eq('id', replyToId).maybeSingle()
+    if (!data) return res.status(400).json({ error: 'That message no longer exists' })
+    parent = data
+  }
+
   try {
     const { data: message, error } = await supabase.from('talk_messages').insert({
       user_id: authUser.id,
       author_name: author.name,
       body: text || null,
       image_url: imageUrl || null,
+      reply_to_id: replyToId || null,
     }).select('id, created_at').single()
 
     if (error) {
@@ -177,17 +226,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (subs && subs.length > 0) {
         const mentionedSet = new Set(mentioned)
-        // One send per device so a tagged player gets the louder wording.
+        // Being replied to is addressed at you the same way a tag is, so it
+        // gets the same louder wording — but only when it isn't your own
+        // message you're replying to, and a tag still outranks it.
+        const repliedTo = parent?.user_id && parent.user_id !== authUser.id && !mentionedSet.has(parent.user_id)
+          ? parent.user_id
+          : null
+        const preview = text ? text.slice(0, 140) : 'Sent a photo'
+
+        // One send per audience so each gets the right title.
         const results = await Promise.all([
           sendPush(subs.filter(s => mentionedSet.has(s.user_id)), {
             title: `💩 ${author.name} tagged you`,
-            body: text ? text.slice(0, 140) : 'Sent a photo',
-            url: '/talk', tag: 'talk',
+            body: preview, url: '/talk', tag: 'talk',
           }),
-          sendPush(subs.filter(s => !mentionedSet.has(s.user_id)), {
+          sendPush(subs.filter(s => s.user_id === repliedTo), {
+            title: `💩 ${author.name} replied to you`,
+            body: preview, url: '/talk', tag: 'talk',
+          }),
+          sendPush(subs.filter(s => !mentionedSet.has(s.user_id) && s.user_id !== repliedTo), {
             title: `💩 Talk — ${author.name}`,
-            body: text ? text.slice(0, 140) : 'Sent a photo',
-            url: '/talk', tag: 'talk',
+            body: preview, url: '/talk', tag: 'talk',
           }),
         ])
         const expired = results.flatMap(r => r.expired)

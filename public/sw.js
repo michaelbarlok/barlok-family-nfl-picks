@@ -1,6 +1,6 @@
 // Bump this string on each deploy so old caches are evicted and users get
 // fresh HTML/assets without having to force-reload.
-const CACHE_NAME = 'nfl-picks-v3'
+const CACHE_NAME = 'nfl-picks-v4'
 const PRECACHE_URLS = [
   '/',
   '/picks',
@@ -52,7 +52,11 @@ self.addEventListener('fetch', (event) => {
 
 
 // ── Push ────────────────────────────────────────────────────────────────────
-// Currently only 💩 Talk. Opt-in per device.
+// Two senders, told apart by the payload's tag and url:
+//   tag 'talk'  → a 💩 Talk message, opt-in per device
+//   tag 'picks' → an admin reminder that a week's picks are still open
+// The tag is what makes a repeat reminder replace the previous one instead of
+// stacking, so senders must keep using a stable tag per kind.
 self.addEventListener('push', (event) => {
   let payload = {}
   try {
@@ -63,7 +67,7 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     self.registration.showNotification(payload.title || 'Barlok Family NFL Picks', {
-      body: payload.body || 'New message',
+      body: payload.body || 'Open the app for details',
       icon: '/icons/icon-192.svg',
       badge: '/icons/icon-192.svg',
       // A shared tag means a burst of messages collapses into one notification

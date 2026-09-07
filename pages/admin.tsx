@@ -10,6 +10,7 @@ import { parseUTC, computeLockTime, formatKickoff, formatLockTime } from '@/lib/
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
 import Nav from '@/components/Nav'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
+import PickReminderCard from '@/components/PickReminderCard'
 
 interface Game {
   id: string
@@ -897,6 +898,19 @@ export default function AdminPage() {
               </div>
 
             </div>
+
+            {/* Nudge whoever still owes picks. Sits above the spreadsheet
+                card because it is the time-sensitive one — it only matters
+                before the week locks. Admins only: a manager can see who is
+                outstanding on All Picks, but sending to the whole league is
+                not theirs to do. */}
+            {isAdmin && (
+              <PickReminderCard
+                week={selectedWeek}
+                season={season}
+                onMessage={setMessage}
+              />
+            )}
 
             {/* Email Spreadsheet — full width with recipient selection */}
             <div className="p-4 glass-card rounded-xl mb-5">

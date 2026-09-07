@@ -7,6 +7,7 @@ import { computeLockTime } from '@/lib/lockTime'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 import { processAvatarFile } from '@/lib/avatarUtils'
+import NotificationSettings from '@/components/NotificationSettings'
 
 const baseTabs = [
   { label: 'Home', icon: '🏠', href: '/' },
@@ -311,7 +312,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       {showProfile && user && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowProfile(false)} />
-          <div className="relative w-full max-w-sm bg-[#1a1d23] border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/40 animate-fade-in">
+          {/* Capped and scrollable: the panel grew past a small phone's screen
+                  once Notifications went in, and it had no way to reach the bottom. */}
+          <div className="relative w-full max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain bg-[#1a1d23] border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/40 animate-fade-in">
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <h2 className="text-base font-semibold text-white">Profile</h2>
@@ -407,6 +410,12 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   {avatarError}
                 </div>
               )}
+
+              {/* Notification switches. Above Security because it's the part
+                  people come back to change; a password is set once. */}
+              <div className="mb-4">
+                <NotificationSettings />
+              </div>
 
               {/* Reset password */}
               <div className="border-t border-white/[0.06] pt-4">

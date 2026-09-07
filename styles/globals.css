@@ -103,3 +103,38 @@ body {
   background-size: 200% 100%;
   animation: shimmer 3s ease-in-out infinite;
 }
+
+/* ── Chat layout ──────────────────────────────────────────────────────────
+   💩 Talk is the one page that doesn't scroll the document: the thread
+   scrolls inside a fixed-height column so the composer can sit still at the
+   bottom the way a messaging app does.
+
+   The height cascade is deliberate. 100vh is the floor for old browsers;
+   100dvh tracks the collapsing mobile toolbars; --app-h is set from
+   visualViewport.height, which is the only one of the three that shrinks
+   when the on-screen keyboard opens. A browser that can't parse a later
+   line just keeps the one before it. */
+.h-app {
+  height: 100vh;
+  height: 100dvh;
+  height: var(--app-h, 100dvh);
+}
+
+/* Clears the fixed mobile tab bar. Ordinary pages get this as page padding;
+   a pinned composer needs the bar's actual height under it instead — and the
+   bar is taller than its own box, because the My Picks button sits 24px proud
+   of it. Measured: bar 62px, button top 20px above that, so 84px keeps the
+   football clear of the text input rather than sitting on top of it. */
+.pb-nav {
+  padding-bottom: 5.25rem;
+}
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-nav {
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+  }
+}
+@media (min-width: 640px) {
+  .pb-nav {
+    padding-bottom: 0;
+  }
+}

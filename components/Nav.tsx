@@ -13,13 +13,14 @@ const baseTabs = [
   { label: 'My Picks', icon: '🏈', href: '/picks' },
   { label: 'All Picks', icon: '📋', href: '/all-picks' },
   { label: 'Standings', icon: '🏆', href: '/standings' },
+  { label: '💩 Talk', icon: '💩', href: '/talk' },
   { label: 'Sheets', icon: '📊', href: '/spreadsheets' },
   { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 
 // Mobile shows Home, All Picks, My Picks, Standings; everything else moves into
 // the More sheet so the bar never gets denser than five slots.
-const MOBILE_MORE = ['/spreadsheets', '/champions'] as const
+const MOBILE_MORE = ['/talk', '/spreadsheets', '/champions'] as const
 
 interface NavProps {
   incompleteCount?: number
@@ -288,7 +289,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                   key={tab.href}
                   href={tab.href}
                   aria-label={needsAttention ? `My Picks — ${outstanding} still to do` : undefined}
-                  className={`shrink-0 flex items-center h-9 px-4 text-sm font-medium rounded-full whitespace-nowrap transition-all ${
+                  className={`shrink-0 flex items-center h-9 px-3 text-sm font-medium rounded-full whitespace-nowrap transition-all ${
                     needsAttention
                       ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/20'
                       : isActive

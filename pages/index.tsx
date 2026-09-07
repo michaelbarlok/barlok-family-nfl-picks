@@ -537,6 +537,19 @@ export default function DashboardPage() {
         )}
 
         {/* ── QUICK LINKS ── */}
+        <Link
+          href="/talk"
+          className="press glass-card rounded-2xl p-4 mt-5 flex items-center gap-3 hover:bg-white/[0.04] transition animate-slide-up"
+          style={{ animationDelay: '240ms' }}
+        >
+          <span className="text-2xl">💩</span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">Talk</p>
+            <p className="text-[11px] text-slate-500">One thread for the whole family. Photos and @tags welcome.</p>
+          </div>
+          <span className="ml-auto text-slate-600">›</span>
+        </Link>
+
         <div className="grid grid-cols-2 gap-3 mt-5 animate-slide-up" style={{ animationDelay: '250ms' }}>
           <Link
             href="/all-picks"

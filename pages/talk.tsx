@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { ADMIN_EMAIL } from '@/lib/constants'
 import { processImageFile, TALK_MAX_DIMENSION } from '@/lib/avatarUtils'
 import {
-  getPushState, getTalkEnabled, setTalkEnabled, refreshSubscription, isStandalone, type PushState,
+  getPushState, getTalkEnabled, setTalkEnabled, refreshSubscription, type PushState,
 } from '@/lib/pushClient'
 import Nav from '@/components/Nav'
 
@@ -22,8 +25,11 @@ interface Message {
   mentions: string[]
 }
 
+/** Messages from the same person inside this window share one bubble group. */
+const GROUP_WINDOW_MS = 5 * 60 * 1000
+
 /** Renders @mentions as highlighted chips, leaving the rest as plain text. */
-function MessageBody({ text, players }: { text: string; players: Player[] }) {
+function MessageBody({ text, players, mine }: { text: string; players: Player[]; mine: boolean }) {
   const names = players.map(p => p.name).sort((a, b) => b.length - a.length)
   if (names.length === 0) return <>{text}</>
 
@@ -35,20 +41,47 @@ function MessageBody({ text, players }: { text: string; players: Player[] }) {
     <>
       {parts.map((part, i) =>
         part.startsWith('@') && names.includes(part.slice(1))
-          ? <span key={i} className="text-blue-400 font-medium">{part}</span>
+          // Blue-on-blue is unreadable inside my own bubble, so mentions there
+          // lean on weight and a wash instead of hue.
+          ? <span key={i} className={mine ? 'font-semibold bg-white/20 rounded px-1' : 'text-blue-400 font-semibold'}>{part}</span>
           : <span key={i}>{part}</span>,
       )}
     </>
   )
 }
 
-function timeAgo(iso: string): string {
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (secs < 60) return 'just now'
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
-  if (secs < 604800) return `${Math.floor(secs / 86400)}d ago`
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const dayKey = (iso: string) => new Date(iso).toDateString()
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  if (d.toDateString() === today.toDateString()) return 'Today'
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  const sameYear = d.getFullYear() === today.getFullYear()
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }),
+  })
+}
+
+const clockTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+
+/** A message bubble. Becomes a button only when there's something to do with
+    it, so ordinary messages stay ordinary selectable text. */
+function Bubble({ deletable, onActivate, className, children }: {
+  deletable: boolean
+  onActivate: (e: React.MouseEvent) => void
+  className: string
+  children: React.ReactNode
+}) {
+  if (!deletable) return <div className={className}>{children}</div>
+  return (
+    <button type="button" onClick={onActivate} className={`${className} cursor-pointer`}>
+      {children}
+    </button>
+  )
 }
 
 export default function TalkPage() {
@@ -76,20 +109,45 @@ export default function TalkPage() {
   const [notifyOn, setNotifyOn] = useState(false)
   const [notifyBusy, setNotifyBusy] = useState(false)
 
+  // Which of my own bubbles is showing its Delete affordance. Tap-to-reveal,
+  // because hover doesn't exist on the phones this is mostly read on.
+  const [openActions, setOpenActions] = useState<string | null>(null)
+
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const stickRef = useRef(true)               // is the view parked at the bottom?
+  const restoreRef = useRef<number | null>(null) // scrollHeight to anchor to after loading older
+  const prevLenRef = useRef(0)
+  const [showJump, setShowJump] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+
+  const isAdmin = user?.email === ADMIN_EMAIL || user?.is_admin === true
+
   useEffect(() => {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
 
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token ?? ''
 
-  const load = useCallback(async (before?: string) => {
+  const load = useCallback(async (mode: 'initial' | 'older' | 'refresh', before?: string) => {
     try {
       const url = before ? `/api/talk?before=${encodeURIComponent(before)}` : '/api/talk'
       const res = await fetch(url, { headers: { Authorization: `Bearer ${await token()}` } })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to load the thread')
-      setMessages(prev => before ? [...prev, ...json.messages] : json.messages)
-      setHasMore(json.hasMore)
+      const incoming: Message[] = json.messages
+
+      setMessages(prev => {
+        if (mode === 'initial') return incoming
+        // Merge rather than replace: a realtime refresh only fetches the newest
+        // page, and replacing would throw away every older page already loaded.
+        const byId = new Map(prev.map(m => [m.id, m]))
+        for (const m of incoming) byId.set(m.id, m)
+        return [...byId.values()].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        )
+      })
+      // A refresh says nothing about how far back the thread goes.
+      if (mode !== 'refresh') setHasMore(json.hasMore)
       setLoadError('')
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load the thread')
@@ -101,7 +159,7 @@ export default function TalkPage() {
 
   useEffect(() => {
     if (!user) return
-    load()
+    load('initial')
     supabase.from('users').select('id, name, avatar_url').order('name')
       .then(({ data }) => setPlayers(data ?? []))
 
@@ -120,13 +178,96 @@ export default function TalkPage() {
     if (!user) return
     const channel = supabase
       .channel('talk-messages')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'talk_messages' }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'talk_messages' }, () => load('refresh'))
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [user, load])
 
+  // The thread lives in a fixed-height column, so the height has to track the
+  // visual viewport — 100dvh does not shrink when the keyboard opens, and
+  // without this the composer would sit behind it.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--app-h', `${vv.height}px`)
+      setKeyboardOpen(window.innerHeight - vv.height > 120)
+      // Nothing below us scrolls, so any page offset iOS introduced while
+      // focusing the input is pure drift.
+      if (window.scrollY !== 0) window.scrollTo(0, 0)
+    }
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      document.documentElement.style.removeProperty('--app-h')
+    }
+  }, [])
+
+  const ordered = useMemo(
+    () => [...messages].reverse(), // the API pages newest-first; a thread reads oldest-first
+    [messages],
+  )
+
+  // Bottom-anchored scrolling: stay pinned to the newest message unless the
+  // reader has deliberately scrolled up, and hold position when older messages
+  // are prepended.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    if (restoreRef.current !== null) {
+      el.scrollTop += el.scrollHeight - restoreRef.current
+      restoreRef.current = null
+    } else if (stickRef.current) {
+      el.scrollTop = el.scrollHeight
+    } else if (ordered.length > prevLenRef.current) {
+      setShowJump(true)
+    }
+    prevLenRef.current = ordered.length
+  }, [ordered, dataLoading])
+
+  const onScroll = () => {
+    const el = scrollerRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    stickRef.current = atBottom
+    if (atBottom) setShowJump(false)
+  }
+
+  const jumpToBottom = () => {
+    const el = scrollerRef.current
+    if (!el) return
+    stickRef.current = true
+    setShowJump(false)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  // Images arrive after layout, so a pinned view has to re-pin once they land.
+  const onMediaLoad = () => {
+    const el = scrollerRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
+  }
+
+  const loadOlder = () => {
+    const el = scrollerRef.current
+    if (!el || ordered.length === 0) return
+    restoreRef.current = el.scrollHeight
+    setLoadingMore(true)
+    load('older', messages[messages.length - 1].created_at)
+  }
+
+  const autoGrow = () => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`
+  }
+
   const onDraftChange = (value: string) => {
     setDraft(value)
+    autoGrow()
     // Open the picker on a trailing @word, so typing @Am filters to Amy.
     const upToCursor = value.slice(0, textareaRef.current?.selectionStart ?? value.length)
     const match = upToCursor.match(/@([\w]*)$/)
@@ -170,6 +311,7 @@ export default function TalkPage() {
     if ((!draft.trim() && !pendingImage) || posting) return
     setPosting(true)
     setPostError('')
+    stickRef.current = true // sending always takes you to the bottom
     try {
       // Resolve @names back to ids so mentions survive a later rename.
       const mentionIds = players.filter(p => draft.includes(`@${p.name}`)).map(p => p.id)
@@ -182,7 +324,9 @@ export default function TalkPage() {
       if (!res.ok) throw new Error(json.error ?? 'Could not post')
       setDraft('')
       setPendingImage(null)
-      await load()
+      setShowMentions(false)
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      await load('refresh')
     } catch (err) {
       setPostError(err instanceof Error ? err.message : 'Could not post')
     } finally {
@@ -190,14 +334,24 @@ export default function TalkPage() {
     }
   }
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey) return
+    // Enter sends on a keyboard; on a touch keyboard Return stays Return and
+    // the send button does the sending, which is what phones do everywhere else.
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
+    e.preventDefault()
+    post()
+  }
+
   const remove = async (id: string) => {
     if (!confirm('Delete this message?')) return
+    setOpenActions(null)
     await fetch('/api/talk', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
       body: JSON.stringify({ messageId: id }),
     })
-    await load()
+    await load('refresh')
   }
 
   const toggleNotify = async () => {
@@ -213,14 +367,17 @@ export default function TalkPage() {
 
   if (loading || dataLoading) {
     return (
-      <div className="min-h-screen bg-surface pb-20">
+      <div className="fixed inset-x-0 top-0 h-app flex flex-col bg-surface overflow-hidden">
         <Nav />
-        <main className="max-w-3xl mx-auto px-4 py-6">
-          <div className="skeleton h-4 w-32 rounded mb-5" />
-          <div className="space-y-3">
-            {[...Array(5)].map((_, i) => <div key={i} className="skeleton h-20 rounded-2xl" />)}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className={`flex ${i % 3 === 0 ? 'justify-end' : ''}`}>
+                <div className={`skeleton rounded-2xl h-12 ${i % 3 === 0 ? 'w-40' : 'w-56'}`} />
+              </div>
+            ))}
           </div>
-        </main>
+        </div>
       </div>
     )
   }
@@ -230,55 +387,229 @@ export default function TalkPage() {
     .filter(p => p.id !== user.id && p.name.toLowerCase().includes(mentionQuery))
     .slice(0, 6)
 
+  const canSend = (!!draft.trim() || !!pendingImage) && !posting
+
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="fixed inset-x-0 top-0 h-app flex flex-col bg-surface overflow-hidden">
       <Nav />
 
-      <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">💩 Talk</h2>
+      {/* Thread header — thin, so the conversation gets the screen. */}
+      <div className="shrink-0 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl">
+        <div className="max-w-3xl mx-auto px-4 h-11 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-base leading-none">💩</span>
+            <span className="text-sm font-semibold text-white truncate">Talk</span>
+            <span className="text-[11px] text-slate-500 shrink-0">
+              {players.length} {players.length === 1 ? 'member' : 'members'}
+            </span>
+          </div>
 
           {pushState === 'granted' || pushState === 'default' ? (
             <button
               onClick={toggleNotify}
               disabled={notifyBusy}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition disabled:opacity-50 ${
+              aria-pressed={notifyOn}
+              title={notifyOn ? 'Notifications on' : 'Turn on notifications'}
+              className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition disabled:opacity-50 ${
                 notifyOn
                   ? 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30'
                   : 'bg-white/[0.06] text-slate-400 hover:text-slate-200'
               }`}
             >
-              {notifyOn ? '🔔 Notifications on' : '🔕 Notify me'}
+              {notifyOn ? '🔔 On' : '🔕 Notify me'}
             </button>
           ) : pushState === 'denied' ? (
-            <span className="text-[11px] text-slate-500" title="Re-enable notifications in your settings">
-              🔕 Blocked in settings
+            <span className="shrink-0 text-[11px] text-slate-500" title="Re-enable notifications in your settings">
+              🔕 Blocked
             </span>
           ) : pushState === 'needs-install' ? (
-            <span className="text-[11px] text-slate-500">Add to Home Screen for alerts</span>
+            <span className="shrink-0 text-[11px] text-slate-500">Install for alerts</span>
           ) : null}
         </div>
+      </div>
 
-        {pushState === 'needs-install' && (
-          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300/90">
-            To get notified of new messages on iPhone, tap Share → <strong>Add to Home Screen</strong> and open
-            it from there. Safari tabs can&apos;t receive notifications.
-          </div>
+      {/* ── The thread ───────────────────────────────────────────────────── */}
+      <div
+        ref={scrollerRef}
+        onScroll={onScroll}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      >
+        <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4" onClick={() => setOpenActions(null)}>
+          {pushState === 'needs-install' && (
+            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300/90">
+              To get notified of new messages on iPhone, tap Share → <strong>Add to Home Screen</strong> and open
+              it from there. Safari tabs can&apos;t receive notifications.
+            </div>
+          )}
+
+          {loadError && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">{loadError}</div>
+          )}
+
+          {hasMore && (
+            <button
+              onClick={loadOlder}
+              disabled={loadingMore}
+              className="mx-auto mb-4 block px-4 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 bg-white/[0.04] hover:bg-white/[0.07] rounded-full transition disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading…' : 'Load earlier messages'}
+            </button>
+          )}
+
+          {ordered.length === 0 && !loadError && (
+            <div className="py-20 text-center">
+              <p className="text-5xl mb-3">💩</p>
+              <p className="text-white font-medium">No messages yet</p>
+              <p className="text-slate-500 text-sm mt-1.5">Start the trash talk. Type @ to tag someone.</p>
+            </div>
+          )}
+
+          {ordered.map((m, i) => {
+            const prev = ordered[i - 1]
+            const next = ordered[i + 1]
+            const mine = m.user_id === user.id
+            const tagged = m.mentions.includes(user.id)
+            const t = new Date(m.created_at).getTime()
+
+            const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at)
+            const startsGroup = newDay || !prev || prev.user_id !== m.user_id ||
+              t - new Date(prev.created_at).getTime() > GROUP_WINDOW_MS
+            const endsGroup = !next || next.user_id !== m.user_id ||
+              dayKey(next.created_at) !== dayKey(m.created_at) ||
+              new Date(next.created_at).getTime() - t > GROUP_WINDOW_MS
+
+            const imageOnly = !!m.image_url && !m.body && !m.deleted_at
+            const deletable = !m.deleted_at && (mine || isAdmin)
+
+            // Square off the corner facing the rest of the group, so a run of
+            // messages reads as one block instead of separate cards.
+            const corners = mine
+              ? `${startsGroup ? '' : 'rounded-tr-md '}${endsGroup ? '' : 'rounded-br-md'}`
+              : `${startsGroup ? '' : 'rounded-tl-md '}${endsGroup ? '' : 'rounded-bl-md'}`
+
+            return (
+              <div key={m.id}>
+                {newDay && (
+                  <div className="flex items-center gap-3 my-4">
+                    <div className="flex-1 h-px bg-white/[0.06]" />
+                    <span className="text-[11px] font-medium text-slate-500">{dayLabel(m.created_at)}</span>
+                    <div className="flex-1 h-px bg-white/[0.06]" />
+                  </div>
+                )}
+
+                <div className={`flex gap-2 ${endsGroup ? 'mb-3' : 'mb-0.5'} ${mine ? 'justify-end' : ''}`}>
+                  {/* Avatar gutter — filled once per group, reserved otherwise
+                      so the bubbles in a run stay aligned. */}
+                  {!mine && (
+                    <div className="w-7 shrink-0 self-end">
+                      {endsGroup && (
+                        m.avatar_url
+                          ? <img src={m.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-white/[0.08]" />
+                          : <span className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[11px] font-bold text-white">
+                              {m.author_name.charAt(0)}
+                            </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className={`max-w-[80%] sm:max-w-[70%] min-w-0 ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
+                    {startsGroup && !mine && (
+                      <span className="text-[11px] font-semibold text-slate-400 mb-1 px-1">
+                        {m.author_name}
+                        {tagged && <span className="ml-1.5 text-blue-400 font-medium">· tagged you</span>}
+                      </span>
+                    )}
+
+                    {/* Only the messages you can act on are interactive — a
+                        plain bubble stays selectable text, not a button. */}
+                    <Bubble
+                      deletable={deletable}
+                      onActivate={e => {
+                        e.stopPropagation()
+                        setOpenActions(openActions === m.id ? null : m.id)
+                      }}
+                      className={`text-left rounded-2xl ${corners} ${
+                        m.deleted_at
+                          ? 'px-3.5 py-2 bg-white/[0.03] border border-white/[0.06]'
+                          : imageOnly
+                            ? 'p-0 overflow-hidden bg-white/[0.04]'
+                            : mine
+                              ? 'px-3.5 py-2 bg-blue-600 text-white'
+                              : 'px-3.5 py-2 bg-white/[0.07] text-slate-100'
+                      } ${tagged && !mine && !m.deleted_at ? 'ring-1 ring-blue-500/40' : ''}`}
+                    >
+                      {m.deleted_at ? (
+                        <span className="text-sm text-slate-600 italic">Message deleted</span>
+                      ) : (
+                        <>
+                          {m.body && (
+                            <p className={`text-[15px] leading-snug whitespace-pre-wrap break-words ${mine ? 'text-white' : 'text-slate-100'}`}>
+                              <MessageBody text={m.body} players={players} mine={mine} />
+                            </p>
+                          )}
+                          {m.image_url && (
+                            <img
+                              src={m.image_url}
+                              alt=""
+                              loading="lazy"
+                              onLoad={onMediaLoad}
+                              className={`max-h-72 rounded-xl object-cover ${imageOnly ? '' : 'mt-2'}`}
+                            />
+                          )}
+                        </>
+                      )}
+                    </Bubble>
+
+                    {/* Timestamp closes the group; a run of rapid-fire messages
+                        gets one time, not five. */}
+                    {endsGroup && (
+                      <span className="text-[10px] text-slate-500 mt-1 px-1">{clockTime(m.created_at)}</span>
+                    )}
+
+                    {openActions === m.id && deletable && (
+                      <button
+                        onClick={() => remove(m.id)}
+                        className="text-[11px] font-medium text-red-400 hover:text-red-300 mt-0.5 px-1"
+                      >
+                        Delete message
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Composer ─────────────────────────────────────────────────────── */}
+      <div className={`shrink-0 relative border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-x ${keyboardOpen ? '' : 'pb-nav'}`}>
+        {showJump && (
+          <button
+            onClick={jumpToBottom}
+            className="absolute -top-11 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-blue-600 text-white text-xs font-semibold shadow-lg shadow-black/40 hover:bg-blue-500 transition"
+          >
+            New messages ↓
+          </button>
         )}
 
-        {/* Composer */}
-        <div className="glass-card rounded-2xl p-3 mb-5">
-          <div className="relative">
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={e => onDraftChange(e.target.value)}
-              placeholder="Say something… use @ to tag someone"
-              rows={3}
-              className="w-full px-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-slate-500 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-            />
+        <div className="max-w-3xl mx-auto px-3 sm:px-4 py-2.5">
+          {postError && <p className="mb-2 text-xs text-red-400">{postError}</p>}
+
+          {pendingImage && (
+            <div className="relative mb-2 inline-block">
+              <img src={pendingImage} alt="" className="max-h-24 rounded-xl border border-white/[0.08]" />
+              <button
+                onClick={() => setPendingImage(null)}
+                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold"
+                aria-label="Remove photo"
+              >×</button>
+            </div>
+          )}
+
+          <div className="relative flex items-end gap-2">
             {showMentions && mentionMatches.length > 0 && (
-              <div className="absolute left-0 right-0 bottom-full mb-1 bg-[#1a1d23] border border-white/[0.08] rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-20">
+              <div className="absolute left-0 right-0 bottom-full mb-2 bg-[#1a1d23] border border-white/[0.08] rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-20">
                 {mentionMatches.map(p => (
                   <button
                     key={p.id}
@@ -293,107 +624,52 @@ export default function TalkPage() {
                 ))}
               </div>
             )}
-          </div>
 
-          {pendingImage && (
-            <div className="relative mt-2 inline-block">
-              <img src={pendingImage} alt="" className="max-h-40 rounded-xl border border-white/[0.08]" />
-              <button
-                onClick={() => setPendingImage(null)}
-                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold"
-                aria-label="Remove photo"
-              >×</button>
-            </div>
-          )}
-
-          {postError && <p className="mt-2 text-xs text-red-400">{postError}</p>}
-
-          <div className="flex items-center justify-between mt-2">
             <input ref={fileRef} type="file" accept="image/*" onChange={pickImage} className="hidden" />
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
-              className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 rounded-lg hover:bg-white/[0.04] disabled:opacity-50 transition"
+              aria-label="Attach a photo"
+              className="shrink-0 w-9 h-9 rounded-full bg-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.10] flex items-center justify-center transition disabled:opacity-50"
             >
-              {uploading ? 'Uploading…' : '📷 Photo'}
+              {uploading
+                ? <span className="w-4 h-4 border-2 border-slate-500 border-t-slate-200 rounded-full animate-spin" />
+                : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                    <circle cx="12" cy="13" r="4" />
+                  </svg>
+                )}
             </button>
+
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={e => onDraftChange(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Message…"
+              rows={1}
+              className="flex-1 min-w-0 px-4 py-2 bg-white/[0.06] border border-white/[0.08] rounded-2xl text-white placeholder-slate-500 text-[15px] leading-snug resize-none max-h-[132px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            />
+
             <button
               onClick={post}
-              disabled={posting || (!draft.trim() && !pendingImage)}
-              className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 disabled:opacity-40 transition"
+              disabled={!canSend}
+              aria-label="Send"
+              className="shrink-0 w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-500 disabled:opacity-30 disabled:hover:bg-blue-600 transition"
             >
-              {posting ? 'Posting…' : 'Post'}
+              {posting
+                ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
+                )}
             </button>
           </div>
         </div>
-
-        {loadError && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">{loadError}</div>
-        )}
-
-        {messages.length === 0 && !loadError ? (
-          <div className="glass-card rounded-2xl p-12 text-center">
-            <p className="text-4xl mb-3">💩</p>
-            <p className="text-white font-medium">Nothing here yet</p>
-            <p className="text-slate-500 text-sm mt-1.5">Start the trash talk.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {messages.map(m => {
-              const isMe = m.user_id === user.id
-              const tagged = m.mentions.includes(user.id)
-              return (
-                <div
-                  key={m.id}
-                  className={`glass-card rounded-2xl p-3.5 ${tagged ? 'ring-1 ring-blue-500/30' : ''}`}
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    {m.avatar_url
-                      ? <img src={m.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover border border-white/[0.08]" />
-                      : <span className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[10px] font-bold text-white">{m.author_name.charAt(0)}</span>}
-                    <span className={`text-sm font-semibold ${isMe ? 'text-blue-400' : 'text-white'}`}>{m.author_name}</span>
-                    <span className="text-[11px] text-slate-500">{timeAgo(m.created_at)}</span>
-                    {tagged && <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded-full">tagged you</span>}
-                    {isMe && !m.deleted_at && (
-                      <button
-                        onClick={() => remove(m.id)}
-                        className="ml-auto text-[11px] text-slate-600 hover:text-red-400 transition"
-                      >Delete</button>
-                    )}
-                  </div>
-
-                  {m.deleted_at ? (
-                    <p className="text-sm text-slate-600 italic">Message deleted</p>
-                  ) : (
-                    <>
-                      {m.body && (
-                        <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
-                          <MessageBody text={m.body} players={players} />
-                        </p>
-                      )}
-                      {m.image_url && (
-                        <a href={m.image_url} target="_blank" rel="noreferrer">
-                          <img src={m.image_url} alt="" loading="lazy" className="mt-2 max-h-80 rounded-xl border border-white/[0.08]" />
-                        </a>
-                      )}
-                    </>
-                  )}
-                </div>
-              )
-            })}
-
-            {hasMore && (
-              <button
-                onClick={() => { setLoadingMore(true); load(messages[messages.length - 1].created_at) }}
-                disabled={loadingMore}
-                className="w-full py-2.5 text-sm text-slate-400 hover:text-slate-200 glass-card rounded-2xl transition disabled:opacity-50"
-              >
-                {loadingMore ? 'Loading…' : 'Load older messages'}
-              </button>
-            )}
-          </div>
-        )}
-      </main>
+      </div>
     </div>
   )
 }

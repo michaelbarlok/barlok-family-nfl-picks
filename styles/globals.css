@@ -138,3 +138,13 @@ body {
     padding-bottom: 0;
   }
 }
+
+/* Marks the message a quote jumped to, so the eye lands on it rather than
+   having to re-find it after the scroll. */
+.quote-flash {
+  animation: quoteFlash 1.2s ease-out;
+}
+@keyframes quoteFlash {
+  0%, 40% { box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.7); }
+  100% { box-shadow: 0 0 0 2px rgba(96, 165, 250, 0); }
+}

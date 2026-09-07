@@ -101,6 +101,30 @@ export async function setTalkEnabled(enabled: boolean): Promise<{ state: PushSta
 }
 
 /**
+ * Register this browser for push, asking for permission if it hasn't been
+ * answered yet. Must be called from a click, because that is the only context
+ * a browser will show the permission prompt in.
+ *
+ * Separate from setTalkEnabled because not every push preference is a Talk
+ * preference: pick reminders are a per-person setting stored on `users`, but
+ * they still need a subscribed device to arrive on, and this is that step.
+ */
+export async function enableDevicePush(): Promise<{ state: PushState; ok: boolean }> {
+  let state = getPushState()
+  if (state === 'default') {
+    const permission = await Notification.requestPermission()
+    state = permission === 'granted' ? 'granted' : permission === 'denied' ? 'denied' : 'default'
+  }
+  if (state !== 'granted') return { state, ok: false }
+
+  const sub = await currentSubscription()
+  if (!sub) return { state, ok: false }
+  // No talkEnabled: registering a device says nothing about the thread.
+  await save(sub)
+  return { state, ok: true }
+}
+
+/**
  * Keep an already-permitted device registered.
  *
  * Cheap and safe on load: the browser returns the same endpoint each time and

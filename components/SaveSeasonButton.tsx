@@ -2,15 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 
+/** Only the parts of /api/save-season's preview this component renders. */
 interface Preview {
   season: number
-  weeksPlayed: number
-  weeksExpected: number
-  undecidedGames: number
   readyToClose: boolean
-  blockers: string[]
   champion: { name: string; record: string; isTied: boolean } | null
-  standings: unknown[]
 }
 
 /**
@@ -21,8 +17,13 @@ interface Preview {
  * It asks the server whether the season is closeable before offering itself —
  * the readiness rules (all 18 weeks scored, no game left undecided) live in the
  * endpoint, not here, so the button and the action can't disagree.
+ *
+ * Renders nothing at all until the season is finishable. It used to show a
+ * "available once all 18 weeks are scored" placeholder instead, which meant a
+ * card that does nothing sat on the dashboard and the Results tab for the
+ * entire season to be relevant for about one week of it.
  */
-export default function SaveSeasonButton({ variant = 'card' }: { variant?: 'card' | 'inline' }) {
+export default function SaveSeasonButton() {
   const { season, refresh } = useSeason()
   const [preview, setPreview] = useState<Preview | null>(null)
   const [saving, setSaving] = useState(false)
@@ -90,22 +91,10 @@ export default function SaveSeasonButton({ variant = 'card' }: { variant?: 'card
   }
 
   // Nothing to offer until the season is actually finishable.
-  if (!preview || !preview.readyToClose) {
-    if (variant === 'inline' || !preview) return null
-    return (
-      <div className="glass-card rounded-xl p-4 mb-4">
-        <p className="text-sm font-semibold text-slate-200 mb-1">Save Season</p>
-        <p className="text-xs text-slate-500">
-          Available once all {preview.weeksExpected} weeks are scored.{' '}
-          {preview.weeksPlayed} of {preview.weeksExpected} done
-          {preview.undecidedGames > 0 && `, ${preview.undecidedGames} game${preview.undecidedGames === 1 ? '' : 's'} still without a result`}.
-        </p>
-      </div>
-    )
-  }
+  if (!preview || !preview.readyToClose) return null
 
   return (
-    <div className={`glass-card rounded-2xl p-4 mb-4 ring-1 ring-amber-500/40 ${variant === 'inline' ? '' : 'mt-2'}`}>
+    <div className="glass-card rounded-2xl p-4 mb-4 mt-2 ring-1 ring-amber-500/40">
       <p className="text-sm font-semibold text-amber-300 mb-1">🏆 Season {preview.season} is complete</p>
       <p className="text-xs text-slate-400 mb-3">
         {preview.champion

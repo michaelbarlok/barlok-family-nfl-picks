@@ -6,12 +6,20 @@ import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_EMAIL } from '@/lib/constants'
 import { processImageFile, TALK_MAX_DIMENSION } from '@/lib/avatarUtils'
+import { REACTIONS, reactionEmoji, reactionLabel, sortReactions } from '@/lib/reactions'
 import {
   getPushState, getTalkEnabled, setTalkEnabled, refreshSubscription, type PushState,
 } from '@/lib/pushClient'
 import Nav from '@/components/Nav'
 
 interface Player { id: string; name: string; avatar_url?: string | null }
+
+interface MessageReaction {
+  reaction: string
+  count: number
+  names: string[]
+  mine: boolean
+}
 
 interface Message {
   id: string
@@ -23,6 +31,7 @@ interface Message {
   deleted_at: string | null
   avatar_url: string | null
   mentions: string[]
+  reactions: MessageReaction[]
 }
 
 /** Messages from the same person inside this window share one bubble group. */
@@ -67,22 +76,6 @@ function dayLabel(iso: string): string {
 
 const clockTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-
-/** A message bubble. Becomes a button only when there's something to do with
-    it, so ordinary messages stay ordinary selectable text. */
-function Bubble({ deletable, onActivate, className, children }: {
-  deletable: boolean
-  onActivate: (e: React.MouseEvent) => void
-  className: string
-  children: React.ReactNode
-}) {
-  if (!deletable) return <div className={className}>{children}</div>
-  return (
-    <button type="button" onClick={onActivate} className={`${className} cursor-pointer`}>
-      {children}
-    </button>
-  )
-}
 
 export default function TalkPage() {
   const router = useRouter()
@@ -179,6 +172,7 @@ export default function TalkPage() {
     const channel = supabase
       .channel('talk-messages')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'talk_messages' }, () => load('refresh'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'talk_reactions' }, () => load('refresh'))
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [user, load])
@@ -343,6 +337,56 @@ export default function TalkPage() {
     post()
   }
 
+  const toggleReaction = async (messageId: string, code: string) => {
+    if (!user) return
+    const message = messages.find(m => m.id === messageId)
+    if (!message || message.deleted_at) return
+
+    const existing = message.reactions.find(r => r.reaction === code)
+    const removing = existing?.mine === true
+    const myName = user.name ?? 'You'
+
+    // Applied locally first: a reaction has to answer on the tap, not on the
+    // round trip. The realtime refresh that follows is what reconciles it, and
+    // is also what corrects this if the write fails.
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m
+      const others = m.reactions.filter(r => r.reaction !== code)
+      if (removing) {
+        const names = [...existing!.names]
+        names.splice(names.indexOf(myName), 1)
+        return {
+          ...m,
+          reactions: existing!.count > 1
+            ? [...others, { reaction: code, count: existing!.count - 1, names, mine: false }]
+            : others,
+        }
+      }
+      return {
+        ...m,
+        reactions: [...others, {
+          reaction: code,
+          count: (existing?.count ?? 0) + 1,
+          names: [...(existing?.names ?? []), myName],
+          mine: true,
+        }],
+      }
+    }))
+
+    const { error } = removing
+      ? await supabase.from('talk_reactions').delete()
+          .eq('message_id', messageId).eq('user_id', user.id).eq('reaction', code)
+      : await supabase.from('talk_reactions')
+          .insert({ message_id: messageId, user_id: user.id, reaction: code })
+
+    if (error) {
+      setPostError(error.message.includes('talk_reactions')
+        ? 'Reactions are not set up yet. Run supabase/migrations/15_talk_reactions.sql.'
+        : 'Could not save that reaction.')
+      await load('refresh')
+    }
+  }
+
   const remove = async (id: string) => {
     if (!confirm('Delete this message?')) return
     setOpenActions(null)
@@ -497,7 +541,11 @@ export default function TalkPage() {
                   </div>
                 )}
 
-                <div className={`flex gap-2 ${endsGroup ? 'mb-3' : 'mb-0.5'} ${mine ? 'justify-end' : ''}`}>
+                {/* A reacted-to message needs room for its pills, or they
+                    read as belonging to the bubble below them. */}
+                <div className={`flex gap-2 ${
+                  endsGroup ? 'mb-3' : m.reactions.length > 0 ? 'mb-2' : 'mb-0.5'
+                } ${mine ? 'justify-end' : ''}`}>
                   {/* Avatar gutter — filled once per group, reserved otherwise
                       so the bubbles in a run stay aligned. */}
                   {!mine && (
@@ -520,15 +568,26 @@ export default function TalkPage() {
                       </span>
                     )}
 
-                    {/* Only the messages you can act on are interactive — a
-                        plain bubble stays selectable text, not a button. */}
-                    <Bubble
-                      deletable={deletable}
-                      onActivate={e => {
+                    {/* A div, not a button: everyone can react, so every
+                        message is tappable, and a <button> would swallow the
+                        long-press that selects text on a phone. The selection
+                        check keeps a drag-select on desktop from also opening
+                        the picker on mouse-up. */}
+                    <div
+                      role="button"
+                      tabIndex={m.deleted_at ? -1 : 0}
+                      onClick={e => {
                         e.stopPropagation()
+                        if (m.deleted_at) return
+                        if ((window.getSelection()?.toString() ?? '').length > 0) return
                         setOpenActions(openActions === m.id ? null : m.id)
                       }}
-                      className={`text-left rounded-2xl ${corners} ${
+                      onKeyDown={e => {
+                        if (m.deleted_at || (e.key !== 'Enter' && e.key !== ' ')) return
+                        e.preventDefault()
+                        setOpenActions(openActions === m.id ? null : m.id)
+                      }}
+                      className={`text-left rounded-2xl ${m.deleted_at ? '' : 'cursor-pointer'} ${corners} ${
                         m.deleted_at
                           ? 'px-3.5 py-2 bg-white/[0.03] border border-white/[0.06]'
                           : imageOnly
@@ -558,21 +617,61 @@ export default function TalkPage() {
                           )}
                         </>
                       )}
-                    </Bubble>
+                    </div>
+
+                    {m.reactions.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {sortReactions(m.reactions).map(r => (
+                          <button
+                            key={r.reaction}
+                            onClick={() => toggleReaction(m.id, r.reaction)}
+                            title={`${r.names.join(', ')} — ${reactionLabel(r.reaction)}`}
+                            className={`flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full border text-[11px] transition ${
+                              r.mine
+                                ? 'bg-blue-500/20 border-blue-500/40 text-blue-200'
+                                : 'bg-white/[0.06] border-white/[0.08] text-slate-400 hover:bg-white/[0.10]'
+                            }`}
+                          >
+                            <span className="text-[13px] leading-none">{reactionEmoji(r.reaction)}</span>
+                            <span className="font-semibold tabular-nums">{r.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {openActions === m.id && !m.deleted_at && (
+                      <div className="flex items-center gap-0.5 mt-1.5 p-1 rounded-full bg-[#1a1d23] border border-white/[0.08] shadow-xl shadow-black/40">
+                        {REACTIONS.map(r => {
+                          const on = m.reactions.some(x => x.reaction === r.code && x.mine)
+                          return (
+                            <button
+                              key={r.code}
+                              onClick={() => toggleReaction(m.id, r.code)}
+                              aria-label={r.label}
+                              aria-pressed={on}
+                              className={`w-8 h-8 rounded-full text-lg leading-none transition active:scale-90 ${
+                                on ? 'bg-blue-500/25' : 'hover:bg-white/[0.08]'
+                              }`}
+                            >
+                              {r.emoji}
+                            </button>
+                          )
+                        })}
+                        {deletable && (
+                          <button
+                            onClick={() => remove(m.id)}
+                            className="px-2.5 h-8 text-[11px] font-medium text-red-400 hover:text-red-300 transition"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* Timestamp closes the group; a run of rapid-fire messages
                         gets one time, not five. */}
                     {endsGroup && (
                       <span className="text-[10px] text-slate-500 mt-1 px-1">{clockTime(m.created_at)}</span>
-                    )}
-
-                    {openActions === m.id && deletable && (
-                      <button
-                        onClick={() => remove(m.id)}
-                        className="text-[11px] font-medium text-red-400 hover:text-red-300 mt-0.5 px-1"
-                      >
-                        Delete message
-                      </button>
                     )}
                   </div>
                 </div>

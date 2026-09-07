@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 import { processAvatarFile } from '@/lib/avatarUtils'
 import NotificationSettings from '@/components/NotificationSettings'
+import { SHOW_INSTALL_EVENT } from '@/components/InstallPrompt'
+import { isStandalone } from '@/lib/pushClient'
 
 const baseTabs = [
   { label: 'Home', icon: '🏠', href: '/' },
@@ -36,6 +38,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const [showMore, setShowMore] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [avatarUploading, setAvatarUploading] = useState(false)
+  // Resolved after mount: isStandalone() reads the browser, so rendering it
+  // during SSR would hydrate to a different answer.
+  const [installed, setInstalled] = useState(true)
   const [avatarError, setAvatarError] = useState('')
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -178,6 +183,8 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       setAvatarUploading(false)
     }
   }
+
+  useEffect(() => { setInstalled(isStandalone()) }, [])
 
   // Close menu on outside click
   useEffect(() => {
@@ -408,6 +415,26 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               {avatarError && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm animate-slide-up">
                   {avatarError}
+                </div>
+              )}
+
+              {/* Dismissing the install sheet hides it for two weeks, which
+                  would otherwise be a dead end — and on iOS installing is the
+                  only route to notifications at all. */}
+              {!installed && (
+                <div className="border-t border-white/[0.06] pt-4 mb-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">App</p>
+                  <button
+                    onClick={() => { setShowProfile(false); window.dispatchEvent(new Event(SHOW_INSTALL_EVENT)) }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-slate-300 bg-white/[0.04] border border-white/[0.08] rounded-xl hover:bg-white/[0.06] transition"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-500">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Add to Home Screen
+                  </button>
                 </div>
               )}
 

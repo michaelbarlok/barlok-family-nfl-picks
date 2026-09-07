@@ -7,6 +7,7 @@ import { SeasonProvider } from '@/lib/season'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
+import InstallPrompt from '@/components/InstallPrompt'
 import '@/styles/globals.css'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -72,6 +73,10 @@ export default function App({ Component, pageProps }: AppProps) {
               The cross-fade is no loss: every page already fades its own <main>
               in with animate-fade-in. */}
           <Component key={router.asPath} {...pageProps} />
+
+          {/* App-wide, and outside the keyed <Component>, so navigating
+              doesn't restart its timer or reopen it. */}
+          <InstallPrompt />
         </ToastProvider>
         </SeasonProvider>
       </AuthProvider>

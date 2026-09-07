@@ -49,17 +49,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const ids = (messages ?? []).map(m => m.id)
-    const [{ data: mentions }, { data: authors }] = await Promise.all([
+    const [{ data: mentions }, { data: authors }, { data: reactions }] = await Promise.all([
       ids.length
         ? supabase.from('talk_mentions').select('message_id, user_id').in('message_id', ids)
         : Promise.resolve({ data: [] as { message_id: string; user_id: string }[] }),
       supabase.from('users').select('id, name, avatar_url'),
+      // Reactions are written straight from the browser under RLS, but they are
+      // read here so a message and its reactions arrive together — a separate
+      // client query would render the thread once without them and again with.
+      ids.length
+        ? supabase.from('talk_reactions').select('message_id, user_id, reaction').in('message_id', ids)
+        : Promise.resolve({ data: [] as { message_id: string; user_id: string; reaction: string }[] }),
     ])
 
     const avatarById = new Map((authors ?? []).map(u => [u.id, u.avatar_url]))
+    const nameById = new Map((authors ?? []).map(u => [u.id, u.name]))
     const mentionsByMessage = new Map<string, string[]>()
     for (const m of mentions ?? []) {
       mentionsByMessage.set(m.message_id, [...(mentionsByMessage.get(m.message_id) ?? []), m.user_id])
+    }
+
+    // Collapsed to one entry per emoji per message, with the names behind it
+    // and whether the caller is one of them — the client never has to hold the
+    // raw rows or know who else exists.
+    const reactionsByMessage = new Map<string, Map<string, { names: string[]; mine: boolean }>>()
+    for (const r of reactions ?? []) {
+      if (!reactionsByMessage.has(r.message_id)) reactionsByMessage.set(r.message_id, new Map())
+      const forMessage = reactionsByMessage.get(r.message_id)!
+      const entry = forMessage.get(r.reaction) ?? { names: [], mine: false }
+      entry.names.push(nameById.get(r.user_id) ?? 'Someone')
+      if (r.user_id === authUser.id) entry.mine = true
+      forMessage.set(r.reaction, entry)
     }
 
     return res.status(200).json({
@@ -71,6 +91,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         image_url: m.deleted_at ? null : m.image_url,
         avatar_url: avatarById.get(m.user_id ?? '') ?? null,
         mentions: mentionsByMessage.get(m.id) ?? [],
+        reactions: [...(reactionsByMessage.get(m.id) ?? new Map()).entries()].map(
+          ([reaction, e]) => ({ reaction, count: e.names.length, names: e.names.sort(), mine: e.mine }),
+        ),
       })),
       hasMore: (messages ?? []).length === PAGE_SIZE,
     })

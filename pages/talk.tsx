@@ -14,10 +14,13 @@ import Nav from '@/components/Nav'
 
 interface Player { id: string; name: string; avatar_url?: string | null }
 
+interface Reactor { id: string; name: string }
+
 interface MessageReaction {
   reaction: string
   count: number
-  names: string[]
+  /** In the order people reacted. */
+  users: Reactor[]
   mine: boolean
 }
 
@@ -129,6 +132,10 @@ export default function TalkPage() {
   // Hold-to-act is invisible until someone tries it, and nobody tries a gesture
   // they haven't been told about. Shown once, retired the first time it's used.
   const [showHoldHint, setShowHoldHint] = useState(false)
+  // Which message's reactor list is open. Held by id, not by object, so the
+  // sheet follows the message through a realtime refresh instead of freezing
+  // on a stale copy of it.
+  const [reactorsFor, setReactorsFor] = useState<string | null>(null)
   // Long-press bookkeeping. A ref, not state — it changes on every pointer
   // move and must not re-render the thread while a finger is down.
   const pressRef = useRef<{ timer: number; x: number; y: number } | null>(null)
@@ -240,6 +247,30 @@ export default function TalkPage() {
       document.documentElement.style.removeProperty('--app-h')
     }
   }, [])
+
+  // Any click anywhere dismisses an open action row — on the header, the
+  // composer, another message. Bound to the document rather than the thread
+  // container, which only ever saw taps that landed inside the scroller.
+  useEffect(() => {
+    if (!openActions) return
+    const dismiss = () => {
+      // A long press is followed by a click on the same element; without this
+      // the press would open the row and that click would shut it one frame
+      // later. A timestamp, so a browser that emits no click can't wedge it.
+      if (Date.now() - pressFiredAtRef.current < 500) return
+      setOpenActions(null)
+    }
+    document.addEventListener('click', dismiss)
+    return () => document.removeEventListener('click', dismiss)
+  }, [openActions])
+
+  // Removing the last reaction empties the sheet. Close it rather than leaving
+  // it armed to reappear the moment someone else reacts.
+  useEffect(() => {
+    if (!reactorsFor) return
+    const message = messages.find(m => m.id === reactorsFor)
+    if (!message || message.reactions.length === 0) setReactorsFor(null)
+  }, [reactorsFor, messages])
 
   const ordered = useMemo(
     () => [...messages].reverse(), // the API pages newest-first; a thread reads oldest-first
@@ -468,23 +499,19 @@ export default function TalkPage() {
       if (m.id !== messageId) return m
       const others = m.reactions.filter(r => r.reaction !== code)
       if (removing) {
-        const names = [...existing!.names]
-        names.splice(names.indexOf(myName), 1)
+        // By id, not by name — two people can share a first name.
+        const users = existing!.users.filter(u => u.id !== user.id)
         return {
           ...m,
-          reactions: existing!.count > 1
-            ? [...others, { reaction: code, count: existing!.count - 1, names, mine: false }]
+          reactions: users.length > 0
+            ? [...others, { reaction: code, count: users.length, users, mine: false }]
             : others,
         }
       }
+      const users = [...(existing?.users ?? []), { id: user.id, name: myName }]
       return {
         ...m,
-        reactions: [...others, {
-          reaction: code,
-          count: (existing?.count ?? 0) + 1,
-          names: [...(existing?.names ?? []), myName],
-          mine: true,
-        }],
+        reactions: [...others, { reaction: code, count: users.length, users, mine: true }],
       }
     }))
 
@@ -593,16 +620,7 @@ export default function TalkPage() {
         onScroll={onScroll}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       >
-        <div
-          className="max-w-3xl mx-auto px-3 sm:px-4 py-4"
-          onClick={() => {
-            // A long press is followed by a click on the same element. Without
-            // this the press would open the actions and the click would shut
-            // them again, one frame later.
-            if (Date.now() - pressFiredAtRef.current < 500) return
-            setOpenActions(null)
-          }}
-        >
+        <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4">
           {pushState === 'needs-install' && (
             <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300/90">
               To get notified of new messages on iPhone, tap Share → <strong>Add to Home Screen</strong> and open
@@ -776,8 +794,12 @@ export default function TalkPage() {
                         {sortReactions(m.reactions).map(r => (
                           <button
                             key={r.reaction}
-                            onClick={() => toggleReaction(m.id, r.reaction)}
-                            title={`${r.names.join(', ')} — ${reactionLabel(r.reaction)}`}
+                            // Tapping shows who, rather than toggling. Adding
+                            // and removing lives in the hold picker, which is
+                            // where the rest of a message's actions are — one
+                            // meaning per gesture.
+                            onClick={e => { e.stopPropagation(); setReactorsFor(m.id) }}
+                            title={`${r.users.map(u => u.name).join(', ')} — ${reactionLabel(r.reaction)}`}
                             className={`flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full border text-[11px] transition ${
                               r.mine
                                 ? 'bg-blue-500/20 border-blue-500/40 text-blue-200'
@@ -848,6 +870,74 @@ export default function TalkPage() {
           })}
         </div>
       </div>
+
+      {/* Who reacted. One sheet for the whole thread rather than one per
+          message — only ever one can be open. */}
+      {reactorsFor && (() => {
+        const message = messages.find(m => m.id === reactorsFor)
+        if (!message || message.reactions.length === 0) return null
+        const avatarOf = (id: string) => players.find(pl => pl.id === id)?.avatar_url ?? null
+        const total = message.reactions.reduce((n, r) => n + r.count, 0)
+
+        return (
+          <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setReactorsFor(null)} />
+            <div className="relative w-full sm:max-w-sm max-h-[70vh] flex flex-col bg-[#1a1d23] border border-white/[0.08] rounded-t-2xl sm:rounded-2xl shadow-2xl shadow-black/50 animate-slide-up safe-bottom safe-x">
+              <div className="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
+                <p className="text-sm font-semibold text-white">
+                  {total} {total === 1 ? 'reaction' : 'reactions'}
+                </p>
+                <button
+                  onClick={() => setReactorsFor(null)}
+                  aria-label="Close"
+                  className="p-1 text-slate-500 hover:text-slate-300 transition"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="overflow-y-auto overscroll-contain px-4 pb-4">
+                {sortReactions(message.reactions).map(r => (
+                  <div key={r.reaction} className="mb-3 last:mb-0">
+                    <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      <span className="text-[15px] leading-none">{reactionEmoji(r.reaction)}</span>
+                      {reactionLabel(r.reaction)} · {r.count}
+                    </p>
+                    {r.users.map(u => {
+                      const isMe = u.id === user.id
+                      const avatar = avatarOf(u.id)
+                      return (
+                        <button
+                          key={u.id}
+                          disabled={!isMe}
+                          onClick={() => toggleReaction(message.id, r.reaction)}
+                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition ${
+                            isMe ? 'hover:bg-white/[0.06]' : 'cursor-default'
+                          }`}
+                        >
+                          {avatar
+                            ? <img src={avatar} alt="" className="w-7 h-7 rounded-full object-cover border border-white/[0.08]" />
+                            : <span className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[11px] font-bold text-white">
+                                {u.name.charAt(0)}
+                              </span>}
+                          <span className="text-sm text-slate-200 truncate flex-1">
+                            {isMe ? 'You' : u.name}
+                          </span>
+                          {/* Only your own reaction is yours to take back, so
+                              only your own row does anything. */}
+                          {isMe && <span className="text-[11px] text-slate-500 shrink-0">Tap to remove</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Composer ─────────────────────────────────────────────────────── */}
       <div className={`shrink-0 relative border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-x ${keyboardOpen ? '' : 'pb-nav'}`}>

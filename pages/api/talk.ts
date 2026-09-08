@@ -80,7 +80,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // read here so a message and its reactions arrive together — a separate
       // client query would render the thread once without them and again with.
       ids.length
-        ? supabase.from('talk_reactions').select('message_id, user_id, reaction').in('message_id', ids)
+        // Ordered so "who reacted" reads in the order people actually did.
+        ? supabase.from('talk_reactions').select('message_id, user_id, reaction, created_at')
+            .in('message_id', ids).order('created_at')
         : Promise.resolve({ data: [] as { message_id: string; user_id: string; reaction: string }[] }),
       parentIds.length
         ? supabase.from('talk_messages')
@@ -95,15 +97,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       mentionsByMessage.set(m.message_id, [...(mentionsByMessage.get(m.message_id) ?? []), m.user_id])
     }
 
-    // Collapsed to one entry per emoji per message, with the names behind it
-    // and whether the caller is one of them — the client never has to hold the
-    // raw rows or know who else exists.
-    const reactionsByMessage = new Map<string, Map<string, { names: string[]; mine: boolean }>>()
+    // Collapsed to one entry per emoji per message. Ids travel alongside the
+    // names so the client can show each reactor's avatar and tell which entry
+    // is the caller's, without having to hold the raw rows.
+    type Reactor = { id: string; name: string }
+    const reactionsByMessage = new Map<string, Map<string, { users: Reactor[]; mine: boolean }>>()
     for (const r of reactions ?? []) {
       if (!reactionsByMessage.has(r.message_id)) reactionsByMessage.set(r.message_id, new Map())
       const forMessage = reactionsByMessage.get(r.message_id)!
-      const entry = forMessage.get(r.reaction) ?? { names: [], mine: false }
-      entry.names.push(nameById.get(r.user_id) ?? 'Someone')
+      const entry = forMessage.get(r.reaction) ?? { users: [] as Reactor[], mine: false }
+      entry.users.push({ id: r.user_id, name: nameById.get(r.user_id) ?? 'Someone' })
       if (r.user_id === authUser.id) entry.mine = true
       forMessage.set(r.reaction, entry)
     }
@@ -127,7 +130,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         avatar_url: avatarById.get(m.user_id ?? '') ?? null,
         mentions: mentionsByMessage.get(m.id) ?? [],
         reactions: [...(reactionsByMessage.get(m.id) ?? new Map()).entries()].map(
-          ([reaction, e]) => ({ reaction, count: e.names.length, names: e.names.sort(), mine: e.mine }),
+          ([reaction, e]) => ({ reaction, count: e.users.length, users: e.users, mine: e.mine }),
         ),
         // null when the quoted message has since been hard-deleted, which the
         // ON DELETE SET NULL on reply_to_id already turns into a plain message.

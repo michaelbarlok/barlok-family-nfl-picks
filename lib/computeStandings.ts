@@ -71,10 +71,28 @@ export interface WeekRecord {
   bestWins: number
   bestLosses: number
   bestTies: number
+  /**
+   * Every game in the week has a result. Until then the record is a running
+   * partial, not an outcome — 1-0 after one Thursday game is not a finished
+   * week, and anything that reads a week record as a verdict has to know the
+   * difference.
+   */
+  complete: boolean
 }
 
 function emptyWeekRecord(): WeekRecord {
-  return { wins: 0, losses: 0, ties: 0, bestWins: 0, bestLosses: 0, bestTies: 0 }
+  return { wins: 0, losses: 0, ties: 0, bestWins: 0, bestLosses: 0, bestTies: 0, complete: false }
+}
+
+/**
+ * Won every game of a finished week.
+ *
+ * The completeness half is the point. Without it, the first decided game of a
+ * week hands a trophy to everyone who got it right, and takes it back off most
+ * of them over the following days.
+ */
+export function isPerfectWeek(wr: WeekRecord): boolean {
+  return wr.complete && wr.wins > 0 && wr.losses === 0 && wr.ties === 0
 }
 
 function emptyUserRecord(): UserRecord {
@@ -222,6 +240,27 @@ export function computeRecords(input: ComputeInput): Map<string, UserRecord> {
       rec.bestLosses += unfilled
       wr.bestLosses += unfilled
     }
+  }
+
+  // Phase 4: mark which weeks are finished.
+  //
+  // Done from the full game list rather than the decided one — a week is only
+  // complete when nothing in it is still waiting on a result, and the decided
+  // list by definition can't tell you what's missing.
+  const weekTotals = new Map<number, { total: number; decided: number }>()
+  for (const game of games) {
+    const entry = weekTotals.get(game.week) ?? { total: 0, decided: 0 }
+    entry.total++
+    if (game.winning_team) entry.decided++
+    weekTotals.set(game.week, entry)
+  }
+  const completeWeeks = new Set(
+    [...weekTotals.entries()]
+      .filter(([, e]) => e.total > 0 && e.decided === e.total)
+      .map(([week]) => week),
+  )
+  for (const rec of records.values()) {
+    for (const [week, wr] of rec.weekRecords) wr.complete = completeWeeks.has(week)
   }
 
   return records

@@ -24,7 +24,7 @@ interface Game {
 }
 
 interface AllPicksData {
-  users: { id: string; name: string }[]
+  users: { id: string; name: string; avatar_url: string | null }[]
   picks: { user_id: string; game_id: string; picked_team: string }[]
   threeBests: { user_id: string; pick_1: string; pick_2: string; pick_3: string }[]
 }
@@ -157,7 +157,7 @@ export default function AllPicksPage() {
       allSeasonPicks,
       { data: allSeasonThreeBests },
     ] = await Promise.all([
-      supabase.from('users').select('id, name').order('name'),
+      supabase.from('users').select('id, name, avatar_url').order('name'),
       supabase.from('picks').select('user_id, game_id, picked_team')
         .eq('week', week).eq('season', season),
       supabase.from('three_best').select('user_id, pick_1, pick_2, pick_3')
@@ -255,7 +255,7 @@ export default function AllPicksPage() {
     <div className="min-h-screen bg-surface pb-20">
       <Nav />
 
-      <main className="max-w-4xl mx-auto px-3 sm:px-4 py-6 animate-fade-in">
+      <main className="max-w-4xl xl:max-w-[1500px] mx-auto px-3 sm:px-4 py-6 animate-fade-in">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
           All Picks
         </h2>
@@ -339,32 +339,51 @@ export default function AllPicksPage() {
           const userCount = allPicksData.users.length
           const dense = userCount >= 15
           const veryDense = userCount >= 18
-          const gameColPx = veryDense ? 42 : dense ? 46 : 52
-          const cellTextCls = veryDense ? 'text-[8.5px]' : dense ? 'text-[9px]' : 'text-[10px]'
-          const headerTextCls = veryDense ? 'text-[8px]' : dense ? 'text-[8.5px]' : 'text-[9px]'
+          const gameColCls = veryDense ? 'w-[42px]' : dense ? 'w-[46px]' : 'w-[52px]'
+          // The phone sizes stay exactly as they were; the breakpoints spend the
+          // room a desktop actually has, which was the whole complaint — 8.5px
+          // type and three-letter names inside 830px on a 1800px screen.
+          const cellTextCls = `${veryDense ? 'text-[8.5px]' : dense ? 'text-[9px]' : 'text-[10px]'} sm:text-[11px] lg:text-[13px]`
+          const headerTextCls = `${veryDense ? 'text-[8px]' : dense ? 'text-[8.5px]' : 'text-[9px]'} sm:text-[10px] lg:text-[11px]`
           const headerNameMax = veryDense ? 3 : 4
+
+          // The column header, repeated under the games so the summary numbers
+          // still have names attached after a long scroll.
+          const headerRow = (key: string) => (
+            <tr key={key} className="bg-white/[0.03] border-y border-white/[0.06]">
+              <th className={`px-1 xl:px-3 py-1.5 lg:py-2 text-left font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>
+                Game
+              </th>
+              {allPicksData!.users.map(u => (
+                <th
+                  key={u.id}
+                  className={`px-0 xl:px-1 py-1.5 lg:py-2 text-center font-semibold text-slate-400 uppercase tracking-tight xl:tracking-normal xl:normal-case ${headerTextCls}`}
+                  title={u.name}
+                >
+                  <span className="xl:hidden truncate block">{u.name.split(' ')[0].slice(0, headerNameMax)}</span>
+                  <span className="hidden xl:flex flex-col items-center gap-1">
+                    {u.avatar_url
+                      ? <img src={u.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover border border-white/[0.08]" />
+                      : <span className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[10px] font-bold text-white">
+                          {u.name.charAt(0)}
+                        </span>}
+                    <span className="text-slate-300 font-semibold truncate max-w-full">{u.name.split(' ')[0]}</span>
+                  </span>
+                </th>
+              ))}
+            </tr>
+          )
           return (
           <>
           {/* ── COMPACT GRID — all users, all games, no horizontal scroll ── */}
-          <p className="text-[10px] text-slate-600 mb-2">⭐ = Best 3 (highlighted cell) · <span className="text-emerald-400">green</span> = win · <span className="text-red-400">red</span> = loss</p>
+          <p className="text-[10px] lg:text-xs text-slate-600 mb-2">⭐ = Best 3 (amber) · <span className="text-emerald-400">green</span> = win · <span className="text-red-400">red</span> = loss</p>
           <div className="glass-card rounded-2xl overflow-hidden">
             <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: `${gameColPx}px` }} />
+                  <col className={`${gameColCls} xl:w-[110px]`} />
                   {allPicksData.users.map(u => <col key={u.id} />)}
                 </colgroup>
-                <thead>
-                  <tr className="bg-white/[0.03] border-b border-white/[0.06]">
-                    <th className={`px-1 py-1.5 text-left font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>
-                      Game
-                    </th>
-                    {allPicksData.users.map(u => (
-                      <th key={u.id} className={`px-0 py-1.5 text-center font-semibold text-slate-400 uppercase tracking-tight truncate ${headerTextCls}`} title={u.name}>
-                        {u.name.split(' ')[0].slice(0, headerNameMax)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
+                <thead>{headerRow('top')}</thead>
                 <tbody>
                   {games.map(game => {
                     const hasScore = game.away_score != null && game.home_score != null
@@ -372,9 +391,15 @@ export default function AllPicksPage() {
                     const homeWon = game.winning_team === game.home_team
                     const isTieGame = game.winning_team === 'TIE'
                     return (
-                      <tr key={game.id} className="border-b border-white/[0.04]">
+                      <tr
+                        key={game.id}
+                        // Tracking one row across fifteen columns is the hard
+                        // part of a grid this wide; a hover band does most of
+                        // the work a ruler would.
+                        className="border-b border-white/[0.04] lg:hover:bg-white/[0.03] transition-colors"
+                      >
                         {/* Game column: away / home abbreviations stacked, no logos */}
-                        <td className="px-1 py-1 align-middle">
+                        <td className="px-1 xl:px-3 py-1 lg:py-1.5 align-middle">
                           <div className="flex flex-col leading-tight">
                             <span className={`font-bold tabular-nums ${cellTextCls} ${awayWon ? 'text-white' : isTieGame ? 'text-slate-400' : hasScore ? 'text-slate-500' : 'text-slate-300'}`}>
                               {game.away_team}{hasScore && <span className="text-slate-600 font-normal ml-0.5">{game.away_score}</span>}
@@ -399,8 +424,21 @@ export default function AllPicksPage() {
                             : isLoss ? 'text-red-400'
                             : 'text-slate-300'
                           return (
-                            <td key={u.id} className={`px-0 py-1 text-center align-middle ${isBest ? 'bg-amber-500/[0.08]' : ''}`}>
-                              <span className={`font-bold tabular-nums leading-none ${cellTextCls} ${colorClass}`}>
+                            <td
+                              key={u.id}
+                              className={`px-0 xl:px-1.5 py-1 lg:py-1.5 text-center align-middle xl:border-l xl:border-white/[0.04] ${
+                                isBest ? 'bg-amber-500/[0.08] xl:bg-transparent' : ''
+                              }`}
+                            >
+                              {/* Below lg this is bare coloured text, as before.
+                                  On a wide row a tinted chip is far easier to
+                                  scan than 9px of colour, and the Best 3 marker
+                                  moves to a ring so the two can coexist. */}
+                              <span
+                                className={`font-bold tabular-nums leading-none ${cellTextCls} ${colorClass} xl:inline-flex xl:items-center xl:justify-center xl:min-w-[46px] xl:px-2 xl:py-1 xl:rounded-md ${
+                                  isWin ? 'xl:bg-emerald-500/10' : isLoss ? 'xl:bg-red-500/10' : isTie ? 'xl:bg-white/[0.06]' : ''
+                                } ${isBest ? 'xl:ring-1 xl:ring-amber-500/50 xl:bg-amber-500/[0.10]' : ''}`}
+                              >
                                 {picked || '\u00B7'}
                               </span>
                             </td>
@@ -424,14 +462,14 @@ export default function AllPicksPage() {
                       keyPrefix: string,
                       totalColor: string,
                     ) => (
-                      <tr key={`${keyPrefix}-${r.key}`} className="border-t border-white/[0.04]">
-                        <td className={`px-1 py-1 font-medium text-slate-500 uppercase tracking-tight ${headerTextCls}`}>
+                      <tr key={`${keyPrefix}-${r.key}`} className="border-t border-white/[0.04] lg:hover:bg-white/[0.03] transition-colors">
+                        <td className={`px-1 xl:px-3 py-1 lg:py-1.5 font-medium text-slate-500 uppercase tracking-tight ${headerTextCls}`}>
                           {r.label}
                         </td>
                         {userRecords.map((rec, i) => {
                           const { w, l, t } = pick(rec)
                           return (
-                            <td key={allPicksData!.users[i].id} className="px-0 py-1 text-center">
+                            <td key={allPicksData!.users[i].id} className="px-0 xl:px-1.5 py-1 lg:py-1.5 text-center xl:border-l xl:border-white/[0.04]">
                               <span className={`font-bold tabular-nums ${cellTextCls} ${r.emphasize ? totalColor : 'text-slate-300'}`}>
                                 {w}-{l}{t > 0 ? `-${t}` : ''}
                               </span>
@@ -442,8 +480,9 @@ export default function AllPicksPage() {
                     )
                     return (
                       <>
+                        {headerRow('summary')}
                         <tr className="bg-white/[0.03]">
-                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1">
+                          <td colSpan={allPicksData.users.length + 1} className="px-2 xl:px-3 py-1 lg:py-1.5">
                             <span className={`font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>Overall</span>
                           </td>
                         </tr>
@@ -453,7 +492,7 @@ export default function AllPicksPage() {
                           t: r.key === 'prior' ? rec.priorT : r.key === 'week' ? rec.weekT : rec.totalT,
                         }), 'ov', 'text-white'))}
                         <tr className="bg-white/[0.03]">
-                          <td colSpan={allPicksData.users.length + 1} className="px-2 py-1">
+                          <td colSpan={allPicksData.users.length + 1} className="px-2 xl:px-3 py-1 lg:py-1.5">
                             <span className={`font-semibold text-slate-500 uppercase tracking-wider ${headerTextCls}`}>Best 3</span>
                           </td>
                         </tr>

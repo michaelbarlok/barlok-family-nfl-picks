@@ -53,25 +53,56 @@ const LONG_PRESS_MS = 450
 /** Moving further than this during the hold means you're scrolling, not pressing. */
 const LONG_PRESS_SLOP_PX = 10
 const HOLD_HINT_KEY = 'nfl-talk-hold-hint'
+/** Reserved mention that resolves to the whole league. */
+const MENTION_ALL = 'all'
+
+const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * One pattern for both jobs — highlighting a posted message, and working out
+ * who a draft tags — so the two can never disagree about what counts as a
+ * mention. Built fresh each call because it is global and carries lastIndex.
+ *
+ * Longest name first, so "Joe Sr" beats "Joe" and a real player called Allison
+ * beats the @all token. Every alternative guards its right edge, so "@Allisonx"
+ * tags nobody rather than quietly tagging Allison, and "@allthetime" is not a
+ * tag for the whole league. Case-insensitive: "@kaitlynn" reads as a mention,
+ * so it had better notify her too.
+ */
+function mentionPattern(names: string[]): RegExp {
+  const sorted = [...names].sort((a, b) => b.length - a.length).map(escapeRe)
+  return new RegExp(`(@(?:${[...sorted, MENTION_ALL].join('|')})(?![\\w]))`, 'gi')
+}
+
+/** The mention tokens a draft contains, lowercased. */
+function mentionsIn(text: string, names: string[]): Set<string> {
+  return new Set(
+    [...text.matchAll(mentionPattern(names))].map(m => m[1].slice(1).toLowerCase()),
+  )
+}
 
 /** Renders @mentions as highlighted chips, leaving the rest as plain text. */
 function MessageBody({ text, players, mine }: { text: string; players: Player[]; mine: boolean }) {
-  const names = players.map(p => p.name).sort((a, b) => b.length - a.length)
-  if (names.length === 0) return <>{text}</>
-
-  // Longest name first, so "Joe Sr" wins over "Joe".
-  const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const parts = text.split(new RegExp(`(@(?:${escaped.join('|')}))`, 'g'))
+  const names = players.map(p => p.name)
+  const parts = text.split(mentionPattern(names))
+  const known = new Set([...names, MENTION_ALL].map(n => n.toLowerCase()))
 
   return (
     <>
-      {parts.map((part, i) =>
-        part.startsWith('@') && names.includes(part.slice(1))
-          // Blue-on-blue is unreadable inside my own bubble, so mentions there
-          // lean on weight and a wash instead of hue.
-          ? <span key={i} className={mine ? 'font-semibold bg-white/20 rounded px-1' : 'text-blue-400 font-semibold'}>{part}</span>
-          : <span key={i}>{part}</span>,
-      )}
+      {parts.map((part, i) => {
+        const token = part.startsWith('@') ? part.slice(1).toLowerCase() : null
+        if (!token || !known.has(token)) return <span key={i}>{part}</span>
+        // Blue-on-blue is unreadable inside my own bubble, so mentions there
+        // lean on weight and a wash instead of hue.
+        return (
+          <span
+            key={i}
+            className={mine ? 'font-semibold bg-white/20 rounded px-1' : 'text-blue-400 font-semibold'}
+          >
+            {part}
+          </span>
+        )
+      })}
     </>
   )
 }
@@ -400,13 +431,18 @@ export default function TalkPage() {
     setPostError('')
     stickRef.current = true // sending always takes you to the bottom
     try {
-      // Resolve @names back to ids so mentions survive a later rename.
-      const mentionIds = players.filter(p => draft.includes(`@${p.name}`)).map(p => p.id)
+      // Resolve @names back to ids so mentions survive a later rename. @all is
+      // sent as a flag instead — the server owns the roster, so it can't be
+      // stale here and there is no id list to cap.
+      const tagged = mentionsIn(draft, players.map(p => p.name))
+      const mentionAll = tagged.has(MENTION_ALL)
+      const mentionIds = players.filter(p => tagged.has(p.name.toLowerCase())).map(p => p.id)
       const res = await fetch('/api/talk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
         body: JSON.stringify({
-          body: draft.trim(), imageUrl: pendingImage, mentionIds, replyToId: replyTo?.id ?? null,
+          body: draft.trim(), imageUrl: pendingImage, mentionIds, mentionAll,
+          replyToId: replyTo?.id ?? null,
         }),
       })
       const json = await res.json()
@@ -572,6 +608,10 @@ export default function TalkPage() {
   const mentionMatches = players
     .filter(p => p.id !== user.id && p.name.toLowerCase().includes(mentionQuery))
     .slice(0, 6)
+  // Offered first, and only while what's typed is still a prefix of "all" —
+  // once you're typing a name it stops competing for the list.
+  const offerAll = MENTION_ALL.startsWith(mentionQuery)
+  const everyoneCount = players.filter(p => p.id !== user.id).length
 
   const canSend = (!!draft.trim() || !!pendingImage) && !posting
 
@@ -646,7 +686,9 @@ export default function TalkPage() {
             <div className="py-20 text-center">
               <p className="text-5xl mb-3">💩</p>
               <p className="text-white font-medium">No messages yet</p>
-              <p className="text-slate-500 text-sm mt-1.5">Start the trash talk. Type @ to tag someone.</p>
+              <p className="text-slate-500 text-sm mt-1.5">
+                Start the trash talk. Type @ to tag someone, or @all for everyone.
+              </p>
             </div>
           )}
 
@@ -993,8 +1035,22 @@ export default function TalkPage() {
           )}
 
           <div className="relative flex items-end gap-2">
-            {showMentions && mentionMatches.length > 0 && (
+            {showMentions && (offerAll || mentionMatches.length > 0) && (
               <div className="absolute left-0 right-0 bottom-full mb-2 bg-[#1a1d23] border border-white/[0.08] rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-20">
+                {offerAll && (
+                  <button
+                    onClick={() => insertMention(MENTION_ALL)}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-200 hover:bg-white/[0.06] transition text-left border-b border-white/[0.06]"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center text-[11px] font-bold">
+                      @
+                    </span>
+                    <span className="font-medium">all</span>
+                    <span className="text-[11px] text-slate-500">
+                      Everyone · {everyoneCount}
+                    </span>
+                  </button>
+                )}
                 {mentionMatches.map(p => (
                   <button
                     key={p.id}

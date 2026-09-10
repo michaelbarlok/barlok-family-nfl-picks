@@ -12,6 +12,37 @@ export const config = {
   },
 }
 
+/**
+ * Who may change whose photo.
+ *
+ * Yourself, always. An admin, anyone. And a manager may set the photo of a
+ * managed player they pick for — that player has no account, so if their
+ * manager can't do it, only an admin can, and the person who actually knows
+ * them is locked out.
+ */
+async function canEditAvatar(
+  supabase: ReturnType<typeof getAdminClient>,
+  caller: { id: string; email?: string },
+  targetUserId: string,
+): Promise<boolean> {
+  if (targetUserId === caller.id) return true
+  if (caller.email === ADMIN_EMAIL) return true
+
+  const { data: callerRow } = await supabase
+    .from('users').select('is_admin, is_manager').eq('id', caller.id).maybeSingle()
+  if (callerRow?.is_admin === true) return true
+  if (callerRow?.is_manager !== true) return false
+
+  const { data: target } = await supabase
+    .from('users').select('is_managed').eq('id', targetUserId).maybeSingle()
+  if (target?.is_managed !== true) return false
+
+  const { data: link } = await supabase
+    .from('player_managers').select('player_id')
+    .eq('manager_id', caller.id).eq('player_id', targetUserId).maybeSingle()
+  return !!link
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isValidOrigin(req)) return res.status(403).json({ error: 'Invalid origin' })
 
@@ -34,21 +65,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Only JPEG, PNG, WebP, GIF, and HEIC images are allowed' })
     }
 
-    // Determine target user: self or admin uploading for another user
+    // Self, an admin, or the manager of the managed player being changed.
     const targetUserId = userId || authUser.id
-    if (targetUserId !== authUser.id) {
-      // Check if caller is admin
-      const isAdmin = authUser.email === ADMIN_EMAIL
-      if (!isAdmin) {
-        const { data: callerRow } = await supabase
-          .from('users')
-          .select('is_admin')
-          .eq('id', authUser.id)
-          .single()
-        if (!callerRow?.is_admin) {
-          return res.status(403).json({ error: 'Only admins can update other users\' avatars' })
-        }
-      }
+    if (!(await canEditAvatar(supabase, authUser, targetUserId))) {
+      return res.status(403).json({ error: 'You can only change your own photo, or one for a player you manage' })
     }
 
     try {
@@ -110,19 +130,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'DELETE') {
     const { userId } = req.body
     const targetUserId = userId || authUser.id
-
-    if (targetUserId !== authUser.id) {
-      const isAdmin = authUser.email === ADMIN_EMAIL
-      if (!isAdmin) {
-        const { data: callerRow } = await supabase
-          .from('users')
-          .select('is_admin')
-          .eq('id', authUser.id)
-          .single()
-        if (!callerRow?.is_admin) {
-          return res.status(403).json({ error: 'Only admins can remove other users\' avatars' })
-        }
-      }
+    if (!(await canEditAvatar(supabase, authUser, targetUserId))) {
+      return res.status(403).json({ error: 'You can only change your own photo, or one for a player you manage' })
     }
 
     try {

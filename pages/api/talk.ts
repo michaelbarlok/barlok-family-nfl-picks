@@ -162,7 +162,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // ── Post ──────────────────────────────────────────────────────────────────
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { body, imageUrl, mentionIds, replyToId } = req.body ?? {}
+  const { body, imageUrl, mentionIds, mentionAll, replyToId } = req.body ?? {}
   const text = typeof body === 'string' ? body.trim() : ''
 
   if (!text && !imageUrl) {
@@ -205,16 +205,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Record mentions, ignoring anything that isn't a real player.
+    //
+    // @all is resolved here rather than expanded in the browser: the roster is
+    // the server's to know, it can't go stale between page load and send, and
+    // it sidesteps the 20-id cap that a client-side expansion would eventually
+    // hit silently. Managed players are left out — they have no account to read
+    // the thread with, so tagging them notifies nobody.
     let mentioned: string[] = []
-    if (Array.isArray(mentionIds) && mentionIds.length > 0) {
+    const taggedEveryone = mentionAll === true
+    if (taggedEveryone) {
+      const { data: everyone } = await supabase.from('users').select('id, is_managed')
+      mentioned = (everyone ?? [])
+        .filter(u => u.id !== authUser.id && u.is_managed !== true)
+        .map(u => u.id)
+    } else if (Array.isArray(mentionIds) && mentionIds.length > 0) {
       const { data: valid } = await supabase
         .from('users').select('id').in('id', mentionIds.slice(0, 20))
       mentioned = (valid ?? []).map(u => u.id)
-      if (mentioned.length > 0) {
-        await supabase.from('talk_mentions').insert(
-          mentioned.map(uid => ({ message_id: message.id, user_id: uid })),
-        )
-      }
+    }
+    if (mentioned.length > 0) {
+      await supabase.from('talk_mentions').insert(
+        mentioned.map(uid => ({ message_id: message.id, user_id: uid })),
+      )
     }
 
     // Notify everyone who opted in, except the author — nobody needs a push
@@ -240,7 +252,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // One send per audience so each gets the right title.
         const results = await Promise.all([
           sendPush(subs.filter(s => mentionedSet.has(s.user_id)), {
-            title: `💩 ${author.name} tagged you`,
+            title: taggedEveryone
+              ? `💩 ${author.name} tagged everyone`
+              : `💩 ${author.name} tagged you`,
             body: preview, url: '/talk', tag: 'talk',
           }),
           sendPush(subs.filter(s => s.user_id === repliedTo), {

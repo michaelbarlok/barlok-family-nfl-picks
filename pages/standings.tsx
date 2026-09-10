@@ -4,7 +4,9 @@ import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 
-import { computeRecords, recordSort, assignRanks } from '@/lib/computeStandings'
+import {
+  computeRecords, recordSort, assignRanks, isPerfectWeek, type WeekRecord as ComputedWeekRecord,
+} from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Nav from '@/components/Nav'
 import SeasonSelector, { type SeasonRow } from '@/components/SeasonSelector'
@@ -72,14 +74,9 @@ interface User {
   avatar_url?: string | null
 }
 
-interface WeekRecord {
+/** A computed week record with the week number attached for display. */
+interface WeekRecord extends ComputedWeekRecord {
   week: number
-  wins: number
-  losses: number
-  ties: number
-  bestWins: number
-  bestLosses: number
-  bestTies: number
 }
 
 interface UserStanding {
@@ -342,7 +339,7 @@ export default function StandingsPage() {
     const isExpanded = expandedUserId === userId
     setExpandedUserId(isExpanded ? null : userId)
     if (!isExpanded && userId === user.id && confettiShownFor.current !== userId) {
-      const hasPerfectWeek = weekRecords.some(wr => wr.wins > 0 && wr.losses === 0 && wr.ties === 0)
+      const hasPerfectWeek = weekRecords.some(wr => isPerfectWeek(wr))
       if (hasPerfectWeek) {
         confettiShownFor.current = userId
         setShowConfetti(true)
@@ -507,7 +504,7 @@ export default function StandingsPage() {
             const trophies = standings
               .map(s => ({
                 user: s.user,
-                weeks: s.weekRecords.filter(wr => wr.wins > 0 && wr.losses === 0 && wr.ties === 0),
+                weeks: s.weekRecords.filter(wr => isPerfectWeek(wr)),
               }))
               .filter(t => t.weeks.length > 0)
               .sort((a, b) => b.weeks.length - a.weeks.length)
@@ -629,7 +626,7 @@ export default function StandingsPage() {
                               </span>
                             )}
                             {(() => {
-                              const perfectCount = s.weekRecords.filter(wr => wr.wins > 0 && wr.losses === 0 && wr.ties === 0).length
+                              const perfectCount = s.weekRecords.filter(wr => isPerfectWeek(wr)).length
                               if (perfectCount === 0) return null
                               return (
                                 <span
@@ -703,7 +700,7 @@ export default function StandingsPage() {
                         <div className="col-span-3 text-center">Best 3</div>
                       </div>
                       {s.weekRecords.map(wr => {
-                        const isPerfect = wr.wins > 0 && wr.losses === 0 && wr.ties === 0
+                        const isPerfect = isPerfectWeek(wr)
                         return (
                         <div key={wr.week} className={`px-4 py-2 grid grid-cols-12 items-center text-xs hover:bg-white/[0.02] transition-colors ${isPerfect ? 'bg-amber-500/5' : ''}`}>
                           <div className="col-span-1 text-center">{isPerfect ? '🏆' : ''}</div>

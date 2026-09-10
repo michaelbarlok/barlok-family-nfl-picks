@@ -11,6 +11,7 @@ import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/p
 import Nav from '@/components/Nav'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 import PickReminderCard from '@/components/PickReminderCard'
+import AvatarEditor from '@/components/AvatarEditor'
 
 interface Game {
   id: string
@@ -1445,31 +1446,16 @@ export default function AdminPage() {
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <div className="relative group shrink-0">
-                                {u.avatar_url ? (
-                                  <img src={u.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover border border-white/[0.08]" />
-                                ) : (
-                                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center border border-white/[0.08] text-white text-xs font-bold">
-                                    {u.name?.charAt(0).toUpperCase()}
-                                  </div>
-                                )}
-                                {uploadingAvatarFor === u.id ? (
-                                  <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
-                                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => { setAvatarTargetId(u.id); avatarFileRef.current?.click() }}
-                                    className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title={u.avatar_url ? 'Change photo' : 'Add photo'}
-                                  >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                                      <circle cx="12" cy="13" r="4" />
-                                    </svg>
-                                  </button>
-                                )}
-                              </div>
+                              {/* Same control as the managed players below —
+                                  it was hover-only here too, so it did not
+                                  exist on a phone. */}
+                              <AvatarEditor
+                                name={u.name}
+                                avatarUrl={u.avatar_url}
+                                canEdit={isAdmin}
+                                busy={uploadingAvatarFor === u.id}
+                                onPick={() => { setAvatarTargetId(u.id); avatarFileRef.current?.click() }}
+                              />
                               <div className="min-w-0">
                               {editingNameId === u.id ? (
                                 <form onSubmit={e => { e.preventDefault(); handleRenameUser(u.id) }} className="flex items-center gap-2">
@@ -1503,7 +1489,7 @@ export default function AdminPage() {
                                     : 'Never'}
                                 </p>
                               )}
-                              {u.avatar_url && (
+                              {isAdmin && u.avatar_url && (
                                 <button
                                   onClick={() => handleRemoveAvatar(u.id)}
                                   disabled={uploadingAvatarFor === u.id}
@@ -1627,41 +1613,26 @@ export default function AdminPage() {
                       const links = managerLinks.filter(l => l.player_id === player.id)
                       const managers = links.map(l => allUsers.find(u => u.id === l.manager_id)).filter(Boolean) as FullUser[]
                       const availableManagers = allUsers.filter(u => !u.is_managed && !links.some(l => l.manager_id === u.id))
+                      // A manager may set the photo for a player they pick for
+                      // — that player has no account, so otherwise only an
+                      // admin could.
+                      const canEditPhoto = isAdmin || managers.some(m => m.id === user?.id)
 
                       return (
                         <div key={player.id} className="glass-card rounded-xl p-4">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              {(() => {
-                                const playerUser = allUsers.find(u => u.id === player.id)
-                                return (
-                                  <div className="relative group shrink-0">
-                                    {playerUser?.avatar_url ? (
-                                      <img src={playerUser.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover border border-white/[0.08]" />
-                                    ) : (
-                                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center border border-white/[0.08] text-white text-xs font-bold">
-                                        {player.name?.charAt(0).toUpperCase()}
-                                      </div>
-                                    )}
-                                    {uploadingAvatarFor === player.id ? (
-                                      <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
-                                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                      </div>
-                                    ) : (
-                                      <button
-                                        onClick={() => { setAvatarTargetId(player.id); avatarFileRef.current?.click() }}
-                                        className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="Change photo"
-                                      >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                                          <circle cx="12" cy="13" r="4" />
-                                        </svg>
-                                      </button>
-                                    )}
-                                  </div>
-                                )
-                              })()}
+                              {/* A manager can set the photo for a player
+                                  they pick for — that player has no account,
+                                  so otherwise only an admin could. */}
+                              <AvatarEditor
+                                name={player.name}
+                                avatarUrl={allUsers.find(u => u.id === player.id)?.avatar_url}
+                                canEdit={canEditPhoto}
+                                busy={uploadingAvatarFor === player.id}
+                                onPick={() => { setAvatarTargetId(player.id); avatarFileRef.current?.click() }}
+                                gradient="from-indigo-500 to-indigo-700"
+                              />
                               <span className="text-xs bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium shrink-0">
                                 Managed
                               </span>
@@ -1685,6 +1656,15 @@ export default function AdminPage() {
                                   >
                                     Edit
                                   </button>
+                                  {canEditPhoto && allUsers.find(u => u.id === player.id)?.avatar_url && (
+                                    <button
+                                      onClick={() => handleRemoveAvatar(player.id)}
+                                      disabled={uploadingAvatarFor === player.id}
+                                      className="text-xs text-slate-600 hover:text-red-400 transition ml-2 font-medium disabled:opacity-50"
+                                    >
+                                      Remove photo
+                                    </button>
+                                  )}
                                 </p>
                               )}
                             </div>

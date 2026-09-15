@@ -7,6 +7,7 @@ import {
 interface Prefs {
   notify_picks_email: boolean
   notify_picks_push: boolean
+  notify_digest_email: boolean
   email_recipient: boolean
 }
 
@@ -158,6 +159,13 @@ export default function NotificationSettings() {
             disabled={pushBlocked}
             busy={busy === 'talk'}
             onChange={toggleTalk}
+          />
+          <Row
+            label="Weekly recap email"
+            hint="How the week went — the standouts, and everyone's record."
+            checked={prefs?.notify_digest_email !== false}
+            busy={busy === 'notify_digest_email'}
+            onChange={v => savePref('notify_digest_email', v)}
           />
           <Row
             label="Weekly picks spreadsheet"

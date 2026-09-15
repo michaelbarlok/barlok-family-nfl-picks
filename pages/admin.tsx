@@ -11,6 +11,7 @@ import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/p
 import Nav from '@/components/Nav'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 import PickReminderCard from '@/components/PickReminderCard'
+import WeeklyDigestCard from '@/components/WeeklyDigestCard'
 import AvatarEditor from '@/components/AvatarEditor'
 
 interface Game {
@@ -912,6 +913,10 @@ export default function AdminPage() {
                 onMessage={setMessage}
               />
             )}
+
+            {/* Not tied to selectedWeek: a recap is about the last week that
+                finished, which is rarely the week you happen to be looking at. */}
+            {isAdmin && <WeeklyDigestCard season={season} onMessage={setMessage} />}
 
             {/* Email Spreadsheet — full width with recipient selection */}
             <div className="p-4 glass-card rounded-xl mb-5">

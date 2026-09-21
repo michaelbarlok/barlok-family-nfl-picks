@@ -15,11 +15,17 @@ import { isStandalone } from '@/lib/pushClient'
  *   - iOS has no equivalent API at all. Nothing the page does can trigger the
  *     install sheet, so the only honest thing to offer is instructions.
  * So "Install" means two different things here, and the button says which.
+ *
+ * It asks on every visit until the app is installed. Closing it is for this
+ * page load only — nothing is remembered, deliberately: the ask stops when the
+ * thing it is asking for is done, not when someone has waved it away enough
+ * times. Being installed is the condition, and isStandalone() is how that is
+ * known, which does mean someone who installs the app and then keeps browsing
+ * in Safari still gets asked in the tab. There is no web API that would tell us
+ * otherwise on iOS.
  */
 
-const DISMISS_KEY = 'nfl-install-dismissed'
-const DISMISS_DAYS = 14
-/** Fire this on window to reopen the sheet after someone dismissed it. */
+/** Fire this on window to open the sheet on demand, from the profile panel. */
 export const SHOW_INSTALL_EVENT = 'nfl:show-install'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -49,27 +55,17 @@ function isHandheld(): boolean {
   return window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 900
 }
 
-function dismissedRecently(): boolean {
-  try {
-    const at = window.localStorage.getItem(DISMISS_KEY)
-    if (!at) return false
-    return Date.now() - Number(at) < DISMISS_DAYS * 86400_000
-  } catch {
-    return false // private mode and blocked storage both just mean "ask again"
-  }
-}
-
 export default function InstallPrompt() {
   const [open, setOpen] = useState(false)
   const [showSteps, setShowSteps] = useState(false)
   const [platform, setPlatform] = useState<Platform>('other')
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
 
-  const close = useCallback((remember: boolean) => {
+  // Closes for this page load only. The next visit asks again, until the app
+  // is installed and isStandalone() stops it coming up at all.
+  const close = useCallback(() => {
     setOpen(false)
     setShowSteps(false)
-    if (!remember) return
-    try { window.localStorage.setItem(DISMISS_KEY, String(Date.now())) } catch { /* fine */ }
   }, [])
 
   useEffect(() => {
@@ -86,10 +82,9 @@ export default function InstallPrompt() {
     }
     const onInstalled = () => {
       setDeferred(null)
-      close(false)
-      try { window.localStorage.removeItem(DISMISS_KEY) } catch { /* fine */ }
+      close()
     }
-    // Opened deliberately from the profile panel — ignores the dismissal.
+    // Opened deliberately from the profile panel.
     const onAsk = () => { setShowSteps(false); setOpen(true) }
 
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
@@ -99,7 +94,7 @@ export default function InstallPrompt() {
     // Held back a few seconds: arriving to a modal before the page has drawn
     // reads as an ad, not an offer.
     const timer = window.setTimeout(() => {
-      if (isHandheld() && !isStandalone() && !dismissedRecently()) setOpen(true)
+      if (isHandheld() && !isStandalone()) setOpen(true)
     }, 4000)
 
     return () => {
@@ -118,7 +113,9 @@ export default function InstallPrompt() {
       const { outcome } = await deferred.userChoice
       setDeferred(null) // the event is single-use
       window.__deferredInstallPrompt = null
-      close(outcome === 'dismissed')
+      // Accepted fires `appinstalled` too; declining just closes the sheet, and
+      // the next visit asks again like any other.
+      if (outcome) close()
       return
     }
     // No API to call — iOS always, and Android when Chrome didn't offer the
@@ -129,7 +126,7 @@ export default function InstallPrompt() {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => close(true)} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
 
       <div className="relative w-full sm:max-w-sm bg-[#1a1d23] border border-white/[0.08] rounded-t-2xl sm:rounded-2xl shadow-2xl shadow-black/50 animate-slide-up safe-bottom safe-x max-h-[85vh] overflow-y-auto">
         <div className="p-5">
@@ -143,7 +140,7 @@ export default function InstallPrompt() {
               </p>
             </div>
             <button
-              onClick={() => close(true)}
+              onClick={close}
               aria-label="Close"
               className="shrink-0 -mt-1 -mr-1 p-1 text-slate-500 hover:text-slate-300 transition"
             >
@@ -171,7 +168,7 @@ export default function InstallPrompt() {
                 </p>
               )}
               <button
-                onClick={() => close(true)}
+                onClick={close}
                 className="w-full py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-500 transition"
               >
                 Got it
@@ -180,7 +177,7 @@ export default function InstallPrompt() {
           ) : (
             <div className="flex gap-2">
               <button
-                onClick={() => close(true)}
+                onClick={close}
                 className="flex-1 py-2.5 text-sm font-medium text-slate-400 bg-white/[0.04] border border-white/[0.08] rounded-xl hover:text-slate-200 transition"
               >
                 Not now

@@ -8,6 +8,7 @@ import {
   computeRecords, recordSort, assignRanks, isPerfectWeek, type WeekRecord as ComputedWeekRecord,
 } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
+import { shortName } from '@/lib/displayName'
 import Nav from '@/components/Nav'
 import SeasonSelector, { type SeasonRow } from '@/components/SeasonSelector'
 
@@ -481,7 +482,7 @@ export default function StandingsPage() {
                           </div>
                           {/* Name */}
                           <p className={`font-semibold text-center truncate w-full px-1 ${cfg.nameSz} ${isMe ? 'text-blue-400' : 'text-white'}`}>
-                            {s.user.name.split(' ')[0]}
+                            {shortName(s.user.name)}
                           </p>
                           {/* Record */}
                           <p className={`text-[11px] font-mono mt-0.5 mb-2 ${cfg.textColor}`}>{record}</p>
@@ -534,7 +535,7 @@ export default function StandingsPage() {
                             {t.user.name.charAt(0).toUpperCase()}
                           </div>
                         )}
-                        <span className="text-xs font-semibold text-amber-200">{t.user.name.split(' ')[0]}</span>
+                        <span className="text-xs font-semibold text-amber-200">{shortName(t.user.name)}</span>
                         <span className="text-xs font-bold text-amber-400">🏆{t.weeks.length}</span>
                       </div>
                     ))}

@@ -8,6 +8,7 @@ import { parseUTC, computeLockTime, formatLockTime } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import { computeRecords } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
+import { shortName } from '@/lib/displayName'
 import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 import SeasonSelector from '@/components/SeasonSelector'
@@ -360,14 +361,14 @@ export default function AllPicksPage() {
                   className={`px-0 xl:px-1 py-1.5 lg:py-2 text-center font-semibold text-slate-400 uppercase tracking-tight xl:tracking-normal xl:normal-case ${headerTextCls}`}
                   title={u.name}
                 >
-                  <span className="xl:hidden truncate block">{u.name.split(' ')[0].slice(0, headerNameMax)}</span>
+                  <span className="xl:hidden truncate block">{shortName(u.name).slice(0, headerNameMax)}</span>
                   <span className="hidden xl:flex flex-col items-center gap-1">
                     {u.avatar_url
                       ? <img src={u.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover border border-white/[0.08]" />
                       : <span className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[10px] font-bold text-white">
                           {u.name.charAt(0)}
                         </span>}
-                    <span className="text-slate-300 font-semibold truncate max-w-full">{u.name.split(' ')[0]}</span>
+                    <span className="text-slate-300 font-semibold truncate max-w-full">{shortName(u.name)}</span>
                   </span>
                 </th>
               ))}

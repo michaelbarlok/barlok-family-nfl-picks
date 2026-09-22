@@ -418,9 +418,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                 </div>
               )}
 
-              {/* Dismissing the install sheet hides it for two weeks, which
-                  would otherwise be a dead end — and on iOS installing is the
-                  only route to notifications at all. */}
+              {/* The sheet closes for the page load, so this is the way back
+                  to it without reloading — worth having because on iOS
+                  installing is the only route to notifications at all. */}
               {!installed && (
                 <div className="border-t border-white/[0.06] pt-4 mb-4">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">App</p>

@@ -14,7 +14,9 @@ import { isValidOrigin } from '@/lib/validation'
  * Device-level settings are not here — 💩 Talk lives on push_subscriptions
  * because it is answered per browser (see /api/push-subscribe).
  */
-const EDITABLE = ['notify_picks_email', 'notify_picks_push', 'email_recipient'] as const
+const EDITABLE = [
+  'notify_picks_email', 'notify_picks_push', 'notify_digest_email', 'email_recipient',
+] as const
 type Editable = (typeof EDITABLE)[number]
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -33,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const read = async () => {
     const { data, error } = await supabase
       .from('users')
-      .select('notify_picks_email, notify_picks_push, email_recipient')
+      .select('notify_picks_email, notify_picks_push, notify_digest_email, email_recipient')
       .eq('id', authUser.id)
       .maybeSingle()
     if (error) throw error
@@ -65,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ success: true, prefs: await read() })
   } catch (err) {
     const message = err instanceof Error ? err.message : ''
-    if (message.includes('notify_picks')) {
+    if (message.includes('notify_picks') || message.includes('notify_digest')) {
       return res.status(500).json({
         error: 'Notification settings are not set up yet. Run supabase/migrations/14_notification_prefs.sql.',
       })

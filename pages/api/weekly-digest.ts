@@ -2,10 +2,11 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import nodemailer from 'nodemailer'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getCurrentSeason } from '@/lib/season'
-import { isAuthorized } from '@/lib/apiAuth'
+import { isAuthorized, getAuthUser } from '@/lib/apiAuth'
 import { isValidOrigin } from '@/lib/validation'
 import { fetchAllRows } from '@/lib/fetchAll'
 import { buildDigest, type Digest } from '@/lib/weeklyDigest'
+import { sendPush, pushConfigured } from '@/lib/push'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'
@@ -20,16 +21,15 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-pi
  * sixteen results is worse than no recap. `force` overrides, for the case where
  * a game will never get a result.
  *
- * Sending is idempotent through the weekly_digests table, so it does not matter
- * how many things decide the week is over — an admin pressing the button, a
- * cron noticing, a second results sync — the league gets one email per week.
+ * Sent by hand from the admin Results tab — there is deliberately no cron.
+ * Each channel (email, the 💩 Talk card) is recorded in weekly_digests, so a
+ * second press of the same button asks before sending that channel again.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
-  // A cron has no origin header; it authenticates with the shared secret below.
-  if (req.method === 'POST' && req.headers.origin && !isValidOrigin(req)) {
+  if (req.method === 'POST' && !isValidOrigin(req)) {
     return res.status(403).json({ error: 'Invalid origin' })
   }
   if (!(await isAuthorized(req))) return res.status(403).json({ error: 'Admins only' })
@@ -39,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const season = source.season ? parseInt(String(source.season)) : await getCurrentSeason(supabase)
 
   try {
-    const [{ data: users }, { data: games }, picks, { data: threeBests }, { data: sentRows }] =
+    const [usersRes, { data: games }, picks, { data: threeBests }, sentRes] =
       await Promise.all([
         supabase.from('users').select('id, name, email, is_managed, notify_digest_email').order('name'),
         supabase.from('games').select('id, week, away_team, home_team, winning_team').eq('season', season),
@@ -48,11 +48,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           supabase.from('picks').select('user_id, game_id, picked_team, week')
             .eq('season', season).order('id').range(from, to)),
         supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', season),
-        supabase.from('weekly_digests').select('week, sent_at').eq('season', season),
+        // '*' so this still works before migration 18 adds talk_posted_at —
+        // naming it would fail the query and take the email recap down too.
+        supabase.from('weekly_digests').select('*').eq('season', season),
       ])
 
+    // PostgREST returns a missing column or table as an error in the result,
+    // not a thrown exception, so it would otherwise slip past the try/catch and
+    // leave `users` null — a digest with no players, no recipients and every
+    // name showing as "Someone". These two selects reach for schema that only
+    // migration 17 creates, so a failure here means exactly that migration
+    // hasn't been run. Surface it instead of rendering the broken card.
+    if (usersRes.error || sentRes.error) {
+      return res.status(500).json({
+        error: 'The recap tables are not set up yet. Run supabase/migrations/17_weekly_digest.sql.',
+      })
+    }
+    const users = usersRes.data
+    const sentRows = sentRes.data
+
     const allGames = games ?? []
-    const alreadySent = new Map((sentRows ?? []).map(r => [r.week, r.sent_at]))
+    // sent_at is null on a Talk-only row, so filter those out — otherwise the
+    // key's mere presence would read as "already emailed".
+    const alreadySent = new Map((sentRows ?? []).filter(r => r.sent_at).map(r => [r.week, r.sent_at]))
+    const talkAlready = new Map(
+      (sentRows ?? []).filter(r => (r as { talk_posted_at?: string }).talk_posted_at)
+        .map(r => [r.week, (r as { talk_posted_at?: string }).talk_posted_at!]),
+    )
 
     // Default to the newest finished week — the one a recap is actually about.
     const week = source.week
@@ -80,8 +102,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({
         ...digest,
         sentAt: alreadySent.get(week) ?? null,
+        talkPostedAt: talkAlready.get(week) ?? null,
         recipients: recipients.map(u => u.name),
-        pendingWeeks: completeWeeks(allGames).filter(w => !alreadySent.has(w)),
+        pendingWeeks: completeWeeks(allGames).filter(w => !alreadySent.has(w) || !talkAlready.has(w)),
       })
     }
 
@@ -93,46 +116,131 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         requiresForce: true,
       })
     }
-    if (alreadySent.has(week) && !force) {
-      return res.status(400).json({
-        error: `The Week ${week} recap already went out on ${new Date(alreadySent.get(week)!).toLocaleString('en-US')}.`,
-        requiresForce: true,
+
+    // Channels: an array — the admin card sends one per button. Defaults to
+    // email only so a caller that just names a week behaves as before.
+    const channels: string[] = Array.isArray(source.channels) && source.channels.length
+      ? (source.channels as unknown[]).map(String)
+      : ['email']
+    const wantEmail = channels.includes('email')
+    const wantTalk = channels.includes('talk')
+
+    // Each channel is done at most once per week; force redoes it.
+    const doEmail = wantEmail && (!alreadySent.has(week) || force)
+    const doTalk = wantTalk && (!talkAlready.has(week) || force)
+
+    if (!doEmail && !doTalk) {
+      const done: string[] = []
+      if (wantEmail && alreadySent.has(week)) done.push('emailed')
+      if (wantTalk && talkAlready.has(week)) done.push('posted to Talk')
+      if (done.length > 0) {
+        return res.status(400).json({
+          error: `The Week ${week} recap was already ${done.join(' and ')}.`,
+          requiresForce: true,
+        })
+      }
+      return res.status(400).json({ error: 'No channel selected to send on.' })
+    }
+
+    let emailed = 0
+    let emailFailed = 0
+    let talkPosted = false
+    const skipped: string[] = []
+    if (wantEmail && !doEmail) skipped.push('email (already sent)')
+    if (wantTalk && !doTalk) skipped.push('Talk (already posted)')
+
+    // ── Email ──────────────────────────────────────────────────────────────
+    if (doEmail) {
+      if (recipients.length === 0) {
+        skipped.push('email (nobody signed up)')
+      } else {
+        const gmailAddress = process.env.GMAIL_ADDRESS
+        const gmailAppPassword = process.env.GMAIL_APP_PASSWORD
+        if (!gmailAddress || !gmailAppPassword) {
+          // Email-only: a hard error, nothing else to do. With Talk also
+          // requested, skip email and still post the card.
+          if (!doTalk) return res.status(500).json({ error: 'Gmail credentials are not configured' })
+          skipped.push('email (Gmail not configured)')
+        } else {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail', auth: { user: gmailAddress, pass: gmailAppPassword },
+          })
+          const html = renderDigest(digest)
+          const settled = await Promise.allSettled(recipients.map(u => transporter.sendMail({
+            from: `${LEAGUE_NAME} <${gmailAddress}>`,
+            to: u.email!,
+            subject: `${LEAGUE_NAME} — Week ${week} Recap`,
+            html,
+          })))
+          emailed = settled.filter(r => r.status === 'fulfilled').length
+          emailFailed = settled.length - emailed
+          // Recorded even on a partial failure: the alternative is re-sending to
+          // everyone who did get it.
+          await supabase.from('weekly_digests')
+            .upsert({ season, week, sent_at: new Date().toISOString(), recipients: emailed },
+                    { onConflict: 'season,week' })
+        }
+      }
+    }
+
+    // ── Talk card ────────────────────────────────────────────────────────────
+    if (doTalk) {
+      const author = await getAuthUser(req) // null for a cron send
+      const summary = summaryLine(digest)
+      const { error: insErr } = await supabase.from('talk_messages').insert({
+        user_id: author?.id ?? null,
+        author_name: 'Weekly Recap',
+        body: summary,
+        recap_season: season,
+        recap_week: week,
       })
+      if (insErr) {
+        // Email may already have gone out in this same request. Say so, or the
+        // admin reads a bare error, presses send again, and forces a second
+        // email to everyone.
+        const reason = insErr.message?.includes('recap_')
+          ? 'Talk recap cards are not set up yet. Run supabase/migrations/18_talk_recap_cards.sql.'
+          : `Posting to Talk failed: ${insErr.message ?? 'unknown error'}`
+        const emailedNote = emailed > 0 ? `Emailed ${emailed} — that part went out. ` : ''
+        return res.status(500).json({ error: `${emailedNote}${reason}`, sent: emailed, talkPosted: false })
+      }
+      talkPosted = true
+      // Partial upsert — leaves sent_at untouched if an email row already exists.
+      await supabase.from('weekly_digests')
+        .upsert({ season, week, talk_posted_at: new Date().toISOString() }, { onConflict: 'season,week' })
+
+      // Notify Talk subscribers, exactly like any new message in the thread.
+      if (pushConfigured()) {
+        const { data: subs } = await supabase.from('push_subscriptions')
+          .select('endpoint, p256dh, auth, user_id').eq('talk_enabled', true)
+        if (subs && subs.length > 0) {
+          const result = await sendPush(subs, {
+            title: `🏈 Week ${week} Recap`,
+            body: summary.slice(0, 140),
+            url: '/talk', tag: 'talk',
+          })
+          if (result.expired.length > 0) {
+            await supabase.from('push_subscriptions').delete().in('endpoint', result.expired)
+          }
+        }
+      }
     }
-    if (recipients.length === 0) {
-      return res.status(200).json({ success: true, week, sent: 0, message: 'Nobody is signed up for the recap.' })
-    }
 
-    const gmailAddress = process.env.GMAIL_ADDRESS
-    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD
-    if (!gmailAddress || !gmailAppPassword) {
-      return res.status(500).json({ error: 'Gmail credentials are not configured' })
-    }
-    const transporter = nodemailer.createTransport({
-      service: 'gmail', auth: { user: gmailAddress, pass: gmailAppPassword },
-    })
-
-    const html = renderDigest(digest)
-    const settled = await Promise.allSettled(recipients.map(u => transporter.sendMail({
-      from: `${LEAGUE_NAME} <${gmailAddress}>`,
-      to: u.email!,
-      subject: `${LEAGUE_NAME} — Week ${week} Recap`,
-      html,
-    })))
-    const sent = settled.filter(r => r.status === 'fulfilled').length
-
-    // Recorded even on a partial failure: the alternative is re-sending to
-    // everyone who did get it.
-    await supabase.from('weekly_digests')
-      .upsert({ season, week, sent_at: new Date().toISOString(), recipients: sent },
-              { onConflict: 'season,week' })
-
+    const bits: string[] = []
+    if (emailed > 0 || emailFailed > 0) bits.push(`emailed ${emailed}`)
+    if (talkPosted) bits.push('posted to Talk')
     return res.status(200).json({
-      success: true, season, week, sent, failed: settled.length - sent,
-      message: `Week ${week} recap sent to ${sent} of ${settled.length}.`,
+      success: true, season, week, sent: emailed, failed: emailFailed, talkPosted, skipped,
+      message: `Week ${week} recap — ${bits.length ? bits.join(' and ') : 'nothing sent'}.` +
+        (skipped.length ? ` Skipped: ${skipped.join(', ')}.` : ''),
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : ''
+    if (message.includes('recap_season') || message.includes('recap_week') || message.includes('talk_posted_at')) {
+      return res.status(500).json({
+        error: 'Talk recap cards are not set up yet. Run supabase/migrations/18_talk_recap_cards.sql.',
+      })
+    }
     if (message.includes('weekly_digests') || message.includes('notify_digest_email')) {
       return res.status(500).json({
         error: 'The recap tables are not set up yet. Run supabase/migrations/17_weekly_digest.sql.',
@@ -168,6 +276,16 @@ function latestCompleteWeek(games: GameRow[]): number | null {
 
 const record = (t: { wins: number; losses: number; ties: number }) =>
   `${t.wins}-${t.losses}${t.ties > 0 ? `-${t.ties}` : ''}`
+
+/** The one-line summary shown on the 💩 Talk recap card and its push. */
+function summaryLine(d: Digest): string {
+  const parts: string[] = []
+  if (d.leaders.length > 0) parts.push(`🥇 ${names(d.leaders)} ${record(d.leaders[0].week)}`)
+  if (d.perfect.length > 0) parts.push(`🏆 Perfect: ${names(d.perfect)}`)
+  else if (d.bestThreeSweeps.length > 0) parts.push(`⭐ Best 3: ${names(d.bestThreeSweeps)}`)
+  if (d.climbers.length > 0) parts.push(`📈 ${names(d.climbers)} +${d.climbers[0].rankChange}`)
+  return parts.join(' · ') || `Week ${d.week} is in the books.`
+}
 
 /** "Alex", "Alex and Amy", "Alex, Amy and Dani" */
 const names = (list: { name: string }[]) =>

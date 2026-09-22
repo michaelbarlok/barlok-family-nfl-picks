@@ -8,6 +8,7 @@ import { MAX_BEST_PICKS, ADMIN_EMAIL } from '@/lib/constants'
 import { computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { computeRecords, recordSort } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
+import { shortName } from '@/lib/displayName'
 import Nav from '@/components/Nav'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 
@@ -317,7 +318,7 @@ export default function DashboardPage() {
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
         {(user.email === ADMIN_EMAIL || user.is_admin) && <SaveSeasonButton />}
         <h1 className="text-lg font-bold text-white mb-1">
-          Hey, {user.name?.split(' ')[0]}
+          Hey, {shortName(user.name)}
         </h1>
         <p className="text-xs text-slate-500 mb-6">{season} Season</p>
 

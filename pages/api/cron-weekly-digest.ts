@@ -20,7 +20,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // No week given: the endpoint picks the newest finished one, and refuses
     // it if a recap already went out.
-    const result = await callInternal(req, '/api/weekly-digest')
+    // Email and post the card to Talk — the league gets the recap in the group
+    // chat automatically, Sleeper-style. Each channel is guarded once per week.
+    const result = await callInternal(req, '/api/weekly-digest', { channels: ['email', 'talk'] })
     return res.status(200).json({ task: 'weekly_digest', result: result.body })
   } catch (err) {
     console.error('cron-weekly-digest error:', err)

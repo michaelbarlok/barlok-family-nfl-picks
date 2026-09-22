@@ -2,6 +2,7 @@ import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react'
 import { useRouter } from 'next/router'
+import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_EMAIL } from '@/lib/constants'
@@ -44,6 +45,8 @@ interface Message {
   mentions: string[]
   reactions: MessageReaction[]
   reply_to: QuotedMessage | null
+  recap_season: number | null
+  recap_week: number | null
 }
 
 /** Messages from the same person inside this window share one bubble group. */
@@ -725,6 +728,35 @@ export default function TalkPage() {
                   </div>
                 )}
 
+                {m.recap_week != null && !m.deleted_at ? (
+                  <div id={`msg-${m.id}`} className="my-2">
+                    <Link
+                      href={`/recap?season=${m.recap_season}&week=${m.recap_week}`}
+                      className="block rounded-2xl overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 active:scale-[0.99] transition"
+                    >
+                      <div className="p-4">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-lg leading-none">🏆</span>
+                          <span className="text-white font-bold text-[15px]">Week {m.recap_week} Recap</span>
+                          <span className="ml-auto text-white/70 text-xs font-medium">View →</span>
+                        </div>
+                        {m.body && <p className="text-white/85 text-[13px] leading-snug">{m.body}</p>}
+                      </div>
+                      <div className="px-4 py-2 bg-black/15 text-white/70 text-[11px] font-medium">
+                        Tap to open the full recap — standings, highlights and everyone&apos;s week
+                      </div>
+                    </Link>
+                    {(isAdmin || m.user_id === user.id) && (
+                      <button
+                        onClick={() => remove(m.id)}
+                        className="mt-1 text-[11px] text-slate-600 hover:text-red-400 transition px-1"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                <>
                 {/* A reacted-to message needs room for its pills, or they
                     read as belonging to the bubble below them. */}
                 <div className={`flex gap-2 ${
@@ -907,6 +939,8 @@ export default function TalkPage() {
                     )}
                   </div>
                 </div>
+                </>
+                )}
               </div>
             )
           })}

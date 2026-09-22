@@ -49,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const before = req.query.before as string | undefined
     let query = supabase
       .from('talk_messages')
-      .select('id, user_id, author_name, body, image_url, created_at, deleted_at, reply_to_id')
+      .select('id, user_id, author_name, body, image_url, created_at, deleted_at, reply_to_id, recap_season, recap_week')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE)
     if (before) query = query.lt('created_at', before)
@@ -135,6 +135,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // null when the quoted message has since been hard-deleted, which the
         // ON DELETE SET NULL on reply_to_id already turns into a plain message.
         reply_to: m.reply_to_id ? quoteById.get(m.reply_to_id) ?? null : null,
+        recap_season: m.deleted_at ? null : m.recap_season ?? null,
+        recap_week: m.deleted_at ? null : m.recap_week ?? null,
       })),
       hasMore: (messages ?? []).length === PAGE_SIZE,
     })

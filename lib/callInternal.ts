@@ -5,7 +5,8 @@ import type { NextApiRequest } from 'next'
  */
 export async function callInternal(
   req: NextApiRequest,
-  path: string
+  path: string,
+  body?: unknown,
 ): Promise<{ status: number; body: any }> {
   const protocol = req.headers['x-forwarded-proto'] || 'https'
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000'
@@ -17,7 +18,8 @@ export async function callInternal(
       Authorization: req.headers.authorization ?? '',
       'Content-Type': 'application/json',
     },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   })
-  const body = await res.json().catch(() => ({}))
-  return { status: res.status, body }
+  const respBody = await res.json().catch(() => ({}))
+  return { status: res.status, body: respBody }
 }

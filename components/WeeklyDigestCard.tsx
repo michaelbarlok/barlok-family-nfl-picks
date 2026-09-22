@@ -17,6 +17,7 @@ interface Preview {
   upset: { away: string; home: string; winner: string; calledBy: string[]; outOf: number } | null
   players: Player[]
   sentAt: string | null
+  talkPostedAt: string | null
   recipients: string[]
   pendingWeeks: number[]
   message?: string
@@ -46,6 +47,7 @@ export default function WeeklyDigestCard({
   const [week, setWeek] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [channels, setChannels] = useState<{ email: boolean; talk: boolean }>({ email: true, talk: true })
   const [error, setError] = useState('')
 
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token ?? ''
@@ -74,10 +76,10 @@ export default function WeeklyDigestCard({
 
   const send = async (force = false) => {
     if (!preview?.week) return
-    if (!force && !confirm(
-      `Send the Week ${preview.week} recap to ${preview.recipients.length} ` +
-      `${preview.recipients.length === 1 ? 'person' : 'people'}?`
-    )) return
+    const picked = [channels.email && 'email', channels.talk && 'talk'].filter(Boolean) as string[]
+    if (picked.length === 0) { setError('Pick at least one — email or Talk.'); return }
+    const how = picked.length === 2 ? 'email and Talk' : picked[0] === 'talk' ? 'the Talk chat' : 'email'
+    if (!force && !confirm(`Send the Week ${preview.week} recap via ${how}?`)) return
 
     setSending(true)
     setError('')
@@ -85,7 +87,7 @@ export default function WeeklyDigestCard({
       const res = await fetch('/api/weekly-digest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ season, week: preview.week, force }),
+        body: JSON.stringify({ season, week: preview.week, force, channels: picked }),
       })
       const json = await res.json()
       if (res.status === 400 && json.requiresForce) {
@@ -187,14 +189,40 @@ export default function WeeklyDigestCard({
         </p>
       </div>
 
+      {preview.talkPostedAt && (
+        <div className="mb-3 p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs">
+          Posted to Talk {new Date(preview.talkPostedAt).toLocaleString('en-US', {
+            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+          })}.
+        </div>
+      )}
+
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Send by</p>
+      <div className="flex gap-1.5 mb-3">
+        {([['email', '📧 Email'], ['talk', '💩 Talk']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setChannels(c => ({ ...c, [key]: !c[key] }))}
+            className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+              channels[key]
+                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                : 'bg-white/[0.04] border-white/[0.08] text-slate-500 hover:border-blue-500/30'
+            }`}
+          >
+            {channels[key] ? '✓ ' : ''}{label}
+          </button>
+        ))}
+      </div>
+
       <button
         onClick={() => send()}
-        disabled={sending || preview.recipients.length === 0}
+        disabled={sending || (!channels.email && !channels.talk) || (channels.email && !channels.talk && preview.recipients.length === 0)}
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
       >
         {sending
           ? <><span className="animate-spin">⏳</span> Sending…</>
-          : <><span>📬</span> {preview.sentAt ? 'Send Again' : `Send Week ${preview.week} Recap`}</>}
+          : <><span>📬</span> Send Week {preview.week} Recap</>}
       </button>
     </div>
   )

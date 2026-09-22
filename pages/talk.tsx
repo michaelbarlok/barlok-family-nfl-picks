@@ -571,11 +571,15 @@ export default function TalkPage() {
   const remove = async (id: string) => {
     if (!confirm('Delete this message?')) return
     setOpenActions(null)
-    await fetch('/api/talk', {
+    const res = await fetch('/api/talk', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
       body: JSON.stringify({ messageId: id }),
     })
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      setPostError(json.error ?? 'Could not delete that message.')
+    }
     await load('refresh')
   }
 
@@ -703,9 +707,13 @@ export default function TalkPage() {
             const t = new Date(m.created_at).getTime()
 
             const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at)
-            const startsGroup = newDay || !prev || prev.user_id !== m.user_id ||
+            // A recap card is posted under the sending admin's id, so without
+            // this an admin's message right before or after it would merge into
+            // the card's "group" — losing its name and avatar, or its timestamp.
+            const isCard = (x?: Message) => x?.recap_week != null && !x.deleted_at
+            const startsGroup = newDay || !prev || prev.user_id !== m.user_id || isCard(prev) ||
               t - new Date(prev.created_at).getTime() > GROUP_WINDOW_MS
-            const endsGroup = !next || next.user_id !== m.user_id ||
+            const endsGroup = !next || next.user_id !== m.user_id || isCard(next) ||
               dayKey(next.created_at) !== dayKey(m.created_at) ||
               new Date(next.created_at).getTime() - t > GROUP_WINDOW_MS
 

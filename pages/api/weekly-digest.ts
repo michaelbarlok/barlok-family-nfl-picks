@@ -49,7 +49,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           supabase.from('picks').select('user_id, game_id, picked_team, week')
             .eq('season', season).order('id').range(from, to)),
         supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', season),
-        supabase.from('weekly_digests').select('week, sent_at, talk_posted_at').eq('season', season),
+        // '*' so this still works before migration 18 adds talk_posted_at —
+        // naming it would fail the query and take the email recap down too.
+        supabase.from('weekly_digests').select('*').eq('season', season),
       ])
 
     // PostgREST returns a missing column or table as an error in the result,
@@ -103,7 +105,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sentAt: alreadySent.get(week) ?? null,
         talkPostedAt: talkAlready.get(week) ?? null,
         recipients: recipients.map(u => u.name),
-        pendingWeeks: completeWeeks(allGames).filter(w => !alreadySent.has(w)),
+        pendingWeeks: completeWeeks(allGames).filter(w => !alreadySent.has(w) || !talkAlready.has(w)),
       })
     }
 
@@ -156,25 +158,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const gmailAddress = process.env.GMAIL_ADDRESS
         const gmailAppPassword = process.env.GMAIL_APP_PASSWORD
         if (!gmailAddress || !gmailAppPassword) {
-          return res.status(500).json({ error: 'Gmail credentials are not configured' })
+          // Email-only: a hard error, nothing else to do. With Talk also
+          // requested, skip email and still post the card.
+          if (!doTalk) return res.status(500).json({ error: 'Gmail credentials are not configured' })
+          skipped.push('email (Gmail not configured)')
+        } else {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail', auth: { user: gmailAddress, pass: gmailAppPassword },
+          })
+          const html = renderDigest(digest)
+          const settled = await Promise.allSettled(recipients.map(u => transporter.sendMail({
+            from: `${LEAGUE_NAME} <${gmailAddress}>`,
+            to: u.email!,
+            subject: `${LEAGUE_NAME} — Week ${week} Recap`,
+            html,
+          })))
+          emailed = settled.filter(r => r.status === 'fulfilled').length
+          emailFailed = settled.length - emailed
+          // Recorded even on a partial failure: the alternative is re-sending to
+          // everyone who did get it.
+          await supabase.from('weekly_digests')
+            .upsert({ season, week, sent_at: new Date().toISOString(), recipients: emailed },
+                    { onConflict: 'season,week' })
         }
-        const transporter = nodemailer.createTransport({
-          service: 'gmail', auth: { user: gmailAddress, pass: gmailAppPassword },
-        })
-        const html = renderDigest(digest)
-        const settled = await Promise.allSettled(recipients.map(u => transporter.sendMail({
-          from: `${LEAGUE_NAME} <${gmailAddress}>`,
-          to: u.email!,
-          subject: `${LEAGUE_NAME} — Week ${week} Recap`,
-          html,
-        })))
-        emailed = settled.filter(r => r.status === 'fulfilled').length
-        emailFailed = settled.length - emailed
-        // Recorded even on a partial failure: the alternative is re-sending to
-        // everyone who did get it.
-        await supabase.from('weekly_digests')
-          .upsert({ season, week, sent_at: new Date().toISOString(), recipients: emailed },
-                  { onConflict: 'season,week' })
       }
     }
 
@@ -190,12 +196,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         recap_week: week,
       })
       if (insErr) {
-        if (insErr.message?.includes('recap_')) {
-          return res.status(500).json({
-            error: 'Talk recap cards are not set up yet. Run supabase/migrations/18_talk_recap_cards.sql.',
-          })
-        }
-        throw insErr
+        // Email may already have gone out in this same request. Say so, or the
+        // admin reads a bare error, presses send again, and forces a second
+        // email to everyone.
+        const reason = insErr.message?.includes('recap_')
+          ? 'Talk recap cards are not set up yet. Run supabase/migrations/18_talk_recap_cards.sql.'
+          : `Posting to Talk failed: ${insErr.message ?? 'unknown error'}`
+        const emailedNote = emailed > 0 ? `Emailed ${emailed} — that part went out. ` : ''
+        return res.status(500).json({ error: `${emailedNote}${reason}`, sent: emailed, talkPosted: false })
       }
       talkPosted = true
       // Partial upsert — leaves sent_at untouched if an email row already exists.
@@ -220,7 +228,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const bits: string[] = []
-    if (doEmail && recipients.length > 0) bits.push(`emailed ${emailed}`)
+    if (emailed > 0 || emailFailed > 0) bits.push(`emailed ${emailed}`)
     if (talkPosted) bits.push('posted to Talk')
     return res.status(200).json({
       success: true, season, week, sent: emailed, failed: emailFailed, talkPosted, skipped,

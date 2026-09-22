@@ -49,7 +49,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const before = req.query.before as string | undefined
     let query = supabase
       .from('talk_messages')
-      .select('id, user_id, author_name, body, image_url, created_at, deleted_at, reply_to_id, recap_season, recap_week')
+      // '*' rather than a column list, so the thread keeps loading whichever
+      // optional migrations have run: a named column that doesn't exist yet
+      // (recap_season from 18, say) fails the whole query and takes Talk down
+      // for everyone. Missing columns just come back undefined and are
+      // defaulted below.
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE)
     if (before) query = query.lt('created_at', before)
@@ -155,9 +160,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'You can only delete your own messages' })
     }
 
-    await supabase.from('talk_messages')
+    const { error: delErr } = await supabase.from('talk_messages')
       .update({ deleted_at: new Date().toISOString(), body: null, image_url: null })
       .eq('id', messageId)
+    // Checked, not assumed: this used to report success while Postgres rejected
+    // the update, so a "deleted" message quietly stayed put.
+    if (delErr) {
+      return res.status(500).json({
+        error: delErr.code === '23514'
+          ? 'Deleting messages is not set up yet. Run supabase/migrations/19_talk_soft_delete.sql.'
+          : 'Could not delete that message.',
+      })
+    }
     return res.status(200).json({ success: true })
   }
 

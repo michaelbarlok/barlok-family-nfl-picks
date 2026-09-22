@@ -8,7 +8,8 @@
  */
 const SUFFIXES = new Set(['sr', 'sr.', 'jr', 'jr.', 'ii', 'iii', 'iv', 'v'])
 
-export function shortName(fullName: string): string {
+export function shortName(fullName: string | null | undefined): string {
+  if (!fullName) return ''
   const parts = fullName.trim().split(/\s+/)
   if (parts.length <= 1) return fullName
   const out = [parts[0]]

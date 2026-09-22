@@ -84,7 +84,15 @@ export default function RecapPage() {
     }
   }, [season, weekParam])
 
-  useEffect(() => { if (user) load() }, [user, load])
+  // /recap is statically prerendered, so on a direct open (a reload, the PWA
+  // reopening it, a link from an email or push) router.query is empty on the
+  // first render. Wait for it, or the page would load the default week first
+  // and then load again once `week` arrives.
+  //
+  // Keyed on the user's id rather than the user object, so replacing that
+  // object (an avatar change, say) doesn't refetch the whole season.
+  const userId = user?.id
+  useEffect(() => { if (userId && router.isReady) load() }, [userId, router.isReady, load])
 
   const Avatar = ({ id, name, size = 'w-8 h-8' }: { id: string; name: string; size?: string }) => {
     const url = avatars.get(id)

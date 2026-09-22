@@ -11,10 +11,6 @@
     {
       "path": "/api/cron-deadline-warnings",
       "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron-weekly-digest",
-      "schedule": "0 19 * * 2,3"
     }
   ]
 }

@@ -21,16 +21,15 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-pi
  * sixteen results is worse than no recap. `force` overrides, for the case where
  * a game will never get a result.
  *
- * Sending is idempotent through the weekly_digests table, so it does not matter
- * how many things decide the week is over — an admin pressing the button, a
- * cron noticing, a second results sync — the league gets one email per week.
+ * Sent by hand from the admin Results tab — there is deliberately no cron.
+ * Each channel (email, the 💩 Talk card) is recorded in weekly_digests, so a
+ * second press of the same button asks before sending that channel again.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
-  // A cron has no origin header; it authenticates with the shared secret below.
-  if (req.method === 'POST' && req.headers.origin && !isValidOrigin(req)) {
+  if (req.method === 'POST' && !isValidOrigin(req)) {
     return res.status(403).json({ error: 'Invalid origin' })
   }
   if (!(await isAuthorized(req))) return res.status(403).json({ error: 'Admins only' })
@@ -118,8 +117,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
-    // Channels: an array, defaulting to email only so a caller that just names a
-    // week behaves as before. The admin card and the cron send both.
+    // Channels: an array — the admin card sends one per button. Defaults to
+    // email only so a caller that just names a week behaves as before.
     const channels: string[] = Array.isArray(source.channels) && source.channels.length
       ? (source.channels as unknown[]).map(String)
       : ['email']

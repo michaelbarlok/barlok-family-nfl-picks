@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase'
 interface Tally { wins: number; losses: number; ties: number }
 interface Player { id: string; name: string; week: Tally; best3: Tally; rank: number; isTied: boolean; rankChange: number | null; perfect: boolean }
 
+type Channel = 'email' | 'talk'
+
 interface Preview {
   week: number | null
   season: number
@@ -46,8 +48,8 @@ export default function WeeklyDigestCard({
   const [preview, setPreview] = useState<Preview | null>(null)
   const [week, setWeek] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [channels, setChannels] = useState<{ email: boolean; talk: boolean }>({ email: true, talk: true })
+  // Which button is in flight — each channel is its own action.
+  const [sending, setSending] = useState<Channel | null>(null)
   const [error, setError] = useState('')
 
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token ?? ''
@@ -74,25 +76,27 @@ export default function WeeklyDigestCard({
 
   useEffect(() => { load() }, [load])
 
-  const send = async (force = false) => {
+  const send = async (channel: Channel, force = false) => {
     if (!preview?.week) return
-    const picked = [channels.email && 'email', channels.talk && 'talk'].filter(Boolean) as string[]
-    if (picked.length === 0) { setError('Pick at least one — email or Talk.'); return }
-    const how = picked.length === 2 ? 'email and Talk' : picked[0] === 'talk' ? 'the Talk chat' : 'email'
-    if (!force && !confirm(`Send the Week ${preview.week} recap via ${how}?`)) return
+    const ask = channel === 'talk'
+      ? `Post the Week ${preview.week} recap to 💩 Talk? Anyone with Talk notifications on gets a push.`
+      : `Email the Week ${preview.week} recap to ${preview.recipients.length} ${preview.recipients.length === 1 ? 'person' : 'people'}?`
+    if (!force && !confirm(ask)) return
 
-    setSending(true)
+    setSending(channel)
     setError('')
     try {
       const res = await fetch('/api/weekly-digest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ season, week: preview.week, force, channels: picked }),
+        body: JSON.stringify({ season, week: preview.week, force, channels: [channel] }),
       })
       const json = await res.json()
+      // Already done for this week, or the week isn't finished — the server
+      // says which; ask before overriding.
       if (res.status === 400 && json.requiresForce) {
-        if (confirm(`${json.error}\n\nSend it anyway?`)) return send(true)
-        setSending(false)
+        setSending(null)
+        if (confirm(`${json.error}\n\nSend it anyway?`)) return send(channel, true)
         return
       }
       if (!res.ok) throw new Error(json.error ?? 'Could not send')
@@ -101,7 +105,7 @@ export default function WeeklyDigestCard({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send')
     } finally {
-      setSending(false)
+      setSending(null)
     }
   }
 
@@ -156,8 +160,7 @@ export default function WeeklyDigestCard({
         )}
       </div>
       <p className="text-xs text-slate-500 mb-3">
-        Highlights plus everyone&apos;s week, to {preview.recipients.length} recipient
-        {preview.recipients.length === 1 ? '' : 's'}.
+        Nothing goes out on its own — post it to 💩 Talk, email it, or both.
       </p>
 
       {error && (
@@ -169,14 +172,6 @@ export default function WeeklyDigestCard({
           Week {preview.week} isn&apos;t finished — {preview.gamesDecided} of {preview.gamesInWeek} games scored.
         </div>
       )}
-      {preview.sentAt && (
-        <div className="mb-3 p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs">
-          Already sent {new Date(preview.sentAt).toLocaleString('en-US', {
-            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-          })}.
-        </div>
-      )}
-
       <div className="space-y-1.5 mb-3">
         {bullets.map((b, i) => (
           <div key={i} className="flex items-start gap-2 text-xs text-slate-300">
@@ -189,41 +184,48 @@ export default function WeeklyDigestCard({
         </p>
       </div>
 
-      {preview.talkPostedAt && (
-        <div className="mb-3 p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs">
-          Posted to Talk {new Date(preview.talkPostedAt).toLocaleString('en-US', {
-            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-          })}.
-        </div>
-      )}
-
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Send by</p>
-      <div className="flex gap-1.5 mb-3">
-        {([['email', '📧 Email'], ['talk', '💩 Talk']] as const).map(([key, label]) => (
+      {/* Two separate actions. Nothing is sent automatically — this card is the
+          only way a recap goes out. */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
           <button
-            key={key}
-            type="button"
-            onClick={() => setChannels(c => ({ ...c, [key]: !c[key] }))}
-            className={`press text-xs font-medium px-3 py-1.5 rounded-full border transition ${
-              channels[key]
-                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
-                : 'bg-white/[0.04] border-white/[0.08] text-slate-500 hover:border-blue-500/30'
+            onClick={() => send('talk')}
+            disabled={sending !== null}
+            className={`w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-semibold rounded-lg transition disabled:opacity-50 ${
+              preview.talkPostedAt
+                ? 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.10]'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
           >
-            {channels[key] ? '✓ ' : ''}{label}
+            {sending === 'talk'
+              ? <><span className="animate-spin">⏳</span> Posting…</>
+              : <>💩 {preview.talkPostedAt ? 'Post again' : 'Post to Talk'}</>}
           </button>
-        ))}
+          <p className={`text-[11px] mt-1 text-center ${preview.talkPostedAt ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {preview.talkPostedAt
+              ? `✓ Posted ${new Date(preview.talkPostedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+              : 'Shows the recap card in the chat'}
+          </p>
+        </div>
+        <div>
+          <button
+            onClick={() => send('email')}
+            disabled={sending !== null || preview.recipients.length === 0}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-semibold rounded-lg border border-white/[0.12] text-slate-200 hover:bg-white/[0.06] transition disabled:opacity-50"
+          >
+            {sending === 'email'
+              ? <><span className="animate-spin">⏳</span> Emailing…</>
+              : <>📧 {preview.sentAt ? 'Email again' : 'Email it'}</>}
+          </button>
+          <p className={`text-[11px] mt-1 text-center ${preview.sentAt ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {preview.recipients.length === 0
+              ? 'Nobody has the recap email on'
+              : preview.sentAt
+                ? `✓ Emailed ${new Date(preview.sentAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+                : `To ${preview.recipients.length} ${preview.recipients.length === 1 ? 'person' : 'people'}`}
+          </p>
+        </div>
       </div>
-
-      <button
-        onClick={() => send()}
-        disabled={sending || (!channels.email && !channels.talk) || (channels.email && !channels.talk && preview.recipients.length === 0)}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-      >
-        {sending
-          ? <><span className="animate-spin">⏳</span> Sending…</>
-          : <><span>📬</span> Send Week {preview.week} Recap</>}
-      </button>
     </div>
   )
 }

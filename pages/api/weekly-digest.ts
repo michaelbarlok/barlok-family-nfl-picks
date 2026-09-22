@@ -39,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const season = source.season ? parseInt(String(source.season)) : await getCurrentSeason(supabase)
 
   try {
-    const [{ data: users }, { data: games }, picks, { data: threeBests }, { data: sentRows }] =
+    const [usersRes, { data: games }, picks, { data: threeBests }, sentRes] =
       await Promise.all([
         supabase.from('users').select('id, name, email, is_managed, notify_digest_email').order('name'),
         supabase.from('games').select('id, week, away_team, home_team, winning_team').eq('season', season),
@@ -50,6 +50,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         supabase.from('three_best').select('user_id, week, pick_1, pick_2, pick_3').eq('season', season),
         supabase.from('weekly_digests').select('week, sent_at').eq('season', season),
       ])
+
+    // PostgREST returns a missing column or table as an error in the result,
+    // not a thrown exception, so it would otherwise slip past the try/catch and
+    // leave `users` null — a digest with no players, no recipients and every
+    // name showing as "Someone". These two selects reach for schema that only
+    // migration 17 creates, so a failure here means exactly that migration
+    // hasn't been run. Surface it instead of rendering the broken card.
+    if (usersRes.error || sentRes.error) {
+      return res.status(500).json({
+        error: 'The recap tables are not set up yet. Run supabase/migrations/17_weekly_digest.sql.',
+      })
+    }
+    const users = usersRes.data
+    const sentRows = sentRes.data
 
     const allGames = games ?? []
     const alreadySent = new Map((sentRows ?? []).map(r => [r.week, r.sent_at]))

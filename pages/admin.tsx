@@ -9,6 +9,7 @@ import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff, formatLockTime } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
 import Nav from '@/components/Nav'
+import { refreshCurrentWeekLock } from '@/lib/useCurrentWeekLocked'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 import PickReminderCard from '@/components/PickReminderCard'
 import WeeklyDigestCard from '@/components/WeeklyDigestCard'
@@ -496,6 +497,7 @@ export default function AdminPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Sync schedule failed')
       setMessage({ type: 'success', text: json.message ?? 'Schedule synced.' })
+      refreshCurrentWeekLock(season)
       await loadGames()
       // Refresh available weeks
       const { data } = await supabase

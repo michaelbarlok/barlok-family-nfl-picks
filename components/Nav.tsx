@@ -11,6 +11,7 @@ import NotificationSettings from '@/components/NotificationSettings'
 import { SHOW_INSTALL_EVENT } from '@/components/InstallPrompt'
 import { isStandalone } from '@/lib/pushClient'
 import { useTalkUnread } from '@/lib/useTalkUnread'
+import { useCurrentWeekLocked } from '@/lib/useCurrentWeekLocked'
 
 const baseTabs = [
   { label: 'Home', icon: '🏠', href: '/' },
@@ -22,11 +23,11 @@ const baseTabs = [
   { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 
-// Mobile shows Home, Talk, My Picks, Standings; everything else moves into
-// the More sheet so the bar never gets denser than five slots. Talk is on the
-// bar rather than All Picks because it's where people go most between games,
-// and All Picks still has a shortcut card on Home.
-const MOBILE_MORE = ['/all-picks', '/spreadsheets', '/champions'] as const
+// Mobile shows Home, Talk, My Picks and one more on the bar; everything else
+// moves into the More sheet so the bar never gets denser than five slots.
+// That fourth slot follows the week: Standings while picks are open, All Picks
+// from lock until the next week is loaded — once picks are revealed, that's
+// what everyone is checking.
 
 /** Badge text for a count: past nine it's "a lot", and the exact number is noise. */
 const badgeCount = (n: number) => (n > 9 ? '9+' : String(n))
@@ -71,14 +72,14 @@ export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: Na
     ? [...baseTabs, { label: 'Admin', icon: '🔧', href: '/admin' }]
     : baseTabs
 
+  const weekLocked = useCurrentWeekLocked(season, !!user)
   const byHref = (href: string) => tabs.find(t => t.href === href)!
-  // Home | Talk | (My Picks) | Standings — the centre slot is rendered
-  // separately, so this is split either side of it.
+  // Home | Talk | (My Picks) | Standings-or-All-Picks — the centre slot is
+  // rendered separately, so this is split either side of it.
   const leftTabs = [byHref('/'), byHref('/talk')]
-  const rightTabs = [byHref('/standings')]
-  const moreTabs = tabs.filter(t =>
-    (MOBILE_MORE as readonly string[]).includes(t.href) || t.href === '/admin',
-  )
+  const rightTabs = [byHref(weekLocked ? '/all-picks' : '/standings')]
+  const onBar = new Set(['/picks', ...leftTabs.map(t => t.href), ...rightTabs.map(t => t.href)])
+  const moreTabs = tabs.filter(t => !onBar.has(t.href))
   const moreIsActive = moreTabs.some(t => router.pathname === t.href)
 
   // A prompt that only appears on the two pages that pass a count is no prompt

@@ -249,10 +249,14 @@ export default function StandingsPage() {
             }
           })
           prevResult.sort((a, b) => recordSort(a.rec, b.rec))
-          const prevRankMap = new Map(prevResult.map((r, i) => [r.userId, i + 1]))
-          result.forEach((s, i) => {
+          // Shared places on both sides, so players who were and still are
+          // level don't get arrows for an alphabetical shuffle. Home uses the
+          // same rule, so the two pages always show the same movement.
+          const prevRanks = assignRanks(prevResult, r => r.rec)
+          const prevRankMap = new Map(prevResult.map((r, i) => [r.userId, prevRanks[i].rank]))
+          result.forEach(s => {
             const prevRank = prevRankMap.get(s.user.id)
-            if (prevRank != null) s.rankChange = prevRank - (i + 1)
+            if (prevRank != null) s.rankChange = prevRank - s.rank
           })
         }
 

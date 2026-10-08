@@ -10,6 +10,7 @@ import { processAvatarFile } from '@/lib/avatarUtils'
 import NotificationSettings from '@/components/NotificationSettings'
 import { SHOW_INSTALL_EVENT } from '@/components/InstallPrompt'
 import { isStandalone } from '@/lib/pushClient'
+import { useTalkUnread } from '@/lib/useTalkUnread'
 
 const baseTabs = [
   { label: 'Home', icon: '🏠', href: '/' },
@@ -120,44 +121,9 @@ export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: Na
     return () => { cancelled = true }
   }, [pickStatus, user, season])
 
-  // 💩 Talk messages since you last opened the thread. Your own posts don't
-  // count, and on the Talk page itself there's nothing unread by definition.
-  const [unreadTalk, setUnreadTalk] = useState(0)
+  // 💩 Talk messages since you last opened the thread.
   const onTalk = router.pathname === '/talk'
-
-  useEffect(() => {
-    if (!user || onTalk) { setUnreadTalk(0); return }
-    let cancelled = false
-
-    const loadUnread = async () => {
-      const { data: read } = await supabase
-        .from('talk_reads').select('last_read_at').eq('user_id', user.id).maybeSingle()
-      let q = supabase
-        .from('talk_messages').select('id', { count: 'exact', head: true })
-        .is('deleted_at', null)
-        // A plain neq would also drop rows with no author (a recap card posted
-        // after its author's account went), since NULL <> x isn't true.
-        .or(`user_id.is.null,user_id.neq.${user.id}`)
-      if (read?.last_read_at) q = q.gt('created_at', read.last_read_at)
-      const { count } = await q
-      if (!cancelled) setUnreadTalk(count ?? 0)
-    }
-
-    loadUnread().catch(() => {})
-    // New messages bump the badge live, and reopening the installed app (which
-    // resumes rather than reloads) re-checks what came in while it was closed.
-    const channel = supabase
-      .channel('nav-talk-unread')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'talk_messages' }, () => { loadUnread().catch(() => {}) })
-      .subscribe()
-    const onVisible = () => { if (document.visibilityState === 'visible') loadUnread().catch(() => {}) }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      cancelled = true
-      supabase.removeChannel(channel)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [user, onTalk])
+  const unreadTalk = useTalkUnread(user?.id, !onTalk)
 
   // Header subtitle names the page you're on; Home has its own greeting.
   const pageLabel = router.pathname === '/' ? null

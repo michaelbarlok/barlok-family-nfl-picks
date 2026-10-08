@@ -98,7 +98,7 @@ interface UserStanding {
 
 function StandingsSkeleton() {
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
       <main className="max-w-3xl mx-auto px-4 py-6">
         <div className="skeleton h-4 w-40 rounded mb-5" />
@@ -359,7 +359,7 @@ export default function StandingsPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
       <ConfettiLayer active={showConfetti} />
 
@@ -454,7 +454,11 @@ export default function StandingsPage() {
                 return (
                   <div className="flex items-end justify-center gap-3">
                     {slots.map(({ standing: s, rank }) => {
-                      const cfg = podiumConfig[rank]
+                      // The slot is positional (left, centre, right), but the
+                      // medal, colour and step height follow the actual rank —
+                      // so a three-way tie is three golds on level steps,
+                      // matching the TIED rows in the table below.
+                      const cfg = podiumConfig[Math.min(Math.max(s.rank, 1), 3) - 1] ?? podiumConfig[rank]
                       const isMe = s.user.id === user.id
                       const record = `${s.wins}-${s.losses}${s.ties > 0 ? `-${s.ties}` : ''}`
                       return (

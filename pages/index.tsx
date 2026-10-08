@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 import { MAX_BEST_PICKS, ADMIN_EMAIL } from '@/lib/constants'
 import { computeLockTime, formatKickoff } from '@/lib/lockTime'
-import { computeRecords, recordSort } from '@/lib/computeStandings'
+import { assignRanks, computeRecords, recordSort } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import { shortName } from '@/lib/displayName'
 import Nav from '@/components/Nav'
@@ -54,14 +54,14 @@ interface DashboardData {
   lastWeekTies: number
   lastWeekRank: number | null
   // Leaderboard top 3
-  leaderboard: { name: string; wins: number; losses: number; ties: number; isYou: boolean; avatar_url?: string | null }[]
+  leaderboard: { rank: number; name: string; wins: number; losses: number; ties: number; isYou: boolean; avatar_url?: string | null }[]
   // Players the current user manages (empty if not a manager)
   managedPlayers: ManagedPlayerSummary[]
 }
 
 function DashboardSkeleton() {
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
       <main className="max-w-3xl mx-auto px-4 py-6">
         <div className="skeleton h-6 w-48 rounded mb-6" />
@@ -154,6 +154,9 @@ export default function DashboardPage() {
           .map(uid => ({ uid, r: records.get(uid)! }))
           .sort((a, b) => recordSort(a.r, b.r))
 
+        // Shared ranks, the same as the Standings page: three players level on
+        // record are all 🥇, not gold-silver-bronze by alphabetical accident.
+        const ranks = assignRanks(ranked, x => x.r)
         const myRankIdx = ranked.findIndex(x => x.uid === user.id)
         const myRecord = records.get(user.id)!
 
@@ -180,14 +183,18 @@ export default function DashboardPage() {
             })
             .filter(x => x.hasRow)
             .sort((a, b) => b.w !== a.w ? b.w - a.w : a.l - b.l)
-          const lwIdx = weekRanked.findIndex(r => r.uid === user.id)
-          lastWeekRank = lwIdx >= 0 ? lwIdx + 1 : null
+          const mine = weekRanked.find(r => r.uid === user.id)
+          // Ties share the better place: one more than the number who did strictly better.
+          lastWeekRank = mine
+            ? 1 + weekRanked.filter(r => r.w > mine.w || (r.w === mine.w && r.l < mine.l)).length
+            : null
         }
 
         // Leaderboard top 3
-        const leaderboard = ranked.slice(0, 3).map(({ uid, r }) => {
+        const leaderboard = ranked.slice(0, 3).map(({ uid, r }, i) => {
           const u = users.find(u => u.id === uid)
           return {
+            rank: ranks[i].rank,
             name: u?.name ?? 'Unknown',
             wins: r.wins, losses: r.losses, ties: r.ties,
             isYou: uid === user.id,
@@ -231,7 +238,7 @@ export default function DashboardPage() {
           wins: myRecord.wins,
           losses: myRecord.losses,
           ties: myRecord.ties,
-          rank: myRankIdx + 1,
+          rank: myRankIdx >= 0 ? ranks[myRankIdx].rank : ranked.length,
           totalPlayers: ranked.filter(x => x.r.wins + x.r.losses + x.r.ties > 0).length,
           bestWins: myRecord.bestWins,
           bestLosses: myRecord.bestLosses,
@@ -278,7 +285,7 @@ export default function DashboardPage() {
   // forever on a network blip, with nothing to read and nothing to click.
   if (!data) {
     return (
-      <div className="min-h-screen bg-surface pb-20">
+      <div className="min-h-screen bg-surface pb-page">
         <Nav />
         <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
           <div className="glass-card rounded-2xl p-8 text-center">
@@ -307,20 +314,20 @@ export default function DashboardPage() {
   const cMinutes = Math.floor((diff / (1000 * 60)) % 60)
   const cSeconds = Math.floor((diff / 1000) % 60)
 
-  const incomplete = !d.isLocked && d.totalGames > 0
-    ? (d.totalGames - d.pickedCount) + (d.bestPickCount < 3 ? 1 : 0)
-    : 0
+  const pickStatus = !d.isLocked && d.totalGames > 0
+    ? { unpicked: Math.max(0, d.totalGames - d.pickedCount), bestNeeded: d.bestPickCount < MAX_BEST_PICKS }
+    : { unpicked: 0, bestNeeded: false }
 
   return (
-    <div className="min-h-screen bg-surface pb-20">
-      <Nav incompleteCount={incomplete} />
+    <div className="min-h-screen bg-surface pb-page">
+      <Nav pickStatus={pickStatus} />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">
         {(user.email === ADMIN_EMAIL || user.is_admin) && <SaveSeasonButton />}
-        <h1 className="text-lg font-bold text-white mb-1">
+        {/* The season is already under the app name in the header. */}
+        <h1 className="text-lg font-bold text-white mb-5">
           Hey, {shortName(user.name)}
         </h1>
-        <p className="text-xs text-slate-500 mb-6">{season} Season</p>
 
         {/* ── YOUR RECORD ── */}
         <div className="grid grid-cols-2 gap-3 mb-5">
@@ -510,7 +517,7 @@ export default function DashboardPage() {
                     p.isYou ? 'bg-blue-500/10' : ''
                   }`}
                 >
-                  <span className="text-base w-6 text-center">{['🥇', '🥈', '🥉'][i]}</span>
+                  <span className="text-base w-6 text-center">{['🥇', '🥈', '🥉'][p.rank - 1]}</span>
                   {p.avatar_url ? (
                     <img src={p.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-white/[0.08]" />
                   ) : (

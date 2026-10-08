@@ -16,20 +16,38 @@ const baseTabs = [
   { label: 'My Picks', icon: '🏈', href: '/picks' },
   { label: 'All Picks', icon: '📋', href: '/all-picks' },
   { label: 'Standings', icon: '🏆', href: '/standings' },
-  { label: '💩 Talk', icon: '💩', href: '/talk' },
+  { label: 'Talk', icon: '💩', href: '/talk' },
   { label: 'Sheets', icon: '📊', href: '/spreadsheets' },
   { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 
-// Mobile shows Home, All Picks, My Picks, Standings; everything else moves into
-// the More sheet so the bar never gets denser than five slots.
-const MOBILE_MORE = ['/talk', '/spreadsheets', '/champions'] as const
+// Mobile shows Home, Talk, My Picks, Standings; everything else moves into
+// the More sheet so the bar never gets denser than five slots. Talk is on the
+// bar rather than All Picks because it's where people go most between games,
+// and All Picks still has a shortcut card on Home.
+const MOBILE_MORE = ['/all-picks', '/spreadsheets', '/champions'] as const
 
-interface NavProps {
-  incompleteCount?: number
+/** Badge text for a count: past nine it's "a lot", and the exact number is noise. */
+const badgeCount = (n: number) => (n > 9 ? '9+' : String(n))
+
+/**
+ * What's still to do on the current week's card. Games and Best 3 are kept
+ * apart because they read differently: "14 to pick" on a 14-game week is
+ * right, where folding Best 3 in as one more made it say 15.
+ */
+export interface PickStatus {
+  unpicked: number
+  bestNeeded: boolean
 }
 
-export default function Nav({ incompleteCount }: NavProps = {}) {
+interface NavProps {
+  /** The page already knows; omit it and Nav works it out. */
+  pickStatus?: PickStatus
+  /** Width of the header row, matching the page's own container so the two line up. */
+  containerClassName?: string
+}
+
+export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: NavProps = {}) {
   const router = useRouter()
   const { user, signOut, updateAvatarUrl } = useAuth()
   const { season } = useSeason()
@@ -44,6 +62,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   const [avatarError, setAvatarError] = useState('')
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLElement>(null)
 
   const isAdmin = user?.email === ADMIN_EMAIL || user?.is_admin === true
   const isManager = user?.is_manager === true
@@ -52,9 +71,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
     : baseTabs
 
   const byHref = (href: string) => tabs.find(t => t.href === href)!
-  // Home | All Picks | (My Picks) | Standings — the centre slot is rendered
+  // Home | Talk | (My Picks) | Standings — the centre slot is rendered
   // separately, so this is split either side of it.
-  const leftTabs = [byHref('/'), byHref('/all-picks')]
+  const leftTabs = [byHref('/'), byHref('/talk')]
   const rightTabs = [byHref('/standings')]
   const moreTabs = tabs.filter(t =>
     (MOBILE_MORE as readonly string[]).includes(t.href) || t.href === '/admin',
@@ -64,10 +83,10 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   // A prompt that only appears on the two pages that pass a count is no prompt
   // at all — the point is to catch you from anywhere in the app. When the page
   // doesn't supply one, work it out here.
-  const [ownCount, setOwnCount] = useState<number | null>(null)
+  const [ownStatus, setOwnStatus] = useState<PickStatus | null>(null)
 
   useEffect(() => {
-    if (typeof incompleteCount === 'number' || !user) return
+    if (pickStatus || !user) return
     let cancelled = false
 
     const loadOutstanding = async () => {
@@ -89,16 +108,72 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       ])
 
       const bestCount = best ? [best.pick_1, best.pick_2, best.pick_3].filter(Boolean).length : 0
-      const remaining = (weekGames.length - (picks?.length ?? 0)) + (bestCount < MAX_BEST_PICKS ? 1 : 0)
-      if (!cancelled) setOwnCount(remaining)
+      if (!cancelled) {
+        setOwnStatus({
+          unpicked: Math.max(0, weekGames.length - (picks?.length ?? 0)),
+          bestNeeded: bestCount < MAX_BEST_PICKS,
+        })
+      }
     }
 
     loadOutstanding().catch(() => {})
     return () => { cancelled = true }
-  }, [incompleteCount, user, season])
+  }, [pickStatus, user, season])
 
-  const outstanding = typeof incompleteCount === 'number' ? incompleteCount : ownCount ?? 0
-  const hasOutstandingPicks = outstanding > 0
+  // 💩 Talk messages since you last opened the thread. Your own posts don't
+  // count, and on the Talk page itself there's nothing unread by definition.
+  const [unreadTalk, setUnreadTalk] = useState(0)
+  const onTalk = router.pathname === '/talk'
+
+  useEffect(() => {
+    if (!user || onTalk) { setUnreadTalk(0); return }
+    let cancelled = false
+
+    const loadUnread = async () => {
+      const { data: read } = await supabase
+        .from('talk_reads').select('last_read_at').eq('user_id', user.id).maybeSingle()
+      let q = supabase
+        .from('talk_messages').select('id', { count: 'exact', head: true })
+        .is('deleted_at', null)
+        // A plain neq would also drop rows with no author (a recap card posted
+        // after its author's account went), since NULL <> x isn't true.
+        .or(`user_id.is.null,user_id.neq.${user.id}`)
+      if (read?.last_read_at) q = q.gt('created_at', read.last_read_at)
+      const { count } = await q
+      if (!cancelled) setUnreadTalk(count ?? 0)
+    }
+
+    loadUnread().catch(() => {})
+    // New messages bump the badge live, and reopening the installed app (which
+    // resumes rather than reloads) re-checks what came in while it was closed.
+    const channel = supabase
+      .channel('nav-talk-unread')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'talk_messages' }, () => { loadUnread().catch(() => {}) })
+      .subscribe()
+    const onVisible = () => { if (document.visibilityState === 'visible') loadUnread().catch(() => {}) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [user, onTalk])
+
+  // Header subtitle names the page you're on; Home has its own greeting.
+  const pageLabel = router.pathname === '/' ? null
+    : tabs.find(t => t.href === router.pathname)?.label
+      ?? ({ '/recap': 'Weekly Recap' } as Record<string, string>)[router.pathname]
+      ?? null
+
+  const status = pickStatus ?? ownStatus
+  const unpicked = status?.unpicked ?? 0
+  const hasOutstandingPicks = unpicked > 0 || !!status?.bestNeeded
+  // Every game picked but Best 3 short: say that, rather than a count of one.
+  const picksLabel = unpicked > 0 ? `${unpicked} to pick` : 'Pick Best 3'
+  const picksBadge = unpicked > 0 ? badgeCount(unpicked) : '⭐'
+  const picksAria = unpicked > 0
+    ? `My Picks — ${unpicked} ${unpicked === 1 ? 'game' : 'games'} still to pick${status?.bestNeeded ? ', and Best 3' : ''}`
+    : 'My Picks — Best 3 still to choose'
   const picksIsActive = router.pathname === '/picks'
 
   // Close the More sheet whenever navigation happens, so it can't linger over
@@ -186,6 +261,19 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
 
   useEffect(() => { setInstalled(isStandalone()) }, [])
 
+  // Publish the sticky header's height as --header-h, so anything a page pins
+  // under it (My Picks' progress bar) sits flush whatever the header is doing:
+  // it's taller on desktop (tab row) and by the notch in the installed app.
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const set = () => document.documentElement.style.setProperty('--header-h', `${el.offsetHeight}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // Close menu on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -205,8 +293,8 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   return (
     <>
       {/* Top bar — branding + settings */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl safe-top">
-        <div className="max-w-3xl mx-auto px-4">
+      <header ref={headerRef} className="sticky top-0 z-30 border-b border-white/[0.06] bg-surface/80 backdrop-blur-xl safe-top">
+        <div className={`${containerClassName} mx-auto px-4`}>
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -214,7 +302,9 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               </div>
               <div>
                 <p className="font-semibold text-white text-sm leading-tight">Barlok Family NFL Picks</p>
-                <p className="text-[11px] text-slate-500">{season} Season</p>
+                <p className="text-[11px] text-slate-500">
+                  {pageLabel ? <><span className="text-slate-400">{pageLabel}</span> · </> : null}{season} Season
+                </p>
               </div>
             </div>
             {user && (
@@ -296,7 +386,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  aria-label={needsAttention ? `My Picks — ${outstanding} still to do` : undefined}
+                  aria-label={needsAttention ? picksAria : undefined}
                   className={`shrink-0 flex items-center h-9 px-3 text-sm font-medium rounded-full whitespace-nowrap transition-all ${
                     needsAttention
                       ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/20'
@@ -307,7 +397,15 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                 >
                   {/* The count replaces the label rather than sitting next to it
                       in a badge — one number, not the same number twice. */}
-                  {needsAttention ? `${outstanding} to pick` : tab.label}
+                  {needsAttention ? picksLabel : tab.href === '/talk' ? '💩 Talk' : tab.label}
+                  {tab.href === '/talk' && unreadTalk > 0 && (
+                    <span
+                      aria-label={`${unreadTalk} unread`}
+                      className="ml-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white"
+                    >
+                      {badgeCount(unreadTalk)}
+                    </span>
+                  )}
                 </Link>
               )
             })}
@@ -539,7 +637,12 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
       <nav className="fixed bottom-0 left-0 right-0 z-30 sm:hidden border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-bottom safe-x">
         <div className="grid grid-cols-5 items-end px-1 pt-1.5 pb-1">
           {leftTabs.map(tab => (
-            <BottomTab key={tab.href} tab={tab} isActive={router.pathname === tab.href} />
+            <BottomTab
+              key={tab.href}
+              tab={tab}
+              isActive={router.pathname === tab.href}
+              badge={tab.href === '/talk' ? unreadTalk : 0}
+            />
           ))}
 
           {/* Centre action. Sits proud of the bar so it reads as the primary
@@ -547,7 +650,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               pulsing while picks are due, blue once the card is complete. */}
           <Link
             href="/picks"
-            aria-label={hasOutstandingPicks ? `My Picks — ${outstanding} still to do` : 'My Picks'}
+            aria-label={hasOutstandingPicks ? picksAria : 'My Picks'}
             className="relative flex flex-col items-center -mt-6"
           >
             <span
@@ -562,7 +665,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
               <span className="text-2xl leading-none">🏈</span>
               {hasOutstandingPicks && (
                 <span className="absolute -top-1 -right-1 min-w-[20px] h-[20px] flex items-center justify-center rounded-full bg-red-500 text-[11px] font-bold text-white px-1 border-2 border-surface">
-                  {outstanding}
+                  {picksBadge}
                 </span>
               )}
             </span>
@@ -571,7 +674,7 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
                 hasOutstandingPicks ? 'text-amber-400' : picksIsActive ? 'text-blue-400' : 'text-slate-500'
               }`}
             >
-              {hasOutstandingPicks ? `${outstanding} to pick` : 'My Picks'}
+              {hasOutstandingPicks ? picksLabel : 'My Picks'}
             </span>
           </Link>
 
@@ -608,16 +711,26 @@ export default function Nav({ incompleteCount }: NavProps = {}) {
   )
 }
 
-function BottomTab({ tab, isActive }: { tab: { label: string; icon: string; href: string }; isActive: boolean }) {
+function BottomTab({ tab, isActive, badge = 0 }: {
+  tab: { label: string; icon: string; href: string }
+  isActive: boolean
+  badge?: number
+}) {
   return (
     <Link
       href={tab.href}
+      aria-label={badge > 0 ? `${tab.label} — ${badge} unread` : undefined}
       className={`relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 ${
         isActive ? 'text-blue-400' : 'text-slate-500 active:text-slate-300'
       }`}
     >
-      <span className={`text-lg leading-none transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}>
+      <span className={`relative text-lg leading-none transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}>
         {tab.icon}
+        {badge > 0 && (
+          <span className="absolute -top-1.5 -right-3 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white border-2 border-surface">
+            {badgeCount(badge)}
+          </span>
+        )}
       </span>
       <span className="text-[10px] font-medium truncate w-full text-center">{tab.label}</span>
       <span

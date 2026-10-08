@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
+import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
@@ -7,7 +8,7 @@ import { MAX_BEST_PICKS } from '@/lib/constants'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
-import Nav from '@/components/Nav'
+import Nav, { type PickStatus } from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 
 interface ManagedPlayer {
@@ -28,6 +29,32 @@ interface Game {
 
 interface UserPick {
   [gameId: string]: string
+}
+
+/** 1d 04:47:51 under a day becomes 04:47:51 — compact enough for one line on any phone. */
+function formatCountdown(ms: number): string {
+  const days = Math.floor(ms / 86_400_000)
+  const hours = Math.floor((ms / 3_600_000) % 24)
+  const minutes = Math.floor((ms / 60_000) % 60)
+  const seconds = Math.floor((ms / 1000) % 60)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${days > 0 ? `${days}d ` : ''}${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+}
+
+/** Proof a tap reached the database — 'selected' and 'saved' look identical otherwise. */
+function SaveIndicator({ state }: { state: 'idle' | 'saving' | 'saved' }) {
+  if (state === 'saving') return <span className="text-slate-500">Saving…</span>
+  if (state === 'saved') {
+    return (
+      <span className="flex items-center gap-1 text-emerald-400 animate-fade-in">
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+        Saved
+      </span>
+    )
+  }
+  return null
 }
 
 // Skeleton loading component
@@ -86,6 +113,24 @@ export default function PicksPage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pickAnimTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The status card, watched so a slim copy can pin under the header once it
+  // scrolls out of view. State rather than a ref: the card mounts after load.
+  const [statusEl, setStatusEl] = useState<HTMLDivElement | null>(null)
+  const [statusOffscreen, setStatusOffscreen] = useState(false)
+
+  useEffect(() => {
+    if (!statusEl || typeof IntersectionObserver === 'undefined') { setStatusOffscreen(false); return }
+    const headerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 0
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        // Only once it's gone off the *top* — not while it's below the fold.
+        setStatusOffscreen(!entry.isIntersecting && entry.boundingClientRect.top < headerH)
+      },
+      { rootMargin: `-${headerH}px 0px 0px 0px` },
+    )
+    io.observe(statusEl)
+    return () => io.disconnect()
+  }, [statusEl])
 
   // Tick every second for live countdown — paused when tab hidden to save battery
   useEffect(() => {
@@ -344,13 +389,30 @@ export default function PicksPage() {
 
   const pickedCount = Object.keys(picks).length
   const totalGames = games.length
-  const remaining = !isLocked && totalGames > 0 ? (totalGames - pickedCount) + (bestPicks.size < MAX_BEST_PICKS ? 1 : 0) : 0
+  const allDone = totalGames > 0 && pickedCount >= totalGames && bestPicks.size >= MAX_BEST_PICKS
+  const activePlayer = managedPlayers.find(p => p.id === activePlayerId) ?? null
+  // The badge in the nav is about *your* card. While picking for someone you
+  // manage, leave it to Nav to work out your own rather than showing theirs.
+  const navStatus: PickStatus | undefined = activePlayerId
+    ? undefined
+    : !isLocked && totalGames > 0
+      ? { unpicked: Math.max(0, totalGames - pickedCount), bestNeeded: bestPicks.size < MAX_BEST_PICKS }
+      : { unpicked: 0, bestNeeded: false }
+
+  // During an admin-granted extension the clock that matters is the grace
+  // window, not the (already passed) weekly lock.
+  const deadline = graceActive ? graceUntil : lockTime
+  const msLeft = deadline ? Math.max(0, deadline.getTime() - now.getTime()) : 0
+  const urgent = msLeft < 2 * 60 * 60 * 1000          // under 2 hours
+  const closeToLock = msLeft < 24 * 60 * 60 * 1000    // under a day
+  const countdown = formatCountdown(msLeft)
+  const showMiniStatus = statusOffscreen && !isLocked && totalGames > 0 && !!deadline
 
   return (
-    <div className="min-h-screen bg-surface">
-      <Nav incompleteCount={remaining} />
+    <div className="min-h-screen bg-surface pb-page">
+      <Nav pickStatus={navStatus} containerClassName="max-w-3xl lg:max-w-5xl" />
 
-      <main className="max-w-3xl mx-auto px-4 py-6 pb-24 animate-fade-in">
+      <main className="max-w-3xl lg:max-w-5xl mx-auto px-4 pt-6 animate-fade-in">
         {/* Managed player tabs */}
         {managedPlayers.length > 0 && (
           <div className="mb-5">
@@ -441,105 +503,92 @@ export default function PicksPage() {
           </div>
         )}
 
-        {/* Lock countdown */}
-        {!isLocked && lockTime && (() => {
-          const diff = Math.max(0, lockTime.getTime() - now.getTime())
-          const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-          const hours = Math.floor((diff / (1000 * 60 * 60)) % 24)
-          const minutes = Math.floor((diff / (1000 * 60)) % 60)
-          const seconds = Math.floor((diff / 1000) % 60)
-          const urgent = diff < 1000 * 60 * 60 * 2 // under 2 hours
-          const digitClass = urgent
-            ? 'inline-flex items-center justify-center min-w-[2.2rem] px-1.5 py-1 rounded-lg font-mono font-bold text-base tabular-nums bg-red-500/15 text-red-400'
-            : 'inline-flex items-center justify-center min-w-[2.2rem] px-1.5 py-1 rounded-lg font-mono font-bold text-base tabular-nums bg-amber-500/15 text-amber-400'
-          const labelClass = urgent
-            ? 'text-[9px] uppercase tracking-wider mt-0.5 text-red-500/60 font-semibold'
-            : 'text-[9px] uppercase tracking-wider mt-0.5 text-amber-500/60 font-semibold'
-          const colonClass = urgent
-            ? 'text-red-500/30 font-bold text-sm self-start mt-1'
-            : 'text-amber-500/30 font-bold text-sm self-start mt-1'
-          return (
-            <div className={`mb-5 glass-card rounded-2xl overflow-hidden ${urgent ? 'border-red-500/30' : ''}`}>
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className={`flex items-center gap-2 text-xs ${urgent ? 'text-red-400' : 'text-amber-400'}`}>
-                  <span className="animate-pulse-glow">{urgent ? '🚨' : '⏰'}</span>
-                  <span>Locks {formatKickoff(lockTime.toISOString())}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {days > 0 && (
-                    <div className="flex flex-col items-center">
-                      <span className={digitClass}>{days}</span>
-                      <span className={labelClass}>day{days !== 1 ? 's' : ''}</span>
-                    </div>
-                  )}
-                  {days > 0 && <span className={colonClass}>:</span>}
-                  <div className="flex flex-col items-center">
-                    <span className={digitClass}>{String(hours).padStart(2, '0')}</span>
-                    <span className={labelClass}>hrs</span>
-                  </div>
-                  <span className={colonClass}>:</span>
-                  <div className="flex flex-col items-center">
-                    <span className={digitClass}>{String(minutes).padStart(2, '0')}</span>
-                    <span className={labelClass}>min</span>
-                  </div>
-                  <span className={colonClass}>:</span>
-                  <div className="flex flex-col items-center">
-                    <span className={digitClass}>{String(seconds).padStart(2, '0')}</span>
-                    <span className={labelClass}>sec</span>
-                  </div>
-                </div>
-              </div>
+        {/* Status — deadline, progress and what's left, in one card. This used
+            to be a countdown card, a progress bar and two warning banners
+            stacked up, which pushed the first game below the fold on a phone
+            and said "14 unpicked" three different ways. */}
+        {!isLocked && totalGames > 0 && deadline && (
+          <div
+            ref={setStatusEl}
+            className={`mb-5 glass-card rounded-2xl p-4 transition-colors ${
+              allDone ? 'border-emerald-500/30' : urgent ? 'border-red-500/30' : ''
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <span className={`flex items-center gap-1.5 text-xs ${urgent ? 'text-red-400' : 'text-amber-400'}`}>
+                <span className="animate-pulse-glow">{urgent ? '🚨' : '⏰'}</span>
+                <span>{graceActive ? 'Extra time ends' : 'Locks'} {formatKickoff(deadline.toISOString())}</span>
+              </span>
+              <span
+                className={`font-mono font-bold text-sm tabular-nums ${urgent ? 'text-red-400' : 'text-amber-400'}`}
+                aria-label="Time until lock"
+              >
+                {countdown}
+              </span>
             </div>
-          )
-        })()}
 
-        {/* Progress */}
-        {totalGames > 0 && (
-          <div className="mb-5">
-            <div className="flex justify-between text-xs text-slate-400 mb-2">
-              <span className="flex items-center gap-2">
-                {pickedCount} of {totalGames} games picked
-                {saveState === 'saving' && (
-                  <span className="text-slate-500">Saving…</span>
-                )}
-                {saveState === 'saved' && (
-                  <span className="flex items-center gap-1 text-emerald-400 animate-fade-in">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Saved
-                  </span>
-                )}
-              </span>
-              <span className={bestPicks.size === MAX_BEST_PICKS ? 'text-amber-400 font-medium' : ''}>
-                ⭐ {bestPicks.size}/{MAX_BEST_PICKS} best picks
-              </span>
-            </div>
-            <div className="w-full bg-white/[0.06] rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-white/[0.06] rounded-full h-2 overflow-hidden mt-3">
               <div
-                className="progress-gradient h-2 rounded-full transition-all duration-500 ease-out"
-                style={{ width: totalGames > 0 ? `${(pickedCount / totalGames) * 100}%` : '0%' }}
+                className={`h-2 rounded-full transition-all duration-500 ease-out ${allDone ? 'bg-emerald-500' : 'progress-gradient'}`}
+                style={{ width: `${(pickedCount / totalGames) * 100}%` }}
               />
             </div>
+
+            <div className="flex justify-between items-center text-xs text-slate-400 mt-2">
+              <span className="flex items-center gap-2">
+                {allDone
+                  ? <span className="text-emerald-400 font-medium">✓ All {totalGames} picked</span>
+                  : <span>{pickedCount} of {totalGames} picked</span>}
+                <SaveIndicator state={saveState} />
+              </span>
+              <span className={bestPicks.size === MAX_BEST_PICKS ? 'text-amber-400 font-medium' : ''}>
+                ⭐ {bestPicks.size}/{MAX_BEST_PICKS} Best
+              </span>
+            </div>
+
+            {/* Best 3 is a rule worth knowing, but in red from the first visit
+                it read as an error before you'd done anything. It speaks up
+                once your games are in, or when the clock is getting short. */}
+            {bestPicks.size < MAX_BEST_PICKS && (pickedCount === totalGames || closeToLock) && (
+              <p className="mt-3 text-[11px] text-red-400 leading-snug">
+                ⭐ Star {MAX_BEST_PICKS - bestPicks.size} more Best {MAX_BEST_PICKS - bestPicks.size === 1 ? 'Pick' : 'Picks'} —
+                any left empty at lock counts as a <strong>loss</strong> on your Best 3 record.
+              </p>
+            )}
+            {urgent && pickedCount < totalGames && (
+              <p className="mt-2 text-[11px] text-red-400 leading-snug">
+                {totalGames - pickedCount} {totalGames - pickedCount === 1 ? 'game is' : 'games are'} still unpicked —
+                anything empty at lock counts as a loss.
+              </p>
+            )}
           </div>
         )}
 
-        {/* Unpicked games warning */}
-        {!isLocked && totalGames > 0 && pickedCount < totalGames && (
-          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-2.5 text-amber-400 text-xs">
-            <span>⚠️</span>
-            <span>You have <strong>{totalGames - pickedCount} unpicked {totalGames - pickedCount === 1 ? 'game' : 'games'}</strong> remaining</span>
-          </div>
-        )}
-
-        {/* Incomplete Best 3 warning — every empty slot is scored as a loss */}
-        {!isLocked && totalGames > 0 && bestPicks.size < MAX_BEST_PICKS && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-2.5 text-red-400 text-xs">
-            <span>⭐</span>
-            <span>
-              Pick <strong>{MAX_BEST_PICKS - bestPicks.size} more best {MAX_BEST_PICKS - bestPicks.size === 1 ? 'pick' : 'picks'}</strong> —
-              any left empty at lock counts as a <strong>loss</strong> on your Best 3 record
-            </span>
+        {/* Pinned mini version once the card above scrolls away, so by game 10
+            you still know how many are left and how long you've got. */}
+        {showMiniStatus && (
+          <div
+            className="fixed left-0 right-0 z-20 border-b border-white/[0.06] bg-surface/90 backdrop-blur-xl animate-fade-in safe-x"
+            style={{ top: 'var(--header-h, 0px)' }}
+          >
+            <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-2">
+              <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+                <span className="flex items-center gap-2">
+                  {allDone
+                    ? <span className="text-emerald-400 font-medium">✓ All set</span>
+                    : <span><span className="text-white font-semibold">{pickedCount}</span>/{totalGames} picked</span>}
+                  <span className={bestPicks.size === MAX_BEST_PICKS ? 'text-amber-400' : ''}>⭐ {bestPicks.size}/{MAX_BEST_PICKS}</span>
+                  <SaveIndicator state={saveState} />
+                </span>
+                <span className={`font-mono tabular-nums ${urgent ? 'text-red-400' : 'text-amber-400'}`}>⏰ {countdown}</span>
+              </div>
+              <div className="w-full bg-white/[0.06] rounded-full h-1 overflow-hidden">
+                <div
+                  className={`h-1 rounded-full transition-all duration-500 ${allDone ? 'bg-emerald-500' : 'progress-gradient'}`}
+                  style={{ width: `${(pickedCount / totalGames) * 100}%` }}
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -595,7 +644,9 @@ export default function PicksPage() {
                 <p className="text-slate-400 text-sm">No games available yet. Check back soon!</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              // Two columns on a wide screen: one long column of 16 cards was
+              // most of the scrolling, with the sides of the page empty.
+              <div className="grid gap-3 lg:grid-cols-2">
                 {games.map((game, gameIdx) => {
                   const away = getTeam(game.away_team)
                   const home = getTeam(game.home_team)
@@ -656,8 +707,8 @@ export default function PicksPage() {
                       } ${isLocked && !decided ? 'opacity-80' : ''}`}
                       style={{ animationDelay: `${gameIdx * 30}ms` }}
                     >
-                      <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+                        <div className="flex items-center gap-2 min-w-0">
                           <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
                           {/* Score badge when game is decided */}
                           {decided && hasScore && (
@@ -673,7 +724,7 @@ export default function PicksPage() {
                             onClick={() => toggleBestPick(game.id)}
                             disabled={starDisabled}
                             title={!canStar ? 'Pick a team first' : isStarred ? 'Remove best pick' : bestPicks.size >= MAX_BEST_PICKS ? 'Already selected 3' : 'Mark as best pick'}
-                            className={`press flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-all font-medium ${
+                            className={`press shrink-0 whitespace-nowrap flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-all font-medium ${
                               isStarred ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 glow-amber'
                               : starDisabled ? 'border-white/[0.04] text-slate-600 cursor-not-allowed'
                               : 'border-white/[0.08] text-slate-400 hover:border-amber-500/30 hover:text-amber-400'
@@ -688,18 +739,23 @@ export default function PicksPage() {
                         )}
                       </div>
 
-                      <div className="grid grid-cols-[1fr_auto_1fr] gap-0 px-3 pb-3 items-center">
+                      {/* minmax(0,1fr), not 1fr: a plain 1fr column won't shrink below
+                          its content, so a long name ("Commanders") pushed the
+                          home button out past the card's right edge on a phone.
+                          Under 380px (iPhone SE) the logos drop out too — at
+                          that width they left room for about four letters. */}
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-0 px-3 pb-3 items-center">
                         {/* Away team */}
                         <button
                           type="button"
                           onClick={() => handlePickChange(game.id, game.away_team)}
                           disabled={isLocked}
-                          className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.away_team)}`}
+                          className={`press min-w-0 flex items-center gap-2.5 sm:gap-3 py-3 px-3 sm:px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.away_team)}`}
                         >
                           <img
                             src={away.logo} alt={game.away_team}
                             loading="lazy" decoding="async"
-                            className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+                            className={`max-[379px]:hidden w-8 h-8 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
                               pickedTeam === game.away_team ? 'scale-110' : ''
                             } ${isLocked && pickedTeam !== game.away_team && !decided ? 'opacity-30' : ''}`}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -722,12 +778,12 @@ export default function PicksPage() {
                           type="button"
                           onClick={() => handlePickChange(game.id, game.home_team)}
                           disabled={isLocked}
-                          className={`press flex items-center gap-3 py-3 px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.home_team)}`}
+                          className={`press min-w-0 flex items-center gap-2.5 sm:gap-3 py-3 px-3 sm:px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.home_team)}`}
                         >
                           <img
                             src={home.logo} alt={game.home_team}
                             loading="lazy" decoding="async"
-                            className={`w-10 h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+                            className={`max-[379px]:hidden w-8 h-8 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
                               pickedTeam === game.home_team ? 'scale-110' : ''
                             } ${isLocked && pickedTeam !== game.home_team && !decided ? 'opacity-30' : ''}`}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -746,6 +802,26 @@ export default function PicksPage() {
               </div>
             )}
           </div>
+
+          {/* Done — the moment you finish, at the spot you finish it. */}
+          {allDone && !isLocked && (
+            <div className="mb-5 p-4 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl animate-slide-up">
+              <p className="text-sm font-semibold text-emerald-400">
+                ✓ All set for Week {currentWeek}{activePlayer ? ` — ${activePlayer.name}` : ''}
+              </p>
+              <p className="text-xs text-emerald-400/70 mt-0.5">
+                Every pick is saved. You can still change anything until {deadline ? formatKickoff(deadline.toISOString()) : 'lock'}.
+              </p>
+              <div className="flex gap-2 mt-3">
+                <Link href="/talk" className="press flex-1 text-center text-xs font-semibold text-white bg-white/[0.08] hover:bg-white/[0.12] rounded-xl py-2.5 transition">
+                  💩 Talk
+                </Link>
+                <Link href="/standings" className="press flex-1 text-center text-xs font-semibold text-white bg-white/[0.08] hover:bg-white/[0.12] rounded-xl py-2.5 transition">
+                  🏆 Standings
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Best picks summary */}
           {bestPicks.size > 0 && (

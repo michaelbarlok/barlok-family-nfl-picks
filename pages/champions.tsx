@@ -78,7 +78,7 @@ export default function ChampionsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface pb-20">
+      <div className="min-h-screen bg-surface pb-page">
         <Nav />
         <main className="max-w-3xl mx-auto px-4 py-6">
           <div className="skeleton h-4 w-40 rounded mb-5" />
@@ -109,7 +109,7 @@ export default function ChampionsPage() {
     .sort((a, b) => b[1] - a[1])
 
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">

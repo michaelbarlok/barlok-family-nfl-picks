@@ -139,6 +139,26 @@ body {
   }
 }
 
+/* Page-level bottom padding for every ordinary (document-scrolling) page.
+   pb-20 used to do this, but 80px is less than the bar on an iPhone running
+   the installed app: 84px for the bar and the raised football, plus ~34px of
+   home indicator — so the last card sat partly under the tab bar. This is the
+   bar's clearance plus the indicator plus a little air; on desktop, where
+   there is no bar, it's just a comfortable margin. */
+.pb-page {
+  padding-bottom: 6.25rem;
+}
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-page {
+    padding-bottom: calc(6.25rem + env(safe-area-inset-bottom));
+  }
+}
+@media (min-width: 640px) {
+  .pb-page {
+    padding-bottom: 3rem;
+  }
+}
+
 /* Marks the message a quote jumped to, so the eye lands on it rather than
    having to re-find it after the scroll. */
 .quote-flash {

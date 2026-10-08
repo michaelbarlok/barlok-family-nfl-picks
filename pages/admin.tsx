@@ -49,6 +49,8 @@ export default function AdminPage() {
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
   const [games, setGames] = useState<Game[]>([])
+  // Games that haven't kicked off are folded away on the Results tab.
+  const [showUpcoming, setShowUpcoming] = useState(false)
   const [dataLoading, setDataLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -745,14 +747,25 @@ export default function AdminPage() {
     { key: 'players' as const, label: 'Players', icon: '👥' },
   ]
 
+  // Results tab order: games waiting on a result first (the ones that need
+  // you), then finished ones, then — folded, since there's nothing to set yet —
+  // the ones that haven't kicked off. A fresh week was 14 "Not started" cards.
+  const nowMs = Date.now()
+  const hasStarted = (g: Game) => !!g.winning_team || parseUTC(g.kickoff_time).getTime() < nowMs
+  const awaitingResult = games.filter(g => !g.winning_team && hasStarted(g))
+  const decidedGames = games.filter(g => !!g.winning_team)
+  const upcomingGames = games.filter(g => !hasStarted(g))
+  const resultsOrder = [...awaitingResult, ...decidedGames, ...(showUpcoming ? upcomingGames : [])]
+
   return (
     <div className="min-h-screen bg-surface">
-      <Nav />
+      <Nav containerClassName="max-w-6xl" />
 
       <div className="max-w-6xl mx-auto px-4 py-6 sm:flex sm:gap-6">
         {/* ── SIDEBAR (desktop) ── */}
         <aside className="hidden sm:block w-56 shrink-0">
-          <div className="sticky top-[73px]">
+          {/* Pinned just under the header, whatever height it is (it's taller on desktop than the 73px this used to assume). */}
+          <div className="sticky" style={{ top: 'calc(var(--header-h, 73px) + 1rem)' }}>
             {/* Role badge */}
             <div className="flex items-center gap-2 mb-4">
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
@@ -857,7 +870,7 @@ export default function AdminPage() {
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <main className="flex-1 min-w-0 pb-20">
+        <main className="flex-1 min-w-0 pb-page">
           {/* Message banner */}
           {message && (
             <div className={`mb-4 p-3 rounded-xl text-sm border animate-slide-up ${
@@ -874,7 +887,7 @@ export default function AdminPage() {
         {activeTab === 'results' && selectedWeek && (
           <>
             {/* Action buttons row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
               <div className="p-4 glass-card rounded-xl">
                 <p className="text-sm font-semibold text-slate-200 mb-1">Sync Schedule</p>
                 <p className="text-xs text-slate-500 mb-3">Pull Week {selectedWeek} games & times from ESPN.</p>
@@ -1018,7 +1031,7 @@ export default function AdminPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {games.map(game => {
+                {resultsOrder.map(game => {
                   const away = getTeam(game.away_team)
                   const home = getTeam(game.home_team)
                   const winner = game.winning_team
@@ -1110,6 +1123,18 @@ export default function AdminPage() {
                     </div>
                   )
                 })}
+                {upcomingGames.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowUpcoming(v => !v)}
+                    className="press w-full glass-card rounded-xl px-4 py-3 text-xs font-medium text-slate-400 hover:text-slate-200 transition text-left flex items-center justify-between"
+                  >
+                    <span>
+                      {showUpcoming ? 'Hide' : 'Show'} {upcomingGames.length} {upcomingGames.length === 1 ? 'game' : 'games'} that {upcomingGames.length === 1 ? "hasn't" : "haven't"} kicked off
+                    </span>
+                    <span className={`transition-transform ${showUpcoming ? 'rotate-180' : ''}`}>⌄</span>
+                  </button>
+                )}
               </div>
             )}
           </>

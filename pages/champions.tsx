@@ -3,44 +3,8 @@ import { useRouter } from 'next/router'
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import Nav from '@/components/Nav'
+import { historicChampions, mergeChampions, type Champion } from '@/lib/champions'
 
-// Seasons before the app existed. Everything from 2026 on is written by
-// "Save Season" into the seasons table, so a new champion no longer needs a
-// code change — this list is only the history that predates it.
-const historicChampions = [
-  { year: 1996, winner: 'Mike & Amy', record: '123-117' },
-  { year: 1997, winner: 'D Nelson', record: '134-106' },
-  { year: 1998, winner: 'Junior', record: '123-116' },
-  { year: 1999, winner: 'Junior', record: '157-91' },
-  { year: 2000, winner: 'Senior', record: '158-82' },
-  { year: 2001, winner: 'Senior', record: '156-92' },
-  { year: 2002, winner: '', record: '' },
-  { year: 2003, winner: 'Senior', record: '153-101-1' },
-  { year: 2004, winner: 'Junior', record: '163-93' },
-  { year: 2005, winner: 'Senior', record: '164-92' },
-  { year: 2006, winner: 'Grandpa', record: '172-84' },
-  { year: 2007, winner: 'Junior', record: '167-89' },
-  { year: 2008, winner: 'Uncle Mike', record: '173-83' },
-  { year: 2009, winner: 'Michael', record: '165-90-1' },
-  { year: 2010, winner: 'Uncle Mike', record: '179-77' },
-  { year: 2011, winner: 'Jenn', record: '163-93' },
-  { year: 2012, winner: 'Grandpa', record: '173-83' },
-  { year: 2013, winner: 'Junior', record: '171-85' },
-  { year: 2014, winner: 'Uncle Mike', record: '181-75' },
-  { year: 2015, winner: 'Grandpa', record: '167-89' },
-  { year: 2016, winner: 'Amy', record: '162-94' },
-  { year: 2017, winner: 'Grandpa', record: '173-83' },
-  { year: 2018, winner: 'Uncle Mike', record: '168-86-2' },
-  { year: 2019, winner: 'Robbie', record: '169-86-1' },
-  { year: 2020, winner: 'Robbie', record: '173-83' },
-  { year: 2021, winner: 'Robbie', record: '176-95-1' },
-  { year: 2022, winner: 'Amy', record: '175-95-2' },
-  { year: 2023, winner: 'Amy', record: '178-94' },
-  { year: 2024, winner: 'Senior', record: '200-72' },
-  { year: 2025, winner: 'Thomas', record: '174-98' },
-]
-
-interface Champion { year: number; winner: string; record: string }
 
 export default function ChampionsPage() {
   const router = useRouter()
@@ -61,24 +25,14 @@ export default function ChampionsPage() {
         .order('season')
       if (!data) return // table not created yet — the historic list stands alone
 
-      // A season saved in the app wins over any hardcoded row for the same year.
-      const merged = new Map<number, Champion>(historicChampions.map(c => [c.year, c]))
-      for (const row of data) {
-        if (!row.champion_name) continue
-        merged.set(row.season, {
-          year: row.season,
-          winner: row.champion_name,
-          record: row.champion_record ?? '',
-        })
-      }
-      setChampions([...merged.values()].sort((a, b) => a.year - b.year))
+      setChampions(mergeChampions(data))
     }
     load().catch(err => console.error('Failed to load champions:', err))
   }, [user])
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface pb-20">
+      <div className="min-h-screen bg-surface pb-page">
         <Nav />
         <main className="max-w-3xl mx-auto px-4 py-6">
           <div className="skeleton h-4 w-40 rounded mb-5" />
@@ -109,7 +63,7 @@ export default function ChampionsPage() {
     .sort((a, b) => b[1] - a[1])
 
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
 
       <main className="max-w-3xl mx-auto px-4 py-6 animate-fade-in">

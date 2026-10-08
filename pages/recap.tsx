@@ -103,7 +103,7 @@ export default function RecapPage() {
 
   if (loading || dataLoading) {
     return (
-      <div className="min-h-screen bg-surface pb-20">
+      <div className="min-h-screen bg-surface pb-page">
         <Nav />
         <main className="max-w-2xl mx-auto px-4 py-6">
           <div className="skeleton h-6 w-40 rounded mb-4" />
@@ -115,7 +115,7 @@ export default function RecapPage() {
   if (!user) return null
 
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
       <main className="max-w-2xl mx-auto px-4 py-6 animate-fade-in">
         <Link href="/talk" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition mb-4">

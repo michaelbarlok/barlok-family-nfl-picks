@@ -40,7 +40,7 @@ interface SeasonData {
 
 function AllPicksSkeleton() {
   return (
-    <div className="min-h-screen bg-surface pb-20">
+    <div className="min-h-screen bg-surface pb-page">
       <Nav />
       <main className="max-w-4xl mx-auto px-4 py-6">
         <div className="skeleton h-4 w-40 rounded mb-4" />
@@ -253,8 +253,8 @@ export default function AllPicksPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface pb-20">
-      <Nav />
+    <div className="min-h-screen bg-surface pb-page">
+      <Nav containerClassName="max-w-4xl xl:max-w-[1500px]" />
 
       <main className="max-w-4xl xl:max-w-[1500px] mx-auto px-3 sm:px-4 py-6 animate-fade-in">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
@@ -288,6 +288,20 @@ export default function AllPicksPage() {
                   ? `on ${formatLockTime(lockTime)}`
                   : 'after the Thursday deadline'}.
               </p>
+              {/* Until lock this week is a who's-in list, so the picks people
+                  actually come here for midweek are last week's. One tap. */}
+              {(() => {
+                const prev = availableWeeks.filter(w => selectedWeek !== null && w < selectedWeek).pop()
+                return prev !== undefined ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedWeek(prev)}
+                    className="press mt-3 text-xs font-semibold text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/15 border border-blue-500/20 rounded-full px-3 py-1.5 transition"
+                  >
+                    See Week {prev} picks →
+                  </button>
+                ) : null
+              })()}
             </div>
             {submissionStatus.length > 0 && (
               <div className="divide-y divide-white/[0.04]">

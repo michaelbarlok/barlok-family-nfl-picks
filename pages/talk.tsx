@@ -1025,14 +1025,18 @@ export default function TalkPage() {
 
       {/* ── Composer ─────────────────────────────────────────────────────── */}
       <div className={`shrink-0 relative border-t border-white/[0.08] bg-surface/95 backdrop-blur-xl safe-x ${keyboardOpen ? '' : 'pb-nav'}`}>
-        {/* Never both at once — they occupy the same spot. */}
+        {/* Sits in the composer rather than floating over the thread, where
+            it covered the newest message's timestamp. Never shown alongside
+            the jump-to-latest button. */}
         {showHoldHint && !showJump && ordered.length > 0 && (
-          <button
-            onClick={dismissHoldHint}
-            className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full bg-white/[0.10] backdrop-blur-xl text-[11px] text-slate-300 shadow-lg shadow-black/40"
-          >
-            Hold a message to react or reply ✕
-          </button>
+          <div className="flex justify-center pt-2">
+            <button
+              onClick={dismissHoldHint}
+              className="whitespace-nowrap px-3 py-1 rounded-full bg-white/[0.08] text-[11px] text-slate-400 hover:text-slate-200 transition"
+            >
+              💡 Hold a message to react or reply ✕
+            </button>
+          </div>
         )}
 
         {showJump && (

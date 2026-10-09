@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabase'
 const AVATAR_MAX_DIMENSION = 512
 const JPEG_QUALITY = 0.8
 
@@ -57,6 +58,29 @@ export async function processImageFile(
 
 export async function processAvatarFile(file: File) {
   return processImageFile(file, AVATAR_MAX_DIMENSION)
+}
+
+/** File types the avatar pickers accept — HEIC included, for iPhone photos. */
+export const AVATAR_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif'
+
+/**
+ * Resize and upload your own profile photo. Returns the new public URL.
+ * Shared by the profile panel and the first-visit setup prompt.
+ */
+export async function uploadOwnAvatar(file: File): Promise<string> {
+  const { base64, contentType } = await processAvatarFile(file)
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/avatar', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session?.access_token}`,
+    },
+    body: JSON.stringify({ imageData: base64, contentType }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to upload photo')
+  return data.avatar_url as string
 }
 
 /** Talk photos stay legible full-width, so they keep more resolution. */

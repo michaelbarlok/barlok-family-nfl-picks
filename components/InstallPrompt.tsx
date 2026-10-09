@@ -28,6 +28,9 @@ import { isStandalone } from '@/lib/pushClient'
 /** Fire this on window to open the sheet on demand, from the profile panel. */
 export const SHOW_INSTALL_EVENT = 'nfl:show-install'
 
+/** Fired when the sheet closes, so the setup prompt can follow it rather than stack on it. */
+export const INSTALL_CLOSED_EVENT = 'nfl:install-closed'
+
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
@@ -50,9 +53,14 @@ function detectPlatform(): Platform {
 }
 
 /** Phone or tablet, not a desktop browser someone narrowed the window on. */
-function isHandheld(): boolean {
+export function isHandheld(): boolean {
   if (typeof window === 'undefined') return false
   return window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 900
+}
+
+/** Whether this visit opens with the install sheet (the same test its timer uses). */
+export function installPromptWillShow(): boolean {
+  return isHandheld() && !isStandalone()
 }
 
 export default function InstallPrompt() {
@@ -66,6 +74,7 @@ export default function InstallPrompt() {
   const close = useCallback(() => {
     setOpen(false)
     setShowSteps(false)
+    window.dispatchEvent(new Event(INSTALL_CLOSED_EVENT))
   }, [])
 
   useEffect(() => {

@@ -179,7 +179,9 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, ev
         </button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {/* Without picks the cards differ a lot in height (live ones carry the
+          field), so don't stretch short ones to fill the row. */}
+      <div className={`grid gap-3 md:grid-cols-2 xl:grid-cols-3 ${showPicks ? '' : 'items-start'}`}>
         {sorted.map(c => (
           <GameCard
             key={c.g.id}
@@ -240,18 +242,33 @@ function GameCard({ card, meId, follow, bestOf, isUpset, showPicks, event, forma
           : null
 
   // ── Scoreboard: one team's logo, code and score ──
+  // Finals are coloured by YOUR pick, not by who won: your team's score turns
+  // green if it won and red if it lost, so a glance down the list shows how
+  // your week went. The other side stays neutral; with no pick, neither is
+  // coloured.
+  const myPick = away.some(p => p.id === meId) ? g.away_team : home.some(p => p.id === meId) ? g.home_team : null
+  const myResult: 'won' | 'lost' | 'tie' | null = !isFinal || !myPick ? null
+    : finalWinner === 'TIE' ? 'tie' : finalWinner === myPick ? 'won' : 'lost'
+
   const scoreSide = (team: string, align: 'left' | 'right') => {
     const won = isFinal && finalWinner === team
     const lost = isFinal && finalWinner !== team && finalWinner !== 'TIE'
     const ahead = liveLeader === team
+    const mine = myPick === team && myResult !== null
+    const mineCls = myResult === 'won' ? 'text-emerald-400' : myResult === 'lost' ? 'text-red-400' : 'text-slate-300'
     const sc = score(team)
     const t = getTeam(team)
     return (
       <div className={`flex items-center gap-2 min-w-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
         <img src={t.logo} alt="" className="w-9 h-9 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         <div className="min-w-0">
-          <p className={`text-base font-extrabold leading-none ${won ? 'text-emerald-400' : lost ? 'text-slate-500' : 'text-white'}`}>
+          <p className={`text-base font-extrabold leading-none ${mine ? mineCls : lost ? 'text-slate-500' : 'text-white'}`}>
             {team}
+            {mine && (
+              <span className="ml-1 text-xs font-black" title={myResult === 'won' ? 'Your pick won' : myResult === 'lost' ? 'Your pick lost' : 'Tie'}>
+                {myResult === 'won' ? '✓' : myResult === 'lost' ? '✗' : '='}
+              </span>
+            )}
             {isLive && lg?.possession === team && <span className="ml-1 text-xs" title="Has the ball">🏈</span>}
           </p>
           {sc === null && <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate">{t.name}</p>}
@@ -260,7 +277,7 @@ function GameCard({ card, meId, follow, bestOf, isUpset, showPicks, event, forma
           <span
             key={popTeam === team ? event?.key : 'still'}
             className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-3xl font-black tabular-nums leading-none ${
-              won ? 'text-emerald-400' : lost ? 'text-slate-600' : isFinal || ahead ? 'text-white' : 'text-slate-400'
+              mine ? mineCls : won ? 'text-white' : lost ? 'text-slate-600' : isFinal || ahead ? 'text-white' : 'text-slate-400'
             } ${popTeam === team ? 'score-pop' : ''}`}
           >{sc}</span>
         )}

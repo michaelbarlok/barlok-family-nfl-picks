@@ -8,6 +8,7 @@ import { CURRENT_SEASON } from '@/lib/constants'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
 import InstallPrompt from '@/components/InstallPrompt'
+import SetupPrompt from '@/components/SetupPrompt'
 import '@/styles/globals.css'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -77,6 +78,8 @@ export default function App({ Component, pageProps }: AppProps) {
           {/* App-wide, and outside the keyed <Component>, so navigating
               doesn't restart its timer or reopen it. */}
           <InstallPrompt />
+          {/* Profile photo + notifications. Waits for the install sheet. */}
+          <SetupPrompt />
         </ToastProvider>
         </SeasonProvider>
       </AuthProvider>

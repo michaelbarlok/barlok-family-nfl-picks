@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 import { MAX_BEST_PICKS } from '@/lib/constants'
-import { parseUTC, computeLockTime, formatLockTime } from '@/lib/lockTime'
+import { parseUTC, computeLockTime, formatLockTime, formatKickoff } from '@/lib/lockTime'
 import { NFL_TEAMS } from '@/lib/nflTeams'
 import { computeRecords } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
@@ -12,6 +12,11 @@ import { shortName } from '@/lib/displayName'
 import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 import SeasonSelector from '@/components/SeasonSelector'
+import GamesView from '@/components/GamesView'
+import { useLiveScores } from '@/lib/useLiveScores'
+
+type View = 'games' | 'table'
+const VIEW_KEY = 'allpicks-view'
 
 interface Game {
   id: string
@@ -81,6 +86,24 @@ export default function AllPicksPage() {
   useEffect(() => {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
+
+  // Games (a card per game, who's on each side) or the full table. A link can
+  // ask for one (?view=games); otherwise your last choice; otherwise cards on
+  // a phone, where the table is a squeeze, and the table on a wide screen.
+  const [view, setView] = useState<View | null>(null)
+  useEffect(() => {
+    if (!router.isReady) return
+    const asked = router.query.view
+    if (asked === 'games' || asked === 'table') { setView(asked); return }
+    let saved: string | null = null
+    try { saved = window.localStorage.getItem(VIEW_KEY) } catch { /* private mode */ }
+    if (saved === 'games' || saved === 'table') { setView(saved); return }
+    setView(window.innerWidth < 1024 ? 'games' : 'table')
+  }, [router.isReady, router.query.view])
+  const chooseView = (v: View) => {
+    setView(v)
+    try { window.localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ }
+  }
 
   // Fetch available weeks
   useEffect(() => {
@@ -190,6 +213,23 @@ export default function AllPicksPage() {
     if (selectedWeek !== null) fetchWeekData(selectedWeek)
   }, [selectedWeek, fetchWeekData])
 
+  // Live scores for the week on screen (only polls while its games are on).
+  const live = useLiveScores(season, selectedWeek, games)
+
+  // Arriving from a "Live now" card or a split row: open at that game's card.
+  const gameHashReady = view === 'games' && !!allPicksData && !picksLoading
+  useEffect(() => {
+    if (!gameHashReady) return
+    const id = window.location.hash.slice(1)
+    if (!id.startsWith('game-')) return
+    const el = document.getElementById(id)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    el.classList.add('quote-flash')
+    const t = setTimeout(() => el.classList.remove('quote-flash'), 1300)
+    return () => clearTimeout(t)
+  }, [gameHashReady])
+
   if (loading || dataLoading) return <AllPicksSkeleton />
   if (!user) return null
 
@@ -270,6 +310,28 @@ export default function AllPicksPage() {
           availableWeeks={availableWeeks}
         />
 
+        {/* Games / Table — only once picks are revealed */}
+        {isLocked && !picksLoading && allPicksData && allPicksData.users.length > 0 && view && (
+          <div className="flex justify-center mb-4">
+            <div className="inline-flex p-1 rounded-full bg-white/[0.04] border border-white/[0.06]" role="tablist" aria-label="View">
+              {([['games', '🃏 Games'], ['table', '📊 Table']] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v}
+                  onClick={() => chooseView(v)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${
+                    view === v ? 'bg-white/[0.12] text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         {picksLoading ? (
           <div className="glass-card rounded-2xl p-10 text-center">
@@ -348,6 +410,16 @@ export default function AllPicksPage() {
               </div>
             )}
           </div>
+        ) : allPicksData && allPicksData.users.length > 0 && view === 'games' ? (
+          <GamesView
+            games={games}
+            users={allPicksData.users}
+            pickOf={(uid, gid) => picksLookup.get(`${uid}-${gid}`)}
+            bestOf={uid => threeBestLookup.get(uid)}
+            meId={user.id}
+            live={live.byGameId}
+            formatKickoff={formatKickoff}
+          />
         ) : allPicksData && allPicksData.users.length > 0 ? (() => {
           // Density tuning: shrink cell font + game column as user count grows,
           // so 18-20 users still fit on a 360px phone without sideways scroll.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
@@ -12,6 +12,8 @@ import { shortName } from '@/lib/displayName'
 import { getTeam } from '@/lib/nflTeams'
 import { mergeChampions, type Champion } from '@/lib/champions'
 import { useTalkUnread } from '@/lib/useTalkUnread'
+import { leaderOf, pickStanding, type LiveGame, type PickStanding } from '@/lib/liveScores'
+import { useLiveScores } from '@/lib/useLiveScores'
 import Nav from '@/components/Nav'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 
@@ -104,7 +106,23 @@ interface DashboardData {
   recapWeek: number | null
   latestChampion: Champion | null
   managedPlayers: ManagedPlayerSummary[]
+  /** The season's inputs, kept so "if it ended now" can be re-run as live scores move. */
+  raw: {
+    userIds: string[]
+    games: WeekGame[]
+    picks: SeasonPick[]
+    threeBests: { user_id: string; week: number; pick_1: string | null; pick_2: string | null; pick_3: string | null }[]
+  }
 }
+
+interface Projection {
+  weekRecord: { wins: number; losses: number; ties: number }
+  weekRank: number | null
+  seasonRank: number
+  seasonTied: boolean
+}
+
+const NO_GAMES: WeekGame[] = []
 
 interface WhoIsIn {
   week: number
@@ -442,6 +460,7 @@ export default function DashboardPage() {
           recapWeek,
           latestChampion,
           managedPlayers,
+          raw: { userIds, games, picks: allPicks, threeBests: best },
         })
       } catch (err) {
         console.error('Dashboard error:', err)
@@ -454,6 +473,43 @@ export default function DashboardPage() {
   }, [user, season, reloadKey])
 
   const isLocked = !!data?.lockTime && now >= data.lockTime
+
+  // Live scores while this week's games are on (polls only then).
+  const live = useLiveScores(season, data?.currentWeek ?? null, data?.weekGames ?? NO_GAMES)
+
+  // "If it ended now": the season re-run with every live game going to
+  // whoever's ahead — the same shared scoring as the real table, so Best 3,
+  // unpicked-game penalties and tie-breaks all count the same way.
+  const projection = useMemo<Projection | null>(() => {
+    if (!data || !user || data.currentWeek === null) return null
+    const week = data.currentWeek
+    const swings = data.weekGames.some(g => {
+      const lg = live.byGameId.get(g.id)
+      return !g.winning_team && !!lg && lg.state !== 'pre' && leaderOf(lg) !== null
+    })
+    if (!swings) return null
+    const games = data.raw.games.map(g => {
+      if (g.winning_team || g.week !== week) return g
+      const lg = live.byGameId.get(g.id)
+      if (!lg || lg.state === 'pre') return g
+      const leader = leaderOf(lg)
+      if (lg.state === 'post' && leader) return { ...g, winning_team: leader }
+      if (leader && leader !== 'TIE') return { ...g, winning_team: leader }
+      return g
+    })
+    const { userIds, picks, threeBests } = data.raw
+    const records = computeRecords({ userIds, games, picks, threeBests })
+    const ranked = userIds.map(uid => ({ uid, r: records.get(uid)! })).sort((a, b) => recordSort(a.r, b.r))
+    const ranks = assignRanks(ranked, x => x.r)
+    const i = ranked.findIndex(x => x.uid === user.id)
+    const wr = records.get(user.id)?.weekRecords.get(week)
+    return {
+      weekRecord: { wins: wr?.wins ?? 0, losses: wr?.losses ?? 0, ties: wr?.ties ?? 0 },
+      weekRank: weekRankOf(records, userIds, week, user.id),
+      seasonRank: i >= 0 ? ranks[i].rank : ranked.length,
+      seasonTied: i >= 0 ? ranks[i].isTied : false,
+    }
+  }, [data, live.byGameId, user])
 
   // The week locked while Home was open — reload so everyone's picks appear.
   useEffect(() => {
@@ -632,6 +688,10 @@ export default function DashboardPage() {
         <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
           {/* ───────────── LEFT: this week ───────────── */}
           <div>
+            {live.anyLive && (
+              <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} splits={d.splits} />
+            )}
+
             {weekState !== 'none' && d.currentWeek !== null && (
               <ThisWeekCard
                 week={d.currentWeek}
@@ -645,6 +705,9 @@ export default function DashboardPage() {
                 lockTime={d.lockTime}
                 now={now}
                 weekRecord={thisWeekRecord}
+                live={live.byGameId}
+                anyLive={live.anyLive}
+                projection={projection}
                 weekRank={d.weekRank}
                 weekPlayers={d.weekPlayers}
               />
@@ -753,36 +816,47 @@ export default function DashboardPage() {
 
 // ── sections ────────────────────────────────────────────────────────────────
 
-function PickChip({ team, result, star, empty }: {
+function PickChip({ team, standing, star, empty, live }: {
   team?: string
-  result: 'win' | 'loss' | 'tie' | null
+  standing: PickStanding
   star: boolean
   empty?: boolean
+  /** Game in progress right now — adds the red live dot. */
+  live?: boolean
 }) {
+  const dot = live && <span className="absolute -bottom-0.5 -left-0.5 w-2 h-2 rounded-full bg-red-500 border border-surface animate-pulse" />
   if (empty || !team) {
     return (
       <span
-        className="w-8 h-8 rounded-full border border-dashed border-white/[0.15] flex items-center justify-center text-[10px] text-slate-600"
+        className="relative w-8 h-8 rounded-full border border-dashed border-white/[0.15] flex items-center justify-center text-[10px] text-slate-600"
         title="Not picked"
       >
-        ?
+        ?{dot}
       </span>
     )
   }
   const t = getTeam(team)
-  const ring = result === 'win' ? 'ring-2 ring-emerald-500/70 bg-emerald-500/10'
-    : result === 'loss' ? 'ring-2 ring-red-500/60 bg-red-500/10'
-      : result === 'tie' ? 'ring-2 ring-slate-400/50'
-        : 'ring-1 ring-white/[0.10] bg-white/[0.04]'
+  // Solid ring once it's final, dashed while it's still being played.
+  const ring = {
+    won: 'ring-2 ring-emerald-500/70 bg-emerald-500/10',
+    lost: 'ring-2 ring-red-500/60 bg-red-500/10',
+    tie: 'ring-2 ring-slate-400/50',
+    winning: 'outline outline-2 outline-dashed outline-emerald-500/70 bg-emerald-500/[0.06]',
+    losing: 'outline outline-2 outline-dashed outline-red-500/60 bg-red-500/[0.06]',
+    level: 'outline outline-2 outline-dashed outline-amber-500/60',
+    upcoming: 'ring-1 ring-white/[0.10] bg-white/[0.04]',
+  }[standing]
+  const word = { won: 'won', lost: 'lost', tie: 'tied', winning: 'winning', losing: 'losing', level: 'level', upcoming: 'not started' }[standing]
   return (
-    <span className={`relative w-8 h-8 rounded-full flex items-center justify-center ${ring}`} title={`${t.city} ${t.name}`}>
+    <span className={`relative w-8 h-8 rounded-full flex items-center justify-center ${ring}`} title={`${t.city} ${t.name} — ${word}`}>
       <img
         src={t.logo} alt={team} loading="lazy" decoding="async"
         className="w-6 h-6 object-contain"
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
       />
       {star && <span className="absolute -top-1.5 -right-1.5 text-[11px] leading-none">⭐</span>}
-      {result === 'loss' && <span className="absolute -bottom-1 -right-1 text-[9px] font-bold text-red-400 leading-none">✗</span>}
+      {standing === 'lost' && <span className="absolute -bottom-1 -right-1 text-[9px] font-bold text-red-400 leading-none">✗</span>}
+      {dot}
     </span>
   )
 }
@@ -801,30 +875,45 @@ function ThisWeekCard(props: {
   weekRecord: { wins: number; losses: number; ties: number } | undefined
   weekRank: number | null
   weekPlayers: number
+  live: Map<string, LiveGame>
+  anyLive: boolean
+  projection: Projection | null
 }) {
-  const { week, season, state, games, myPicks, myBestTeams, pickedCount, bestCount, lockTime, now, weekRecord, weekRank, weekPlayers } = props
+  const { week, season, state, games, myPicks, myBestTeams, pickedCount, bestCount, lockTime, now, weekRecord, weekRank, weekPlayers, live, anyLive, projection } = props
   const total = games.length
   const msLeft = lockTime ? Math.max(0, lockTime.getTime() - now.getTime()) : 0
   const urgent = msLeft < 2 * 3600_000
   const allIn = pickedCount >= total && bestCount >= MAX_BEST_PICKS
-  const decided = games.filter(g => g.winning_team).length
 
-  const resultOf = (g: WeekGame): 'win' | 'loss' | 'tie' | null => {
-    if (!g.winning_team || state === 'open') return null
-    if (g.winning_team === 'TIE') return 'tie'
-    const pick = myPicks[g.id]
-    return pick === g.winning_team ? 'win' : 'loss'
-  }
+  // How each pick stands: recorded result first, then the live feed.
+  const standings = games.map(g => (state === 'open' ? 'upcoming' : pickStanding(myPicks[g.id], g, live.get(g.id))) as PickStanding)
+  const c = { won: 0, lost: 0, tie: 0, winning: 0, losing: 0, level: 0, upcoming: 0 }
+  standings.forEach(st => { c[st]++ })
+  const finals = c.won + c.lost + c.tie
 
   const badge = state === 'open'
     ? <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">Open</span>
-    : state === 'live'
-      ? <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">In progress · {decided}/{total} final</span>
-      : <span className="text-[10px] font-semibold text-slate-300 bg-white/[0.06] px-2 py-0.5 rounded-full">Final</span>
+    : anyLive
+      ? (
+        <span className="flex items-center gap-1.5 text-[10px] font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE · {finals}/{total} final
+        </span>
+      )
+      : state === 'live'
+        ? <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">In progress · {finals}/{total} final</span>
+        : <span className="text-[10px] font-semibold text-slate-300 bg-white/[0.06] px-2 py-0.5 rounded-full">Final</span>
+
+  // Live finals count before the result sync records them, so the headline
+  // record moves the moment a game ends rather than up to 15 minutes later.
+  const shownRecord = state === 'open' ? null : {
+    wins: Math.max(weekRecord?.wins ?? 0, c.won),
+    losses: Math.max(weekRecord?.losses ?? 0, c.lost),
+    ties: Math.max(weekRecord?.ties ?? 0, c.tie),
+  }
 
   return (
     <div className={`mb-5 glass-card rounded-2xl p-4 animate-slide-up ${
-      state === 'open' && !allIn ? 'border-amber-500/20' : state === 'open' && allIn ? 'border-emerald-500/25' : ''
+      state === 'open' && !allIn ? 'border-amber-500/20' : state === 'open' && allIn ? 'border-emerald-500/25' : anyLive ? 'border-red-500/25' : ''
     }`}>
       <div className="flex items-center justify-between mb-3">
         <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Week {week}</p>
@@ -854,18 +943,18 @@ function ThisWeekCard(props: {
         </>
       )}
 
-      {state !== 'open' && (
+      {shownRecord && (
         <div className="flex items-end justify-between mb-3">
           <div>
             <p className="text-2xl font-bold">
-              <span className="text-emerald-400">{weekRecord?.wins ?? 0}</span>
+              <span className="text-emerald-400">{shownRecord.wins}</span>
               <span className="text-slate-500 mx-1">–</span>
-              <span className="text-red-400">{weekRecord?.losses ?? 0}</span>
-              {(weekRecord?.ties ?? 0) > 0 && <><span className="text-slate-500 mx-1">–</span><span className="text-slate-400">{weekRecord!.ties}</span></>}
+              <span className="text-red-400">{shownRecord.losses}</span>
+              {shownRecord.ties > 0 && <><span className="text-slate-500 mx-1">–</span><span className="text-slate-400">{shownRecord.ties}</span></>}
             </p>
-            <p className="text-[11px] text-slate-500">{state === 'live' ? 'so far this week' : 'your week'}</p>
+            <p className="text-[11px] text-slate-500">{state === 'final' ? 'your week' : 'final so far'}</p>
           </div>
-          {weekRank !== null && (
+          {weekRank !== null && !projection && (
             <p className="text-xs text-slate-400 text-right">
               {state === 'live' ? 'Currently ' : ''}<span className="text-white font-semibold">#{weekRank}</span>
               <span className="text-slate-500"> of {weekPlayers}</span>
@@ -875,10 +964,32 @@ function ThisWeekCard(props: {
         </div>
       )}
 
-      {/* Your picks at a glance — a logo per game, ⭐ on Best 3, and once games
-          finish a green or red ring for how each one went. */}
+      {/* Mid-game: what's in play, and where it'd leave you if it ended now. */}
+      {state !== 'open' && c.winning + c.losing + c.level > 0 && (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-3 flex flex-wrap gap-x-3">
+          {c.winning > 0 && <span className="text-emerald-400/90">{c.winning} winning</span>}
+          {c.losing > 0 && <span className="text-red-400/90">{c.losing} losing</span>}
+          {c.level > 0 && <span className="text-amber-400/90">{c.level} tied</span>}
+          {c.upcoming > 0 && <span>{c.upcoming} to play</span>}
+        </p>
+      )}
+      {state !== 'open' && projection && (
+        <div className="mb-3 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3 py-2.5 flex items-center justify-between gap-3">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider leading-tight">If it<br />ended now</p>
+          <p className="text-sm font-bold text-white tabular-nums">
+            {recordText(projection.weekRecord.wins, projection.weekRecord.losses, projection.weekRecord.ties)}
+          </p>
+          <p className="text-[11px] text-slate-400 text-right leading-tight">
+            {projection.weekRank !== null && <><span className="text-white font-semibold">#{projection.weekRank}</span> this week<br /></>}
+            <span className="text-white font-semibold">{placeText(projection.seasonRank, projection.seasonTied)}</span> overall
+          </p>
+        </div>
+      )}
+
+      {/* Your picks at a glance — a logo per game, ⭐ on Best 3, a dashed ring
+          while it's being played and a solid one once it's final. */}
       <div className="flex flex-wrap gap-1.5 mb-4" aria-label="Your picks this week">
-        {games.map(g => {
+        {games.map((g, i) => {
           const pick = myPicks[g.id]
           return (
             <PickChip
@@ -886,7 +997,8 @@ function ThisWeekCard(props: {
               team={pick}
               empty={!pick}
               star={!!pick && myBestTeams.includes(pick)}
-              result={pick || g.winning_team ? resultOf(g) : null}
+              standing={standings[i]}
+              live={live.get(g.id)?.state === 'in'}
             />
           )
         })}
@@ -908,7 +1020,7 @@ function ThisWeekCard(props: {
           <Link href={`/recap?season=${season}&week=${week}`} className="press text-center text-sm font-semibold rounded-xl py-3 bg-blue-600 text-white hover:bg-blue-500 transition">
             📰 Week {week} Recap
           </Link>
-          <Link href="/all-picks" className="press text-center text-sm font-semibold rounded-xl py-3 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
+          <Link href="/all-picks?view=games" className="press text-center text-sm font-semibold rounded-xl py-3 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
             Everyone&apos;s picks
           </Link>
         </div>
@@ -917,11 +1029,75 @@ function ThisWeekCard(props: {
           <Link href="/picks" className="press text-center text-sm font-semibold rounded-xl py-3 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
             Your picks
           </Link>
-          <Link href="/all-picks" className="press text-center text-sm font-semibold rounded-xl py-3 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
+          <Link href="/all-picks?view=games" className="press text-center text-sm font-semibold rounded-xl py-3 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
             Everyone&apos;s picks
           </Link>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Game-day strip: one small card per game in progress, scrolling sideways. */
+function LiveNowRow({ games, live, myPicks, splits }: {
+  games: WeekGame[]
+  live: Map<string, LiveGame>
+  myPicks: Record<string, string>
+  splits: SplitRow[]
+}) {
+  const on = games.filter(g => live.get(g.id)?.state === 'in')
+  if (on.length === 0) return null
+  return (
+    <div className="mb-5 animate-slide-up">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+        <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Live now · {on.length}</p>
+      </div>
+      <div className="-mx-4 px-4 flex gap-2.5 overflow-x-auto no-scrollbar snap-x pb-1">
+        {on.map(g => {
+          const lg = live.get(g.id)!
+          const pick = myPicks[g.id]
+          const standing = pickStanding(pick, g, lg)
+          const split = splits.find(sp => sp.game.id === g.id)
+          const lead = leaderOf(lg)
+          const line = (team: string, score: number | null) => (
+            <div className="flex items-center gap-2">
+              <img src={getTeam(team).logo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <span className={`text-sm font-semibold ${pick === team ? 'text-blue-300' : 'text-slate-200'}`}>{team}</span>
+              {lg.possession === team && <span className="text-[10px]" title="Has the ball">🏈</span>}
+              <span className={`ml-auto text-lg font-bold tabular-nums ${lead === team ? 'text-white' : 'text-slate-500'}`}>{score ?? 0}</span>
+            </div>
+          )
+          return (
+            <Link
+              key={g.id}
+              href={`/all-picks?view=games#game-${g.id}`}
+              className={`press snap-start shrink-0 w-44 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-mono font-semibold text-red-300">{lg.label}</span>
+                {lg.redZone && <span className="text-[9px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">RED ZONE</span>}
+              </div>
+              <div className="space-y-1">
+                {line(g.away_team, lg.awayScore)}
+                {line(g.home_team, lg.homeScore)}
+              </div>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.06] text-[10px]">
+                <span className={
+                  standing === 'winning' ? 'text-emerald-400 font-semibold'
+                    : standing === 'losing' ? 'text-red-400 font-semibold'
+                      : 'text-amber-400 font-semibold'
+                }>
+                  {pick ? `You: ${pick}` : 'No pick'}
+                </span>
+                {split && (
+                  <span className="text-slate-500 tabular-nums">{split.awayCount}–{split.homeCount}</span>
+                )}
+              </div>
+            </Link>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -978,7 +1154,7 @@ function SplitsCard({ week, splits, players }: { week: number; splits: SplitRow[
 
   return (
     <div className="mb-5 animate-slide-up" style={{ animationDelay: '80ms' }}>
-      <SectionHeader title={`Everyone's picks · Week ${week}`} href="/all-picks" linkText="See all" />
+      <SectionHeader title={`Everyone's picks · Week ${week}`} href="/all-picks?view=games" linkText="See all" />
       <div className="glass-card rounded-2xl overflow-hidden">
         {shown.map(s => {
           const total = Math.max(1, s.awayCount + s.homeCount)
@@ -997,7 +1173,7 @@ function SplitsCard({ week, splits, players }: { week: number; splits: SplitRow[
             )
           }
           return (
-            <div key={g.id} className="px-4 py-3 border-b border-white/[0.04] last:border-0">
+            <Link key={g.id} href={`/all-picks?view=games#game-${g.id}`} className="block px-4 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 {side(g.away_team, s.awayCount, 'left')}
                 {side(g.home_team, s.homeCount, 'right')}
@@ -1013,7 +1189,7 @@ function SplitsCard({ week, splits, players }: { week: number; splits: SplitRow[
                     : ' — the only one'}
                 </p>
               )}
-            </div>
+            </Link>
           )
         })}
         <p className="px-4 py-2.5 text-[10px] text-slate-600 border-t border-white/[0.04]">

@@ -6,7 +6,7 @@ import { ADMIN_EMAIL, MAX_BEST_PICKS } from '@/lib/constants'
 import { computeLockTime } from '@/lib/lockTime'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
-import { processAvatarFile } from '@/lib/avatarUtils'
+import { AVATAR_ACCEPT, uploadOwnAvatar } from '@/lib/avatarUtils'
 import NotificationSettings from '@/components/NotificationSettings'
 import { SHOW_INSTALL_EVENT } from '@/components/InstallPrompt'
 import { isStandalone } from '@/lib/pushClient'
@@ -179,19 +179,7 @@ export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: Na
     setAvatarUploading(true)
     setAvatarError('')
     try {
-      const { base64, contentType } = await processAvatarFile(file)
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('/api/avatar', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({ imageData: base64, contentType }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      updateAvatarUrl(data.avatar_url)
+      updateAvatarUrl(await uploadOwnAvatar(file))
     } catch (err: any) {
       setAvatarError(err.message || 'Failed to upload avatar')
     } finally {
@@ -408,7 +396,7 @@ export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: Na
                   <input
                     ref={avatarInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+                    accept={AVATAR_ACCEPT}
                     className="hidden"
                     onChange={handleAvatarUpload}
                   />

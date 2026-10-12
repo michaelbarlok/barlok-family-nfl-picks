@@ -36,6 +36,8 @@ export interface LiveGame {
   lastPlayType: string | null
   /** ESPN's description of the last play. */
   lastPlay: string | null
+  /** ESPN's id for the last play — changes with every new play. */
+  lastPlayId: string | null
 }
 
 export interface LiveScoreboard {
@@ -158,6 +160,7 @@ export function parseScoreboard(json: any): LiveGame[] {
       goalToGo: !!ddText && /goal/i.test(ddText),
       lastPlayType: typeof lastPlay?.type?.text === 'string' ? lastPlay.type.text : null,
       lastPlay: typeof lastPlay?.text === 'string' ? lastPlay.text.split('\n')[0].trim() : null,
+      lastPlayId: lastPlay?.id != null ? String(lastPlay.id) : null,
     })
   }
   return out

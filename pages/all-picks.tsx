@@ -14,6 +14,7 @@ import WeekNavigator from '@/components/WeekNavigator'
 import SeasonSelector from '@/components/SeasonSelector'
 import GamesView from '@/components/GamesView'
 import { useLiveScores } from '@/lib/useLiveScores'
+import { useLiveEvents } from '@/lib/useLiveEvents'
 
 type View = 'games' | 'table'
 const VIEW_KEY = 'allpicks-view'
@@ -215,6 +216,7 @@ export default function AllPicksPage() {
 
   // Live scores for the week on screen (only polls while its games are on).
   const live = useLiveScores(season, selectedWeek, games)
+  const events = useLiveEvents(live.byGameId)
 
   // Arriving from a "Live now" card or a split row: open at that game's card.
   const gameHashReady = view === 'games' && !!allPicksData && !picksLoading
@@ -418,6 +420,7 @@ export default function AllPicksPage() {
             bestOf={uid => threeBestLookup.get(uid)}
             meId={user.id}
             live={live.byGameId}
+            events={events}
             formatKickoff={formatKickoff}
           />
         ) : allPicksData && allPicksData.users.length > 0 ? (() => {

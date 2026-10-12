@@ -14,6 +14,8 @@ import { mergeChampions, type Champion } from '@/lib/champions'
 import { useTalkUnread } from '@/lib/useTalkUnread'
 import { leaderOf, pickStanding, type LiveGame, type PickStanding } from '@/lib/liveScores'
 import { useLiveScores } from '@/lib/useLiveScores'
+import { useLiveEvents, type PlayEvent } from '@/lib/useLiveEvents'
+import PlayFlash from '@/components/PlayFlash'
 import Nav from '@/components/Nav'
 import FieldStrip from '@/components/FieldStrip'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
@@ -477,6 +479,7 @@ export default function DashboardPage() {
 
   // Live scores while this week's games are on (polls only then).
   const live = useLiveScores(season, data?.currentWeek ?? null, data?.weekGames ?? NO_GAMES)
+  const events = useLiveEvents(live.byGameId)
 
   // "If it ended now": the season re-run with every live game going to
   // whoever's ahead — the same shared scoring as the real table, so Best 3,
@@ -690,7 +693,7 @@ export default function DashboardPage() {
           {/* ───────────── LEFT: this week ───────────── */}
           <div>
             {live.anyLive && (
-              <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} />
+              <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} events={events} />
             )}
 
             {weekState !== 'none' && d.currentWeek !== null && (
@@ -1040,10 +1043,11 @@ function ThisWeekCard(props: {
 }
 
 /** Game-day strip: one small card per game in progress, scrolling sideways. */
-function LiveNowRow({ games, live, myPicks }: {
+function LiveNowRow({ games, live, myPicks, events }: {
   games: WeekGame[]
   live: Map<string, LiveGame>
   myPicks: Record<string, string>
+  events: Map<string, PlayEvent>
 }) {
   const on = games.filter(g => live.get(g.id)?.state === 'in')
   if (on.length === 0) return null
@@ -1071,8 +1075,9 @@ function LiveNowRow({ games, live, myPicks }: {
             <Link
               key={g.id}
               href={`/all-picks?view=games#game-${g.id}`}
-              className={`press snap-start shrink-0 w-48 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
+              className={`relative overflow-hidden press snap-start shrink-0 w-48 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
             >
+              <PlayFlash event={events.get(g.id)} compact />
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-mono font-semibold text-red-300">{lg.label}</span>
                 {lg.redZone && <span className="text-[9px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">RED ZONE</span>}

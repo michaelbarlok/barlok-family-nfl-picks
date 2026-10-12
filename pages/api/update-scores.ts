@@ -42,6 +42,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     week = detected
   }
 
+  // pending=1: only games that don't have a result yet. The automatic sync
+  // uses this, so it can never overwrite a result an admin set by hand.
+  const pendingOnly = req.query.pending === '1'
+
   try {
     // Fetch ESPN scores
     const espnUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${week}&dates=${season}`
@@ -120,6 +124,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         skipped.push(`${espnAway} @ ${espnHome} (not found in DB)`)
         continue
       }
+      if (pendingOnly && ourGame.winning_team) continue
 
       // Update games.winning_team and scores
       await supabase

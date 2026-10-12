@@ -10,6 +10,8 @@ import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
 import Nav, { type PickStatus } from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
+import { leaderOf, pickStanding, type PickStanding } from '@/lib/liveScores'
+import { useLiveScores } from '@/lib/useLiveScores'
 
 interface ManagedPlayer {
   id: string
@@ -106,6 +108,7 @@ export default function PicksPage() {
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null) // null = self
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([])
   const [justPicked, setJustPicked] = useState<string | null>(null) // gameId:team key for animation
+  const [gameFilter, setGameFilter] = useState<'all' | 'live' | 'final' | 'upcoming'>('all')
   // Admin-granted extension for THIS player and week, if any.
   const [graceUntil, setGraceUntil] = useState<Date | null>(null)
   // Write feedback. Picks save on click, so the only thing missing was proof
@@ -265,6 +268,10 @@ export default function PicksPage() {
   }, [user, currentWeek, effectiveUserId, loadPicksForUser, season])
 
   const lockTime = computeLockTime(games)
+  // Live scores while this week's games are on (polls only then).
+  const live = useLiveScores(season, currentWeek, games)
+  // A filter from last week shouldn't leave this week looking empty.
+  useEffect(() => { setGameFilter('all') }, [currentWeek])
   const weekLocked = lockTime ? now >= lockTime : false
   // An admin can reopen one player's picks after the week locks. `now` ticks
   // every second, so the window closes on its own without a refresh.
@@ -390,6 +397,24 @@ export default function PicksPage() {
   const pickedCount = Object.keys(picks).length
   const totalGames = games.length
   const allDone = totalGames > 0 && pickedCount >= totalGames && bestPicks.size >= MAX_BEST_PICKS
+
+  // How each of this week's picks stands, recorded result first, then live.
+  const standings: PickStanding[] = games.map(g => pickStanding(picks[g.id], g, live.byGameId.get(g.id)))
+  const phaseOf = (i: number): 'live' | 'final' | 'upcoming' => {
+    const g = games[i]
+    const lg = live.byGameId.get(g.id)
+    if (g.winning_team || lg?.state === 'post') return 'final'
+    if (lg?.state === 'in') return 'live'
+    return 'upcoming'
+  }
+  const counts = { live: games.filter((_, i) => phaseOf(i) === 'live').length }
+  // Mid-game, what's on now goes first; otherwise kickoff order.
+  const phaseRank = { live: 0, upcoming: 1, final: 2 } as const
+  const shownGames = games
+    .map((g, i) => ({ g, phase: phaseOf(i), i }))
+    .filter(x => !isLocked || gameFilter === 'all' || x.phase === gameFilter)
+    .sort((a, b) => (isLocked && live.anyLive ? phaseRank[a.phase] - phaseRank[b.phase] : 0) || a.i - b.i)
+    .map(x => x.g)
   const activePlayer = managedPlayers.find(p => p.id === activePlayerId) ?? null
   // The badge in the nav is about *your* card. While picking for someone you
   // manage, leave it to Nav to work out your own rather than showing theirs.
@@ -598,124 +623,239 @@ export default function PicksPage() {
 
         <div>
           <div className="mb-6">
-            {/* Week record summary (when any games decided) */}
-            {isLocked && games.some(g => g.winning_team) && (() => {
-              const decided = games.filter(g => g.winning_team)
-              let w = 0, l = 0, t = 0
-              decided.forEach(g => {
-                const isTie = g.winning_team === 'TIE'
-                const p = picks[g.id]
-                if (!p) { if (isTie) t++; else l++; }
-                else if (isTie) t++
-                else if (p === g.winning_team) w++
-                else l++
-              })
-              const total = decided.length
-              const allDecided = total === games.length
+            {/* Week summary once picks lock — final results plus, while games
+                are on, how each live pick is going right now. */}
+            {isLocked && totalGames > 0 && (() => {
+              const c = { won: 0, lost: 0, tie: 0, winning: 0, losing: 0, level: 0, upcoming: 0 }
+              standings.forEach(st => { c[st]++ })
+              const allFinal = c.won + c.lost + c.tie === totalGames
+              const inPlay = c.winning + c.losing + c.level
+              const perfect = allFinal && c.lost === 0 && c.tie === 0 && c.won > 0
+              const seg = (n: number, cls: string) => n > 0 && <div className={cls} style={{ width: `${(n / totalGames) * 100}%` }} />
+              const ago = live.updatedAt ? Math.max(0, Math.round((now.getTime() - live.updatedAt.getTime()) / 1000)) : null
               return (
-                <div className="glass-card rounded-2xl p-4 mb-4 animate-slide-up">
-                  <div className="flex items-center justify-between">
+                <div className={`glass-card rounded-2xl p-4 mb-4 animate-slide-up ${live.anyLive ? 'border-red-500/25' : ''}`}>
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                        {allDecided ? 'Final Record' : `Results (${total}/${games.length} games)`}
+                      <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                        {live.anyLive
+                          ? <><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /><span className="text-red-400">Live</span></>
+                          : <span className="text-slate-500">{allFinal ? 'Final Record' : 'This week so far'}</span>}
                       </p>
                       <p className="text-xl font-bold">
-                        <span className="text-emerald-400">{w}</span>
+                        <span className="text-emerald-400">{c.won}</span>
                         <span className="text-slate-500 mx-1">&ndash;</span>
-                        <span className="text-red-400">{l}</span>
-                        {t > 0 && <><span className="text-slate-500 mx-1">&ndash;</span><span className="text-slate-400">{t}</span></>}
+                        <span className="text-red-400">{c.lost}</span>
+                        {c.tie > 0 && <><span className="text-slate-500 mx-1">&ndash;</span><span className="text-slate-400">{c.tie}</span></>}
                       </p>
                     </div>
-                    {allDecided && w > 0 && l === 0 && t === 0 && (
-                      <span className="text-2xl">🏆</span>
+                    {perfect ? <span className="text-2xl">🏆</span> : inPlay > 0 && (
+                      <div className="text-right">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">If it ended now</p>
+                        <p className="text-sm font-bold text-white tabular-nums">
+                          {c.won + c.winning}&ndash;{c.lost + c.losing}{c.tie + c.level > 0 ? `–${c.tie + c.level}` : ''}
+                        </p>
+                      </div>
                     )}
                   </div>
+                  {!allFinal && (
+                    <>
+                      <div className="flex h-2 rounded-full overflow-hidden bg-white/[0.06] mt-3" aria-hidden>
+                        {seg(c.won, 'bg-emerald-500')}
+                        {seg(c.winning, 'bg-emerald-500/40')}
+                        {seg(c.level, 'bg-amber-500/50')}
+                        {seg(c.losing, 'bg-red-500/40')}
+                        {seg(c.lost, 'bg-red-500')}
+                        {seg(c.tie, 'bg-slate-400/60')}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                        {c.winning > 0 && <span className="text-emerald-400/90">{c.winning} winning</span>}
+                        {c.losing > 0 && <span className="text-red-400/90">{c.losing} losing</span>}
+                        {c.level > 0 && <span className="text-amber-400/90">{c.level} tied</span>}
+                        {c.upcoming > 0 && <span>{c.upcoming} to play</span>}
+                        {ago !== null && (live.anyLive || inPlay > 0) && (
+                          <span className="ml-auto text-slate-600">Updated {ago < 5 ? 'just now' : `${ago}s ago`}</span>
+                        )}
+                      </p>
+                    </>
+                  )}
                 </div>
               )
             })()}
 
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-              Week {currentWeek} Games
-            </h2>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Week {currentWeek} Games
+              </h2>
+              {/* Filters once the week is locked — mid-Sunday it's "what's on now?" */}
+              {isLocked && totalGames > 0 && (
+                <div className="flex gap-1" role="tablist" aria-label="Filter games">
+                  {(['all', 'live', 'final', 'upcoming'] as const).map(f => (
+                    <button
+                      key={f}
+                      type="button"
+                      role="tab"
+                      aria-selected={gameFilter === f}
+                      onClick={() => setGameFilter(f)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${
+                        gameFilter === f ? 'bg-white/[0.10] text-white' : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {f === 'all' ? 'All' : f === 'live' ? `Live${counts.live ? ` ${counts.live}` : ''}` : f === 'final' ? 'Final' : 'Upcoming'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {games.length === 0 ? (
               <div className="glass-card rounded-2xl p-10 text-center">
                 <p className="text-3xl mb-3">📅</p>
                 <p className="text-slate-400 text-sm">No games available yet. Check back soon!</p>
               </div>
+            ) : shownGames.length === 0 ? (
+              <div className="glass-card rounded-2xl p-8 text-center">
+                <p className="text-slate-400 text-sm">
+                  {gameFilter === 'live' ? 'No games on right now.' : gameFilter === 'final' ? 'No finished games yet.' : 'Nothing left to play.'}
+                </p>
+              </div>
             ) : (
               // Two columns on a wide screen: one long column of 16 cards was
               // most of the scrolling, with the sides of the page empty.
               <div className="grid gap-3 lg:grid-cols-2">
-                {games.map((game, gameIdx) => {
-                  const away = getTeam(game.away_team)
-                  const home = getTeam(game.home_team)
+                {shownGames.map((game, gameIdx) => {
                   const pickedTeam = picks[game.id]
                   const isStarred = bestPicks.has(game.id)
                   const canStar = !!pickedTeam && !isLocked
                   const starDisabled = !canStar || (!isStarred && bestPicks.size >= MAX_BEST_PICKS)
 
-                  // Post-lock result info
-                  const decided = !!game.winning_team
-                  const isTie = game.winning_team === 'TIE'
-                  const pickedCorrectly = decided && pickedTeam ? (isTie ? null : pickedTeam === game.winning_team) : null
-                  const hasScore = game.away_score != null && game.home_score != null
+                  const liveG = live.byGameId.get(game.id)
+                  const isLive = liveG?.state === 'in'
+                  const standing = isLocked ? pickStanding(pickedTeam, game, liveG) : 'upcoming'
+                  // Finished, whether recorded yet or only per the live feed
+                  const isFinal = !!game.winning_team || liveG?.state === 'post'
+                  const finalWinner = game.winning_team ?? (liveG?.state === 'post' ? leaderOf(liveG) : null)
+                  // Recorded score first; the live feed until there is one
+                  const scoreOf = (team: string): number | null => {
+                    if (game.winning_team && game.away_score != null && game.home_score != null) {
+                      return team === game.away_team ? game.away_score : game.home_score
+                    }
+                    if (liveG && liveG.state !== 'pre') return team === game.away_team ? liveG.awayScore : liveG.homeScore
+                    return null
+                  }
+                  const leader = (() => {
+                    const a = scoreOf(game.away_team), h = scoreOf(game.home_team)
+                    return a === null || h === null || a === h ? null : a > h ? game.away_team : game.home_team
+                  })()
 
-                  // Card border color based on result
-                  const resultRing = decided && pickedTeam
-                    ? pickedCorrectly === true ? 'ring-1 ring-emerald-500/40' : pickedCorrectly === false ? 'ring-1 ring-red-500/30' : 'ring-1 ring-slate-400/20'
-                    : decided && !pickedTeam ? 'ring-1 ring-red-500/20' : ''
+                  const cardRing = !isLocked
+                    ? (isStarred ? 'ring-1 ring-amber-500/30' : '')
+                    : standing === 'won' ? 'ring-1 ring-emerald-500/40'
+                      : standing === 'lost' ? 'ring-1 ring-red-500/30'
+                        : standing === 'tie' ? 'ring-1 ring-slate-400/20'
+                          : isLive ? 'ring-1 ring-red-500/25' : ''
 
-                  // Pick result styling helper
-                  const getTeamBtnClass = (team: string) => {
+                  // Picked team: blue until the game starts, then green/red/amber
+                  // for ahead/behind/level, solid at the final.
+                  const teamBtnClass = (team: string) => {
                     const isPicked = pickedTeam === team
-                    const isWinner = decided && game.winning_team === team
                     const animClass = justPicked === `${game.id}:${team}` ? 'animate-pick-pop' : ''
-                    // Post-lock decided game
-                    if (decided && isLocked) {
-                      if (isPicked && pickedCorrectly === true) return `${animClass} border-emerald-500/50 bg-emerald-500/10 text-white`
-                      if (isPicked && pickedCorrectly === false) return `${animClass} border-red-500/40 bg-red-500/10 text-white`
-                      if (isPicked && isTie) return `${animClass} border-slate-400/30 bg-slate-500/10 text-slate-300`
-                      if (isWinner) return `${animClass} border-white/[0.08] bg-white/[0.03] text-slate-400 cursor-default`
-                      return `${animClass} border-white/[0.03] bg-white/[0.02] text-slate-500 cursor-default`
+                    if (!isLocked) {
+                      return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'}`
                     }
-                    // Locked but not decided
-                    if (isLocked) {
-                      return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.03] bg-white/[0.02] text-slate-500 cursor-default'}`
+                    if (isPicked) {
+                      switch (standing) {
+                        case 'won': return `${animClass} border-emerald-500/50 bg-emerald-500/10 text-white`
+                        case 'lost': return `${animClass} border-red-500/40 bg-red-500/10 text-white`
+                        case 'tie': return `${animClass} border-slate-400/30 bg-slate-500/10 text-slate-300`
+                        case 'winning': return `${animClass} border-emerald-500/45 border-dashed bg-emerald-500/[0.06] text-white`
+                        case 'losing': return `${animClass} border-red-500/45 border-dashed bg-red-500/[0.06] text-white`
+                        case 'level': return `${animClass} border-amber-500/45 border-dashed bg-amber-500/[0.06] text-white`
+                        default: return `${animClass} border-blue-500/60 bg-blue-500/15 text-white glow-blue`
+                      }
                     }
-                    // Not locked
-                    return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'}`
+                    if (isFinal && finalWinner === team) return 'border-white/[0.08] bg-white/[0.03] text-slate-300 cursor-default'
+                    return `border-white/[0.03] bg-white/[0.02] ${liveG && liveG.state !== 'pre' ? 'text-slate-400' : 'text-slate-500'} cursor-default`
                   }
 
-                  // Result indicator icon for picked team
-                  const getResultIcon = (team: string) => {
-                    if (!decided || !isLocked || pickedTeam !== team) {
-                      if (pickedTeam === team) return <span className={`ml-auto text-blue-400 text-sm ${justPicked === `${game.id}:${team}` ? 'animate-check-in' : ''}`}>✓</span>
-                      return null
+                  const resultIcon = (team: string) => {
+                    if (pickedTeam !== team) return null
+                    if (!isLocked || standing === 'upcoming') {
+                      return <span className={`text-blue-400 text-sm ${justPicked === `${game.id}:${team}` ? 'animate-check-in' : ''}`}>✓</span>
                     }
-                    if (isTie) return <span className="ml-auto text-slate-400 text-sm font-bold">=</span>
-                    if (pickedCorrectly === true) return <span className="ml-auto text-emerald-400 text-sm font-bold">✓</span>
-                    if (pickedCorrectly === false) return <span className="ml-auto text-red-400 text-sm font-bold">✗</span>
+                    if (standing === 'tie') return <span className="text-slate-400 text-sm font-bold">=</span>
+                    if (standing === 'won') return <span className="text-emerald-400 text-sm font-bold">✓</span>
+                    if (standing === 'lost') return <span className="text-red-400 text-sm font-bold">✗</span>
                     return null
+                  }
+
+                  const teamButton = (team: string, side: 'Away' | 'Home') => {
+                    const t = getTeam(team)
+                    const score = scoreOf(team)
+                    const hasBall = isLive && liveG?.possession === team
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handlePickChange(game.id, team)}
+                        disabled={isLocked}
+                        className={`press min-w-0 flex items-center gap-2.5 sm:gap-3 py-3 px-3 sm:px-4 rounded-xl border-2 transition-all text-left ${teamBtnClass(team)}`}
+                      >
+                        <img
+                          src={t.logo} alt={team}
+                          loading="lazy" decoding="async"
+                          className={`max-[379px]:hidden w-8 h-8 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+                            pickedTeam === team ? 'scale-110' : ''
+                          } ${isLocked && pickedTeam !== team && standing === 'upcoming' && !isFinal ? 'opacity-30' : ''}`}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-[11px] opacity-50 leading-tight truncate">{t.city}</p>
+                          <p className="font-semibold text-sm leading-tight truncate">
+                            {t.name}{hasBall && <span className="ml-1 text-xs" title="Has the ball">🏈</span>}
+                          </p>
+                          {/* Once there's a score it takes the Away/Home line, so
+                              it costs no width — beside the name it squeezed
+                              "Seahawks" down to "S…" on a phone. */}
+                          {score !== null ? (
+                            <p className={`text-lg font-bold tabular-nums leading-tight mt-0.5 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
+                          ) : (
+                            <p className={`text-[11px] mt-0.5 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
+                          )}
+                        </div>
+                        <span className="ml-auto shrink-0">{resultIcon(team)}</span>
+                      </button>
+                    )
                   }
 
                   return (
                     <div
                       key={game.id}
-                      className={`glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${
-                        isStarred && !decided ? 'ring-1 ring-amber-500/30' : resultRing
-                      } ${isLocked && !decided ? 'opacity-80' : ''}`}
+                      className={`glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${cardRing} ${
+                        isLocked && standing === 'upcoming' && !isFinal ? 'opacity-80' : ''
+                      }`}
                       style={{ animationDelay: `${gameIdx * 30}ms` }}
                     >
                       <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <p className="text-xs text-slate-500">{formatKickoff(game.kickoff_time)}</p>
-                          {/* Score badge when game is decided */}
-                          {decided && hasScore && (
-                            <span className="text-[11px] font-mono font-bold text-slate-300 bg-white/[0.06] px-1.5 py-0.5 rounded">
-                              {game.away_score}&ndash;{game.home_score}
-                              {isTie && <span className="text-slate-500 ml-1 font-sans text-[10px]">TIE</span>}
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          {isLive ? (
+                            <>
+                              <span className="flex items-center gap-1 text-[11px] font-bold text-red-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE
+                              </span>
+                              <span className="text-xs font-mono font-semibold text-slate-200">{liveG?.label}</span>
+                              {liveG?.redZone && (
+                                <span className="text-[10px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">Red zone</span>
+                              )}
+                            </>
+                          ) : isFinal ? (
+                            <span className="text-xs font-semibold text-slate-300">
+                              {liveG?.label === 'Final/OT' ? 'Final/OT' : 'Final'}
+                              {finalWinner === 'TIE' && <span className="text-slate-500 ml-1 text-[10px]">TIE</span>}
                             </span>
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              {liveG?.label && liveG.state === 'pre' ? `${liveG.label} · ` : ''}{formatKickoff(game.kickoff_time)}
+                            </p>
                           )}
                         </div>
                         {!isLocked && (
@@ -735,7 +875,7 @@ export default function PicksPage() {
                           </button>
                         )}
                         {isLocked && isStarred && (
-                          <span className="text-xs text-amber-400 font-medium">⭐ Best Pick</span>
+                          <span className="shrink-0 text-xs text-amber-400 font-medium">⭐ Best Pick</span>
                         )}
                       </div>
 
@@ -745,57 +885,18 @@ export default function PicksPage() {
                           Under 380px (iPhone SE) the logos drop out too — at
                           that width they left room for about four letters. */}
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-0 px-3 pb-3 items-center">
-                        {/* Away team */}
-                        <button
-                          type="button"
-                          onClick={() => handlePickChange(game.id, game.away_team)}
-                          disabled={isLocked}
-                          className={`press min-w-0 flex items-center gap-2.5 sm:gap-3 py-3 px-3 sm:px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.away_team)}`}
-                        >
-                          <img
-                            src={away.logo} alt={game.away_team}
-                            loading="lazy" decoding="async"
-                            className={`max-[379px]:hidden w-8 h-8 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
-                              pickedTeam === game.away_team ? 'scale-110' : ''
-                            } ${isLocked && pickedTeam !== game.away_team && !decided ? 'opacity-30' : ''}`}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                          />
-                          <div className="min-w-0">
-                            <p className="text-[11px] opacity-50 leading-tight truncate">{away.city}</p>
-                            <p className="font-semibold text-sm leading-tight truncate">{away.name}</p>
-                            <p className={`text-[11px] mt-0.5 ${pickedTeam === game.away_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Away</p>
-                          </div>
-                          {getResultIcon(game.away_team)}
-                        </button>
-
-                        {/* VS divider */}
+                        {teamButton(game.away_team, 'Away')}
                         <div className="flex items-center justify-center px-2">
                           <span className="text-[10px] font-bold text-slate-600 uppercase">@</span>
                         </div>
-
-                        {/* Home team */}
-                        <button
-                          type="button"
-                          onClick={() => handlePickChange(game.id, game.home_team)}
-                          disabled={isLocked}
-                          className={`press min-w-0 flex items-center gap-2.5 sm:gap-3 py-3 px-3 sm:px-4 rounded-xl border-2 transition-all text-left ${getTeamBtnClass(game.home_team)}`}
-                        >
-                          <img
-                            src={home.logo} alt={game.home_team}
-                            loading="lazy" decoding="async"
-                            className={`max-[379px]:hidden w-8 h-8 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
-                              pickedTeam === game.home_team ? 'scale-110' : ''
-                            } ${isLocked && pickedTeam !== game.home_team && !decided ? 'opacity-30' : ''}`}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                          />
-                          <div className="min-w-0">
-                            <p className="text-[11px] opacity-50 leading-tight truncate">{home.city}</p>
-                            <p className="font-semibold text-sm leading-tight truncate">{home.name}</p>
-                            <p className={`text-[11px] mt-0.5 ${pickedTeam === game.home_team ? 'text-blue-300/70' : 'text-slate-500'}`}>Home</p>
-                          </div>
-                          {getResultIcon(game.home_team)}
-                        </button>
+                        {teamButton(game.home_team, 'Home')}
                       </div>
+
+                      {isLive && liveG?.downDistance && (
+                        <p className="px-4 pb-3 -mt-1 text-[11px] text-slate-400">
+                          🏈 {liveG.possession ? `${liveG.possession} · ` : ''}{liveG.downDistance}
+                        </p>
+                      )}
                     </div>
                   )
                 })}

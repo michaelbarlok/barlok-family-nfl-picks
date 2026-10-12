@@ -40,6 +40,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const result = await callInternal(req, '/api/send-reminder-email?type=reminder')
+    // A failed send used to come back as a 200 here, so it never showed up.
+    if (result.status >= 400) {
+      console.error(`cron-pick-reminders: Week ${upcoming.week} reminder send returned ${result.status}`)
+      return res.status(500).json({ task: 'pick_reminder', week: upcoming.week, error: `Email send returned ${result.status}`, result: result.body })
+    }
+    console.log(`cron-pick-reminders: Week ${upcoming.week} reminders sent`)
     return res.status(200).json({
       task: 'pick_reminder',
       week: upcoming.week,

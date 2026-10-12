@@ -224,7 +224,6 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
               {team}{won ? ' ✓' : ''}
               {isLive && lg?.possession === team && <span className="ml-1 text-[10px]" title="Has the ball">🏈</span>}
             </p>
-            <p className="text-[10px] text-slate-500 leading-tight">{people.length} {people.length === 1 ? 'pick' : 'picks'}</p>
           </div>
           {sc !== null && (
             <span className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-xl font-bold tabular-nums ${

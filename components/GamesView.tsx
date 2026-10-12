@@ -202,35 +202,46 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
           ? `🐺 Only ${shortName(home[0].name)} took ${g.home_team}`
           : null
 
-  const side = (team: string, people: Player[], align: 'left' | 'right') => {
+  // ── Scoreboard: one team's logo, code and score ──
+  const scoreSide = (team: string, align: 'left' | 'right') => {
     const won = isFinal && finalWinner === team
     const lost = isFinal && finalWinner !== team && finalWinner !== 'TIE'
     const ahead = liveLeader === team
-    const t = getTeam(team)
     const sc = score(team)
+    const t = getTeam(team)
+    return (
+      <div className={`flex items-center gap-2 min-w-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
+        <img src={t.logo} alt="" className="w-9 h-9 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        <div className="min-w-0">
+          <p className={`text-base font-extrabold leading-none ${won ? 'text-emerald-400' : lost ? 'text-slate-500' : 'text-white'}`}>
+            {team}
+            {isLive && lg?.possession === team && <span className="ml-1 text-xs" title="Has the ball">🏈</span>}
+          </p>
+          {sc === null && <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate">{t.name}</p>}
+        </div>
+        {sc !== null && (
+          <span className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-3xl font-black tabular-nums leading-none ${
+            won ? 'text-emerald-400' : lost ? 'text-slate-600' : isFinal || ahead ? 'text-white' : 'text-slate-400'
+          }`}>{sc}</span>
+        )}
+      </div>
+    )
+  }
+
+  // ── Picks: who's on one side ──
+  const picksSide = (team: string, people: Player[], align: 'left' | 'right') => {
+    const won = isFinal && finalWinner === team
+    const lost = isFinal && finalWinner !== team && finalWinner !== 'TIE'
     // You first, then whoever you're following, then alphabetical.
     const ordered = [...people].sort((a, b) => {
       const rank = (p: Player) => (p.id === meId ? 0 : p.id === follow ? 1 : 2)
       return rank(a) - rank(b) || a.name.localeCompare(b.name)
     })
     return (
-      <div className={`min-w-0 p-3 transition ${
-        won ? 'bg-emerald-500/[0.08]' : lost ? 'opacity-55' : ahead ? 'bg-white/[0.03]' : ''
-      }`}>
-        <div className={`flex items-center gap-2 mb-2 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
-          <img src={t.logo} alt="" className="w-7 h-7 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-          <div className="min-w-0">
-            <p className={`text-sm font-bold leading-tight ${won ? 'text-emerald-400' : 'text-white'}`}>
-              {team}{won ? ' ✓' : ''}
-              {isLive && lg?.possession === team && <span className="ml-1 text-[10px]" title="Has the ball">🏈</span>}
-            </p>
-          </div>
-          {sc !== null && (
-            <span className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-xl font-bold tabular-nums ${
-              (isFinal ? won : ahead) ? 'text-white' : 'text-slate-500'
-            }`}>{sc}</span>
-          )}
-        </div>
+      <div className={`min-w-0 px-3 pt-2 pb-3 transition ${won ? 'bg-emerald-500/[0.06]' : lost ? 'opacity-55' : ''}`}>
+        <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${align === 'right' ? 'text-right' : ''} ${won ? 'text-emerald-400/80' : 'text-slate-500'}`}>
+          {team}{won ? ' ✓' : ''}
+        </p>
         <div className={`flex flex-wrap gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
           {ordered.map(p => {
             const me = p.id === meId
@@ -260,37 +271,57 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
 
   return (
     <div id={`game-${g.id}`} className={`glass-card rounded-2xl overflow-hidden scroll-mt-28 ${
-      isLive ? 'border-red-500/25' : isUpset ? 'border-amber-500/30' : ''
+      isLive ? 'border-red-500/30' : isUpset ? 'border-amber-500/30' : ''
     }`}>
-      <div className="flex items-center justify-between gap-2 px-3 pt-3">
-        {isLive ? (
-          <span className="flex items-center gap-1.5 text-[11px] font-bold text-red-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE
-            <span className="font-mono font-semibold text-slate-200">{lg?.label}</span>
-            {lg?.redZone && <span className="text-[9px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">RED ZONE</span>}
-          </span>
-        ) : isFinal ? (
-          <span className="text-[11px] font-semibold text-slate-300">{lg?.label === 'Final/OT' ? 'Final/OT' : 'Final'}{finalWinner === 'TIE' ? ' · Tie' : ''}</span>
-        ) : (
-          <span className="text-[11px] text-slate-500">{formatKickoff(g.kickoff_time)}</span>
+      {/* ── Scoreboard ── the game itself, set apart on a darker panel so it
+          reads first and never blurs into the list of names below it. */}
+      <div className={`px-3 pt-2.5 pb-3 border-b ${
+        isLive ? 'bg-gradient-to-b from-red-500/[0.10] to-black/30 border-red-500/20' : 'bg-black/25 border-white/[0.08]'
+      }`}>
+        <div className="flex items-center justify-center gap-2 mb-2.5 min-h-[18px]">
+          {isLive ? (
+            <>
+              <span className="flex items-center gap-1.5 text-[11px] font-bold text-red-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE
+              </span>
+              <span className="text-[11px] font-mono font-semibold text-white">{lg?.label}</span>
+              {lg?.redZone && <span className="text-[9px] font-bold text-red-300 bg-red-500/20 px-1.5 py-0.5 rounded-full">RED ZONE</span>}
+            </>
+          ) : isFinal ? (
+            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+              {lg?.label === 'Final/OT' ? 'Final/OT' : 'Final'}{finalWinner === 'TIE' ? ' · Tie' : ''}
+            </span>
+          ) : (
+            <span className="text-[11px] text-slate-400">{formatKickoff(g.kickoff_time)}</span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+          {scoreSide(g.away_team, 'left')}
+          <span className="text-[10px] font-bold text-slate-600">{score(g.away_team) !== null ? '–' : '@'}</span>
+          {scoreSide(g.home_team, 'right')}
+        </div>
+
+        {isLive && lg && (
+          <div className="mt-3">
+            <FieldStrip game={lg} />
+            {lg.lastPlay && <p className="text-[10px] text-slate-400 leading-snug mt-1 line-clamp-2">Last play: {lg.lastPlay}</p>}
+          </div>
         )}
       </div>
 
-      {isLive && lg && (
-        <div className="mx-3 mt-2">
-          <FieldStrip game={lg} />
-          {lg.lastPlay && <p className="text-[10px] text-slate-500 leading-snug mt-1 line-clamp-2">Last play: {lg.lastPlay}</p>}
+      {/* ── Picks ── */}
+      <div className="flex items-center gap-2 px-3 pt-2.5">
+        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em] shrink-0">Picks</p>
+        <div className="flex-1 flex h-1 rounded-full overflow-hidden bg-white/[0.06]">
+          <div className={finalWinner === g.away_team ? 'bg-emerald-500/70' : 'bg-blue-500/60'} style={{ width: `${(away.length / total) * 100}%` }} />
+          <div className={finalWinner === g.home_team ? 'bg-emerald-500/70' : 'bg-indigo-400/40'} style={{ width: `${(home.length / total) * 100}%` }} />
         </div>
-      )}
-
-      <div className="flex h-1.5 mx-3 mt-2 rounded-full overflow-hidden bg-white/[0.06]">
-        <div className={finalWinner === g.away_team ? 'bg-emerald-500/80' : 'bg-blue-500/70'} style={{ width: `${(away.length / total) * 100}%` }} />
-        <div className={finalWinner === g.home_team ? 'bg-emerald-500/80' : 'bg-indigo-400/50'} style={{ width: `${(home.length / total) * 100}%` }} />
       </div>
 
-      <div className="grid grid-cols-2 divide-x divide-white/[0.06] mt-1">
-        {side(g.away_team, away, 'left')}
-        {side(g.home_team, home, 'right')}
+      <div className="grid grid-cols-2 divide-x divide-white/[0.06]">
+        {picksSide(g.away_team, away, 'left')}
+        {picksSide(g.home_team, home, 'right')}
       </div>
 
       {(callout || none.length > 0) && (

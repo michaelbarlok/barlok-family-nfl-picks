@@ -275,7 +275,6 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
         ) : (
           <span className="text-[11px] text-slate-500">{formatKickoff(g.kickoff_time)}</span>
         )}
-        <span className="text-[11px] text-slate-500 tabular-nums">{away.length}–{home.length}</span>
       </div>
 
       {isLive && lg && (

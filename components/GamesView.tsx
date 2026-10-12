@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getTeam } from '@/lib/nflTeams'
 import { shortName } from '@/lib/displayName'
 import { leaderOf, type LiveGame } from '@/lib/liveScores'
 import FieldStrip from '@/components/FieldStrip'
+import PlayFlash from '@/components/PlayFlash'
+import type { PlayEvent } from '@/lib/useLiveEvents'
 
 /*
  * All Picks, one card per game: who's on each side, rather than a 15-column
@@ -30,7 +32,9 @@ interface Player { id: string; name: string; avatar_url: string | null }
 
 type SortBy = 'kickoff' | 'split' | 'live'
 
-export default function GamesView({ games, users, pickOf, bestOf, meId, live, formatKickoff }: {
+const SHOW_PICKS_KEY = 'allpicks-show-picks'
+
+export default function GamesView({ games, users, pickOf, bestOf, meId, live, events, formatKickoff }: {
   games: Game[]
   users: Player[]
   /** The team a player picked for a game, if any. */
@@ -39,9 +43,22 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, fo
   bestOf: (userId: string) => Set<string> | undefined
   meId: string
   live: Map<string, LiveGame>
+  /** Big plays happening right now, for the scoreboard highlight. */
+  events: Map<string, PlayEvent>
   formatKickoff: (iso: string) => string
 }) {
   const [follow, setFollow] = useState<string | null>(null)
+  // Picks on by default; off leaves just the scoreboards. Remembered per device.
+  const [showPicks, setShowPicks] = useState(true)
+  useEffect(() => {
+    try { if (window.localStorage.getItem(SHOW_PICKS_KEY) === '0') setShowPicks(false) } catch { /* private mode */ }
+  }, [])
+  const toggleShowPicks = () => {
+    setShowPicks(v => {
+      try { window.localStorage.setItem(SHOW_PICKS_KEY, v ? '0' : '1') } catch { /* private mode */ }
+      return !v
+    })
+  }
   const anyLive = [...live.values()].some(g => g.state === 'in')
   const [sortBy, setSortBy] = useState<SortBy>(anyLive ? 'live' : 'kickoff')
 
@@ -101,7 +118,8 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, fo
 
   return (
     <div>
-      {/* Follow a player */}
+      {/* Follow a player — only meaningful while picks are showing */}
+      {showPicks && (
       <div className="mb-3">
         <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Follow a player</p>
         <div className="-mx-3 px-3 sm:mx-0 sm:px-0 flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
@@ -130,9 +148,10 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, fo
           </p>
         )}
       </div>
+      )}
 
-      {/* Sort */}
-      <div className="flex items-center gap-1 mb-4">
+      {/* Sort, and the picks switch */}
+      <div className="flex flex-wrap items-center gap-1 mb-4">
         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mr-1">Sort</span>
         {([['kickoff', 'Kickoff'], ['split', 'Closest split'], ['live', 'Live first']] as const).map(([k, label]) => (
           <button
@@ -146,6 +165,18 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, fo
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showPicks}
+          onClick={toggleShowPicks}
+          className="ml-auto flex items-center gap-2 text-[11px] font-medium text-slate-400 hover:text-slate-200 transition"
+        >
+          Show picks
+          <span className={`relative w-8 h-[18px] rounded-full transition-colors ${showPicks ? 'bg-blue-500' : 'bg-white/[0.12]'}`}>
+            <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all ${showPicks ? 'left-[16px]' : 'left-[2px]'}`} />
+          </span>
+        </button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -157,6 +188,8 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, fo
             follow={follow}
             bestOf={bestOf}
             isUpset={c.g.id === upsetId}
+            showPicks={showPicks}
+            event={events.get(c.g.id)}
             formatKickoff={formatKickoff}
           />
         ))}
@@ -165,7 +198,7 @@ export default function GamesView({ games, users, pickOf, bestOf, meId, live, fo
   )
 }
 
-function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
+function GameCard({ card, meId, follow, bestOf, isUpset, showPicks, event, formatKickoff }: {
   card: {
     g: Game
     away: Player[]
@@ -178,9 +211,13 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
   follow: string | null
   bestOf: (userId: string) => Set<string> | undefined
   isUpset: boolean
+  showPicks: boolean
+  event: PlayEvent | undefined
   formatKickoff: (iso: string) => string
 }) {
   const { g, away, home, none, lg, finalWinner } = card
+  // The team whose score just moved gets a one-off bounce.
+  const popTeam = event && event.kind !== 'turnover' ? event.team : null
   const total = Math.max(1, away.length + home.length)
   const isLive = lg?.state === 'in'
   const isFinal = !!finalWinner
@@ -220,9 +257,12 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
           {sc === null && <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate">{t.name}</p>}
         </div>
         {sc !== null && (
-          <span className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-3xl font-black tabular-nums leading-none ${
-            won ? 'text-emerald-400' : lost ? 'text-slate-600' : isFinal || ahead ? 'text-white' : 'text-slate-400'
-          }`}>{sc}</span>
+          <span
+            key={popTeam === team ? event?.key : 'still'}
+            className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-3xl font-black tabular-nums leading-none ${
+              won ? 'text-emerald-400' : lost ? 'text-slate-600' : isFinal || ahead ? 'text-white' : 'text-slate-400'
+            } ${popTeam === team ? 'score-pop' : ''}`}
+          >{sc}</span>
         )}
       </div>
     )
@@ -275,9 +315,10 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
     }`}>
       {/* ── Scoreboard ── the game itself, set apart on a darker panel so it
           reads first and never blurs into the list of names below it. */}
-      <div className={`px-3 pt-2.5 pb-3 border-b ${
+      <div className={`relative px-3 pt-2.5 pb-3 ${showPicks ? 'border-b' : ''} ${
         isLive ? 'bg-gradient-to-b from-red-500/[0.10] to-black/30 border-red-500/20' : 'bg-black/25 border-white/[0.08]'
       }`}>
+        <PlayFlash event={event} />
         <div className="flex items-center justify-center gap-2 mb-2.5 min-h-[18px]">
           {isLive ? (
             <>
@@ -311,6 +352,7 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
       </div>
 
       {/* ── Picks ── */}
+      {showPicks && (<>
       <div className="flex items-center gap-2 px-3 pt-2.5">
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em] shrink-0">Picks</p>
         <div className="flex-1 flex h-1 rounded-full overflow-hidden bg-white/[0.06]">
@@ -332,6 +374,7 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
           )}
         </div>
       )}
+      </>)}
     </div>
   )
 }

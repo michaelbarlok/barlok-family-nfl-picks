@@ -168,3 +168,45 @@ body {
   0%, 40% { box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.7); }
   100% { box-shadow: 0 0 0 2px rgba(96, 165, 250, 0); }
 }
+
+/* ── Big-play highlights on live game cards ──────────────────────────────
+   Seven seconds, then gone: the banner pops in, holds, and fades; the panel
+   behind it pulses its colour twice; the new score gives one small bounce.
+   Durations match SHOW_MS in lib/useLiveEvents.ts. */
+.play-banner {
+  animation: playBanner 7s ease-out forwards;
+}
+@keyframes playBanner {
+  0%   { opacity: 0; transform: scale(0.7); }
+  6%   { opacity: 1; transform: scale(1.08); }
+  10%  { transform: scale(1); }
+  85%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.96); }
+}
+.play-wash {
+  animation: playWash 7s ease-out forwards;
+}
+@keyframes playWash {
+  0%   { opacity: 0; }
+  8%   { opacity: 1; }
+  20%  { opacity: 0.35; }
+  32%  { opacity: 0.9; }
+  50%  { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+.score-pop {
+  display: inline-block;
+  animation: scorePop 0.9s cubic-bezier(.2, 1.6, .4, 1);
+}
+@keyframes scorePop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+/* Reduced motion: the banner still says what happened, it just doesn't move. */
+@media (prefers-reduced-motion: reduce) {
+  .play-banner { animation: playBannerStill 7s linear forwards; }
+  .play-wash { animation: none; opacity: 0.4; }
+  .score-pop { animation: none; }
+  @keyframes playBannerStill { 0%, 90% { opacity: 1; } 100% { opacity: 0; } }
+}

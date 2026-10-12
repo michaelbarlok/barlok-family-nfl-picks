@@ -12,6 +12,8 @@ import Nav, { type PickStatus } from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 import { leaderOf, pickStanding, type PickStanding } from '@/lib/liveScores'
 import { useLiveScores } from '@/lib/useLiveScores'
+import { useLiveEvents } from '@/lib/useLiveEvents'
+import PlayFlash from '@/components/PlayFlash'
 import FieldStrip from '@/components/FieldStrip'
 
 interface ManagedPlayer {
@@ -271,6 +273,7 @@ export default function PicksPage() {
   const lockTime = computeLockTime(games)
   // Live scores while this week's games are on (polls only then).
   const live = useLiveScores(season, currentWeek, games)
+  const events = useLiveEvents(live.byGameId)
   // A filter from last week shouldn't leave this week looking empty.
   useEffect(() => { setGameFilter('all') }, [currentWeek])
   const weekLocked = lockTime ? now >= lockTime : false
@@ -831,11 +834,12 @@ export default function PicksPage() {
                   return (
                     <div
                       key={game.id}
-                      className={`glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${cardRing} ${
+                      className={`relative glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${cardRing} ${
                         isLocked && standing === 'upcoming' && !isFinal ? 'opacity-80' : ''
                       }`}
                       style={{ animationDelay: `${gameIdx * 30}ms` }}
                     >
+                      <PlayFlash event={events.get(game.id)} />
                       <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
                         <div className="flex items-center gap-2 min-w-0 flex-wrap">
                           {isLive ? (

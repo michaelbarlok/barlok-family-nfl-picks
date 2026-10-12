@@ -24,8 +24,18 @@ export interface LiveGame {
   /** Team with the ball, while in progress. */
   possession: string | null
   redZone: boolean
-  /** "3rd & 4 at KC 35", while in progress. */
+  /** "3rd & 4 at KC 35", while in progress — absent during stoppages. */
   downDistance: string | null
+  /** Where the ball is: yards from the AWAY goal line (0) to the HOME goal line (100). */
+  ballOn: number | null
+  down: number | null
+  /** Yards to go for a first down. */
+  distance: number | null
+  goalToGo: boolean
+  /** "Kickoff", "Pass Reception", "Official Timeout"… */
+  lastPlayType: string | null
+  /** ESPN's description of the last play. */
+  lastPlay: string | null
 }
 
 export interface LiveScoreboard {
@@ -88,22 +98,66 @@ export function parseScoreboard(json: any): LiveGame[] {
     }
 
     const situation = state === 'in' ? comp.situation ?? null : null
-    let possession: string | null = null
-    if (situation?.possession) {
-      const holder = competitors.find(c => String(c?.team?.id ?? c?.id) === String(situation.possession))
-      if (holder?.team?.abbreviation) possession = normalizeTeam(holder.team.abbreviation)
+    const away = normalizeTeam(awayAbbr)
+    const home = normalizeTeam(homeAbbr)
+    const teamById = (id: unknown): string | null => {
+      if (id == null) return null
+      const c = competitors.find(x => String(x?.team?.id ?? x?.id) === String(id))
+      return c?.team?.abbreviation ? normalizeTeam(c.team.abbreviation) : null
     }
 
+    // Who has the ball. The scoreboard feed has no possession field (checked
+    // against a live game), so it's read from the last play: `end.team` is the
+    // side in possession once that play is over — the receiving team after a
+    // kickoff or punt, the scoring team lining up for the extra point. A
+    // `possession` id is still honoured if ESPN ever adds one.
+    const lastPlay = situation?.lastPlay ?? null
+    const possession = teamById(situation?.possession) ?? teamById(lastPlay?.end?.team?.id) ?? teamById(lastPlay?.team?.id)
+
+    // Where the ball is, as yards from the away goal line. The text ("BAL 20",
+    // or "… at BAL 20") is unambiguous, so it wins; between plays ESPN drops
+    // the text and only `yardLine` is left, which counts from the HOME goal
+    // line (checked: BAL ball at its own 20 came through as 80).
+    const ballOn = (() => {
+      const text: string | undefined = situation?.possessionText
+        ?? (typeof situation?.downDistanceText === 'string' ? situation.downDistanceText.split(' at ').pop() : undefined)
+      const m = typeof text === 'string' ? text.trim().match(/^(?:([A-Z]{2,4})\s+)?(\d{1,2})$/) : null
+      if (m) {
+        const yd = parseInt(m[2], 10)
+        if (yd === 50) return 50
+        if (m[1]) {
+          // Play-by-play text uses its own codes for a few teams (BLT for
+          // BAL); the situation fields seen so far use the normal ones.
+          const side = normalizeTeam(m[1] === 'BLT' ? 'BAL' : m[1])
+          if (side === away) return yd
+          if (side === home) return 100 - yd
+        }
+      }
+      const yl = Number(situation?.yardLine)
+      return Number.isFinite(yl) && yl >= 0 && yl <= 100 ? 100 - yl : null
+    })()
+
+    const down = Number(situation?.down)
+    const distance = Number(situation?.distance)
+    const ddText = typeof situation?.downDistanceText === 'string' ? situation.downDistanceText : null
+
     out.push({
-      away: normalizeTeam(awayAbbr),
-      home: normalizeTeam(homeAbbr),
+      away,
+      home,
       state,
       awayScore: score(awayC),
       homeScore: score(homeC),
       label,
       possession,
       redZone: situation?.isRedZone === true,
-      downDistance: typeof situation?.downDistanceText === 'string' ? situation.downDistanceText : null,
+      downDistance: ddText,
+      ballOn,
+      // down is -1 between plays (timeouts, extra points, kickoffs)
+      down: down >= 1 && down <= 4 ? down : null,
+      distance: down >= 1 && down <= 4 && Number.isFinite(distance) && distance > 0 ? distance : null,
+      goalToGo: !!ddText && /goal/i.test(ddText),
+      lastPlayType: typeof lastPlay?.type?.text === 'string' ? lastPlay.type.text : null,
+      lastPlay: typeof lastPlay?.text === 'string' ? lastPlay.text.split('\n')[0].trim() : null,
     })
   }
   return out

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { getTeam } from '@/lib/nflTeams'
 import { shortName } from '@/lib/displayName'
 import { leaderOf, type LiveGame } from '@/lib/liveScores'
+import FieldStrip from '@/components/FieldStrip'
 
 /*
  * All Picks, one card per game: who's on each side, rather than a 15-column
@@ -223,7 +224,6 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
               {team}{won ? ' ✓' : ''}
               {isLive && lg?.possession === team && <span className="ml-1 text-[10px]" title="Has the ball">🏈</span>}
             </p>
-            <p className="text-[10px] text-slate-500 leading-tight">{people.length} {people.length === 1 ? 'pick' : 'picks'}</p>
           </div>
           {sc !== null && (
             <span className={`${align === 'right' ? 'mr-auto' : 'ml-auto'} text-xl font-bold tabular-nums ${
@@ -274,8 +274,14 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
         ) : (
           <span className="text-[11px] text-slate-500">{formatKickoff(g.kickoff_time)}</span>
         )}
-        <span className="text-[11px] text-slate-500 tabular-nums">{away.length}–{home.length}</span>
       </div>
+
+      {isLive && lg && (
+        <div className="mx-3 mt-2">
+          <FieldStrip game={lg} />
+          {lg.lastPlay && <p className="text-[10px] text-slate-500 leading-snug mt-1 line-clamp-2">Last play: {lg.lastPlay}</p>}
+        </div>
+      )}
 
       <div className="flex h-1.5 mx-3 mt-2 rounded-full overflow-hidden bg-white/[0.06]">
         <div className={finalWinner === g.away_team ? 'bg-emerald-500/80' : 'bg-blue-500/70'} style={{ width: `${(away.length / total) * 100}%` }} />

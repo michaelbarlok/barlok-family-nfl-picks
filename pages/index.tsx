@@ -15,6 +15,7 @@ import { useTalkUnread } from '@/lib/useTalkUnread'
 import { leaderOf, pickStanding, type LiveGame, type PickStanding } from '@/lib/liveScores'
 import { useLiveScores } from '@/lib/useLiveScores'
 import Nav from '@/components/Nav'
+import FieldStrip from '@/components/FieldStrip'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 
 /*
@@ -689,7 +690,7 @@ export default function DashboardPage() {
           {/* ───────────── LEFT: this week ───────────── */}
           <div>
             {live.anyLive && (
-              <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} splits={d.splits} />
+              <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} />
             )}
 
             {weekState !== 'none' && d.currentWeek !== null && (
@@ -1039,11 +1040,10 @@ function ThisWeekCard(props: {
 }
 
 /** Game-day strip: one small card per game in progress, scrolling sideways. */
-function LiveNowRow({ games, live, myPicks, splits }: {
+function LiveNowRow({ games, live, myPicks }: {
   games: WeekGame[]
   live: Map<string, LiveGame>
   myPicks: Record<string, string>
-  splits: SplitRow[]
 }) {
   const on = games.filter(g => live.get(g.id)?.state === 'in')
   if (on.length === 0) return null
@@ -1058,7 +1058,6 @@ function LiveNowRow({ games, live, myPicks, splits }: {
           const lg = live.get(g.id)!
           const pick = myPicks[g.id]
           const standing = pickStanding(pick, g, lg)
-          const split = splits.find(sp => sp.game.id === g.id)
           const lead = leaderOf(lg)
           const line = (team: string, score: number | null) => (
             <div className="flex items-center gap-2">
@@ -1072,7 +1071,7 @@ function LiveNowRow({ games, live, myPicks, splits }: {
             <Link
               key={g.id}
               href={`/all-picks?view=games#game-${g.id}`}
-              className={`press snap-start shrink-0 w-44 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
+              className={`press snap-start shrink-0 w-48 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-mono font-semibold text-red-300">{lg.label}</span>
@@ -1082,6 +1081,15 @@ function LiveNowRow({ games, live, myPicks, splits }: {
                 {line(g.away_team, lg.awayScore)}
                 {line(g.home_team, lg.homeScore)}
               </div>
+              <div className="mt-2">
+                <FieldStrip game={lg} compact />
+                {(lg.downDistance ?? lg.lastPlayType) && (
+                  <p className="text-[10px] text-slate-400 mt-1 truncate">
+                    {lg.possession && <span className="text-white font-semibold">{lg.possession} · </span>}
+                    {lg.downDistance ?? lg.lastPlayType}
+                  </p>
+                )}
+              </div>
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.06] text-[10px]">
                 <span className={
                   standing === 'winning' ? 'text-emerald-400 font-semibold'
@@ -1090,9 +1098,6 @@ function LiveNowRow({ games, live, myPicks, splits }: {
                 }>
                   {pick ? `You: ${pick}` : 'No pick'}
                 </span>
-                {split && (
-                  <span className="text-slate-500 tabular-nums">{split.awayCount}–{split.homeCount}</span>
-                )}
               </div>
             </Link>
           )

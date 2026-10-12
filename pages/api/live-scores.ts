@@ -27,6 +27,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'week and season are required' })
   }
 
+  // ?raw=1 — ESPN's own status and situation for games in progress, unparsed.
+  // For checking what the feed actually sends when the parsed view looks off;
+  // public data, never cached, and nothing the app itself requests.
+  if (req.query.raw === '1') {
+    try {
+      const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${week}&dates=${season}`
+      const json = await (await fetch(url, { headers: { Accept: 'application/json' } })).json()
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const live = (json?.events ?? [])
+        .map((e: any) => e?.competitions?.[0])
+        .filter((c: any) => c?.status?.type?.state === 'in')
+        .map((c: any) => ({
+          competitors: (c.competitors ?? []).map((x: any) => ({ id: x.id, homeAway: x.homeAway, team: { id: x.team?.id, abbreviation: x.team?.abbreviation } })),
+          status: c.status,
+          situation: c.situation ?? null,
+        }))
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      res.setHeader('Cache-Control', 'no-store')
+      return res.status(200).json({ week, season, live })
+    } catch (err) {
+      return res.status(502).json({ error: err instanceof Error ? err.message : 'ESPN unavailable' })
+    }
+  }
+
   const key = `${season}-${week}`
   const hit = memo.get(key)
   if (hit && Date.now() - hit.at < FRESH_MS) {

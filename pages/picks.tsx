@@ -12,6 +12,7 @@ import Nav, { type PickStatus } from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 import { leaderOf, pickStanding, type PickStanding } from '@/lib/liveScores'
 import { useLiveScores } from '@/lib/useLiveScores'
+import FieldStrip from '@/components/FieldStrip'
 
 interface ManagedPlayer {
   id: string
@@ -892,10 +893,16 @@ export default function PicksPage() {
                         {teamButton(game.home_team, 'Home')}
                       </div>
 
-                      {isLive && liveG?.downDistance && (
-                        <p className="px-4 pb-3 -mt-1 text-[11px] text-slate-400">
-                          🏈 {liveG.possession ? `${liveG.possession} · ` : ''}{liveG.downDistance}
-                        </p>
+                      {/* Where the ball is, and what just happened */}
+                      {isLive && liveG && (
+                        <div className="px-4 pb-3 -mt-1 space-y-1.5">
+                          <FieldStrip game={liveG} />
+                          {liveG.lastPlay && (
+                            <p className="text-[11px] text-slate-500 leading-snug line-clamp-2">
+                              <span className="text-slate-400 font-medium">Last play:</span> {liveG.lastPlay}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                   )

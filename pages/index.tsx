@@ -15,6 +15,7 @@ import { useTalkUnread } from '@/lib/useTalkUnread'
 import { leaderOf, pickStanding, type LiveGame, type PickStanding } from '@/lib/liveScores'
 import { useLiveScores } from '@/lib/useLiveScores'
 import Nav from '@/components/Nav'
+import FieldStrip from '@/components/FieldStrip'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
 
 /*
@@ -1072,7 +1073,7 @@ function LiveNowRow({ games, live, myPicks, splits }: {
             <Link
               key={g.id}
               href={`/all-picks?view=games#game-${g.id}`}
-              className={`press snap-start shrink-0 w-44 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
+              className={`press snap-start shrink-0 w-48 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-mono font-semibold text-red-300">{lg.label}</span>
@@ -1081,6 +1082,15 @@ function LiveNowRow({ games, live, myPicks, splits }: {
               <div className="space-y-1">
                 {line(g.away_team, lg.awayScore)}
                 {line(g.home_team, lg.homeScore)}
+              </div>
+              <div className="mt-2">
+                <FieldStrip game={lg} compact />
+                {(lg.downDistance ?? lg.lastPlayType) && (
+                  <p className="text-[10px] text-slate-400 mt-1 truncate">
+                    {lg.possession && <span className="text-white font-semibold">{lg.possession} · </span>}
+                    {lg.downDistance ?? lg.lastPlayType}
+                  </p>
+                )}
               </div>
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.06] text-[10px]">
                 <span className={

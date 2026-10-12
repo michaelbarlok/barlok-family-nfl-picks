@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { getTeam } from '@/lib/nflTeams'
 import { shortName } from '@/lib/displayName'
 import { leaderOf, type LiveGame } from '@/lib/liveScores'
+import FieldStrip from '@/components/FieldStrip'
 
 /*
  * All Picks, one card per game: who's on each side, rather than a 15-column
@@ -276,6 +277,13 @@ function GameCard({ card, meId, follow, bestOf, isUpset, formatKickoff }: {
         )}
         <span className="text-[11px] text-slate-500 tabular-nums">{away.length}–{home.length}</span>
       </div>
+
+      {isLive && lg && (
+        <div className="mx-3 mt-2">
+          <FieldStrip game={lg} />
+          {lg.lastPlay && <p className="text-[10px] text-slate-500 leading-snug mt-1 line-clamp-2">Last play: {lg.lastPlay}</p>}
+        </div>
+      )}
 
       <div className="flex h-1.5 mx-3 mt-2 rounded-full overflow-hidden bg-white/[0.06]">
         <div className={finalWinner === g.away_team ? 'bg-emerald-500/80' : 'bg-blue-500/70'} style={{ width: `${(away.length / total) * 100}%` }} />

@@ -204,9 +204,9 @@ function Avatar({ name, url, size = 28, you = false }: { name: string; url?: str
   )
 }
 
-function SectionHeader({ title, href, linkText }: { title: string; href?: string; linkText?: string }) {
+function SectionHeader({ title, href, linkText, className = 'mb-3' }: { title: string; href?: string; linkText?: string; className?: string }) {
   return (
-    <div className="flex items-center justify-between mb-3">
+    <div className={`flex items-center justify-between ${className}`}>
       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{title}</p>
       {href && (
         <Link href={href} className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 transition">
@@ -660,14 +660,45 @@ export default function DashboardPage() {
 
   const container = 'max-w-3xl lg:max-w-6xl'
 
+  const weekCard = weekState !== 'none' && d.currentWeek !== null ? {
+    week: d.currentWeek,
+    season,
+    state: weekState,
+    games: d.weekGames,
+    myPicks: d.myWeekPicks,
+    myBestTeams: d.myBestTeams,
+    pickedCount,
+    bestCount,
+    lockTime: d.lockTime,
+    now,
+    weekRecord: thisWeekRecord,
+    live: live.byGameId,
+    anyLive: live.anyLive,
+    projection,
+    weekRank: d.weekRank,
+    weekPlayers: d.weekPlayers,
+  } : null
+
+  const you = {
+    record: d.record,
+    rank: d.rank,
+    isTied: d.isTied,
+    rankChange: d.rankChange,
+    totalPlayers: d.totalPlayers,
+    prevWeek: d.prevWeek,
+    prevWeekRecord,
+    prevWeekRank: d.prevWeekRank,
+  }
+
   return (
     <div className="min-h-screen bg-surface pb-page">
       <Nav pickStatus={navStatus} containerClassName={container} />
 
-      <main className={`${container} mx-auto px-4 py-6 animate-fade-in`}>
+      <main className={`${container} mx-auto px-4 py-4 lg:py-6 animate-fade-in`}>
         {isAdmin && <SaveSeasonButton />}
-        {/* The season is already under the app name in the header. */}
-        <h1 className="text-lg font-bold text-white mb-5">
+        {/* The season is already under the app name in the header. On a phone
+            the greeting gives way to the numbers. */}
+        <h1 className="sr-only lg:not-sr-only text-lg font-bold text-white lg:mb-5">
           Hey, {shortName(user.name)}
         </h1>
 
@@ -675,9 +706,9 @@ export default function DashboardPage() {
         {todo.length > 0 && (
           <Link
             href="/admin"
-            className="press mb-5 glass-card rounded-2xl px-4 py-3 flex items-center gap-3 hover:bg-white/[0.04] transition animate-slide-up"
+            className="press mb-3 lg:mb-5 glass-card rounded-2xl px-3 py-2.5 lg:px-4 lg:py-3 flex items-center gap-3 hover:bg-white/[0.04] transition animate-slide-up"
           >
-            <span className="text-lg">🔧</span>
+            <span className="text-base lg:text-lg">🔧</span>
             <div className="flex-1 min-w-0 space-y-0.5">
               {todo.map(t => (
                 <p key={t.text} className={`text-xs ${t.tone === 'amber' ? 'text-amber-400' : 'text-emerald-400'}`}>
@@ -685,132 +716,118 @@ export default function DashboardPage() {
                 </p>
               ))}
             </div>
-            <span className="text-[11px] font-semibold text-blue-400 shrink-0">Open Admin →</span>
+            <span className="text-[11px] font-semibold text-blue-400 shrink-0">
+              <span className="hidden lg:inline">Open Admin →</span>
+              <span className="lg:hidden">→</span>
+            </span>
           </Link>
         )}
 
-        <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
-          {/* ───────────── LEFT: this week ───────────── */}
-          <div>
-            {live.anyLive && (
-              <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} events={events} />
-            )}
+        {/* ───────────── PHONE ─────────────
+            One column, packed tighter: the same information as the two desktop
+            columns, in about half the scroll. You at a glance first, then the
+            week, the table, everyone's picks, Talk and the way to every page. */}
+        <div className="lg:hidden">
+          <YouStrip {...you} />
 
-            {weekState !== 'none' && d.currentWeek !== null && (
-              <ThisWeekCard
-                week={d.currentWeek}
-                season={season}
-                state={weekState}
-                games={d.weekGames}
-                myPicks={d.myWeekPicks}
-                myBestTeams={d.myBestTeams}
-                pickedCount={pickedCount}
-                bestCount={bestCount}
-                lockTime={d.lockTime}
-                now={now}
-                weekRecord={thisWeekRecord}
-                live={live.byGameId}
-                anyLive={live.anyLive}
-                projection={projection}
-                weekRank={d.weekRank}
-                weekPlayers={d.weekPlayers}
-              />
-            )}
+          {live.anyLive && (
+            <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} events={events} dense />
+          )}
 
-            {/* ── MANAGED PLAYERS (only if you manage anyone) ── */}
-            {d.managedPlayers.length > 0 && d.currentWeek !== null && (
-              <div className="mb-5 animate-slide-up" style={{ animationDelay: '60ms' }}>
-                <SectionHeader title="Players you manage" href="/picks" linkText="Make picks" />
-                <div className="glass-card rounded-2xl overflow-hidden">
-                  {d.managedPlayers.map(mp => (
-                    <div
-                      key={mp.id}
-                      className={`flex items-center gap-3 px-4 py-3 border-b border-white/[0.04] last:border-0 ${
-                        !mp.complete && !isLocked ? 'bg-amber-500/5' : ''
-                      }`}
-                    >
-                      <Avatar name={mp.name} url={mp.avatar_url} size={32} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white truncate">{mp.name}</p>
-                        <p className="text-[11px] text-slate-500">
-                          {mp.totalGames > 0 ? (
-                            <>
-                              {mp.pickedCount}/{mp.totalGames} picks
-                              {mp.bestPickCount >= MAX_BEST_PICKS
-                                ? <span className="text-amber-400 ml-1.5">⭐ Best 3 set</span>
-                                : <span className="text-slate-500 ml-1.5">⭐ {mp.bestPickCount}/{MAX_BEST_PICKS}</span>}
-                            </>
-                          ) : 'No games yet'}
-                        </p>
-                      </div>
-                      {mp.totalGames > 0 && (
-                        mp.complete ? (
-                          <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">Ready</span>
-                        ) : isLocked ? (
-                          <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Locked</span>
-                        ) : (
-                          <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">Incomplete</span>
-                        )
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+          {weekCard && <ThisWeekCompact {...weekCard} />}
 
-            {/* ── EVERYONE'S PICKS ── */}
-            {weekState === 'open' && whoIsIn && whoIsIn.players.length > 0 && (
-              <WhoIsInCard whoIsIn={whoIsIn} users={d.users} meId={user.id} />
-            )}
-            {(weekState === 'live' || weekState === 'final') && d.splits.length > 0 && (
-              <SplitsCard week={d.currentWeek!} splits={d.splits} players={d.weekPlayers} />
-            )}
-          </div>
+          {d.managedPlayers.length > 0 && d.currentWeek !== null && (
+            <ManagedPlayersCard players={d.managedPlayers} isLocked={isLocked} dense />
+          )}
 
-          {/* ───────────── RIGHT: you and the family ───────────── */}
-          <div>
-            {d.standings.length > 0 && (
-              <StandingsCard standings={d.standings} />
-            )}
+          {d.standings.length > 0 && <StandingsCard standings={d.standings} dense />}
 
-            <YouCard
-              record={d.record}
-              rank={d.rank}
-              isTied={d.isTied}
-              rankChange={d.rankChange}
-              totalPlayers={d.totalPlayers}
-              prevWeek={d.prevWeek}
-              prevWeekRecord={prevWeekRecord}
-              prevWeekRank={d.prevWeekRank}
-            />
+          {weekState === 'open' && whoIsIn && whoIsIn.players.length > 0 && (
+            <WhoIsInCompact whoIsIn={whoIsIn} meId={user.id} />
+          )}
+          {(weekState === 'live' || weekState === 'final') && d.splits.length > 0 && (
+            <SplitsCompact week={d.currentWeek!} splits={d.splits} players={d.weekPlayers} />
+          )}
 
-            <TalkCard latest={talkLatest} unread={unreadTalk} now={now} meId={user.id} />
+          <TalkCard latest={talkLatest} unread={unreadTalk} now={now} meId={user.id} dense />
+
+          <div className="animate-slide-up" style={{ animationDelay: '200ms' }}>
+            <SectionHeader title="Everything" className="mb-2" />
+            <div className="grid grid-cols-4 sm:grid-cols-none sm:grid-flow-col sm:auto-cols-fr gap-1.5 min-[360px]:gap-2">
+              <MiniTile href="/all-picks" icon="📋" title="All Picks" />
+              <MiniTile href="/standings" icon="🏆" title="Standings" />
+              <MiniTile href="/talk" icon="💩" title="Talk" badge={unreadTalk} />
+              {d.recapWeek !== null
+                ? <MiniTile href={`/recap?season=${season}&week=${d.recapWeek}`} icon="📰" title="Recap" sub={`Week ${d.recapWeek}`} />
+                : <MiniTile icon="📰" title="Recap" disabled />}
+              <MiniTile href="/spreadsheets" icon="📊" title="Sheets" />
+              <MiniTile href="/champions" icon="👑" title="Champions" />
+              {(isAdmin || isManager) && <MiniTile href="/admin" icon="🔧" title="Admin" />}
+            </div>
           </div>
         </div>
 
-        {/* ── EVERYTHING ELSE ── */}
-        <div className="mt-1 animate-slide-up" style={{ animationDelay: '200ms' }}>
-          <SectionHeader title="Everything" />
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            <Tile href="/all-picks" icon="📋" title="All Picks"
-              sub={weekState === 'open' ? `Who's in for Week ${d.currentWeek}` : d.currentWeek !== null ? `Week ${d.currentWeek} picks` : 'Every pick, every week'} />
-            <Tile href="/standings" icon="🏆" title="Standings"
-              sub={d.standings.some(s => s.isYou) ? `You're ${placeText(d.rank, d.isTied)} of ${d.totalPlayers}` : 'The season table'} />
-            <Tile href="/talk" icon="💩" title="Talk"
-              sub={unreadTalk > 0 ? `${unreadTalk > 9 ? '9+' : unreadTalk} new` : 'Family chat'}
-              badge={unreadTalk} />
-            {d.recapWeek !== null ? (
-              <Tile href={`/recap?season=${season}&week=${d.recapWeek}`} icon="📰" title="Recap" sub={`Week ${d.recapWeek}`} />
-            ) : (
-              <Tile icon="📰" title="Recap" sub="After Week 1 finishes" disabled />
-            )}
-            <Tile href="/spreadsheets" icon="📊" title="Sheets" sub="Weekly spreadsheets" />
-            <Tile href="/champions" icon="👑" title="Champions"
-              sub={d.latestChampion ? `${d.latestChampion.year}: ${d.latestChampion.winner}` : 'Every winner since 1996'} />
-            {(isAdmin || isManager) && (
-              // Seventh tile: full width on a phone rather than alone in half a row.
-              <Tile href="/admin" icon="🔧" title="Admin" sub={isAdmin ? 'Results, players, recaps' : 'Your players'} className="col-span-2 sm:col-span-1" />
-            )}
+        {/* ───────────── DESKTOP ───────────── */}
+        <div className="hidden lg:block">
+          <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+            {/* ───────────── LEFT: this week ───────────── */}
+            <div>
+              {live.anyLive && (
+                <LiveNowRow games={d.weekGames} live={live.byGameId} myPicks={d.myWeekPicks} events={events} />
+              )}
+
+              {weekCard && <ThisWeekCard {...weekCard} />}
+
+              {/* ── MANAGED PLAYERS (only if you manage anyone) ── */}
+              {d.managedPlayers.length > 0 && d.currentWeek !== null && (
+                <ManagedPlayersCard players={d.managedPlayers} isLocked={isLocked} />
+              )}
+
+              {/* ── EVERYONE'S PICKS ── */}
+              {weekState === 'open' && whoIsIn && whoIsIn.players.length > 0 && (
+                <WhoIsInCard whoIsIn={whoIsIn} users={d.users} meId={user.id} />
+              )}
+              {(weekState === 'live' || weekState === 'final') && d.splits.length > 0 && (
+                <SplitsCard week={d.currentWeek!} splits={d.splits} players={d.weekPlayers} />
+              )}
+            </div>
+
+            {/* ───────────── RIGHT: you and the family ───────────── */}
+            <div>
+              {d.standings.length > 0 && (
+                <StandingsCard standings={d.standings} />
+              )}
+
+              <YouCard {...you} />
+
+              <TalkCard latest={talkLatest} unread={unreadTalk} now={now} meId={user.id} />
+            </div>
+          </div>
+
+          {/* ── EVERYTHING ELSE ── */}
+          <div className="mt-1 animate-slide-up" style={{ animationDelay: '200ms' }}>
+            <SectionHeader title="Everything" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <Tile href="/all-picks" icon="📋" title="All Picks"
+                sub={weekState === 'open' ? `Who's in for Week ${d.currentWeek}` : d.currentWeek !== null ? `Week ${d.currentWeek} picks` : 'Every pick, every week'} />
+              <Tile href="/standings" icon="🏆" title="Standings"
+                sub={d.standings.some(s => s.isYou) ? `You're ${placeText(d.rank, d.isTied)} of ${d.totalPlayers}` : 'The season table'} />
+              <Tile href="/talk" icon="💩" title="Talk"
+                sub={unreadTalk > 0 ? `${unreadTalk > 9 ? '9+' : unreadTalk} new` : 'Family chat'}
+                badge={unreadTalk} />
+              {d.recapWeek !== null ? (
+                <Tile href={`/recap?season=${season}&week=${d.recapWeek}`} icon="📰" title="Recap" sub={`Week ${d.recapWeek}`} />
+              ) : (
+                <Tile icon="📰" title="Recap" sub="After Week 1 finishes" disabled />
+              )}
+              <Tile href="/spreadsheets" icon="📊" title="Sheets" sub="Weekly spreadsheets" />
+              <Tile href="/champions" icon="👑" title="Champions"
+                sub={d.latestChampion ? `${d.latestChampion.year}: ${d.latestChampion.winner}` : 'Every winner since 1996'} />
+              {(isAdmin || isManager) && (
+                // Seventh tile: full width on a phone rather than alone in half a row.
+                <Tile href="/admin" icon="🔧" title="Admin" sub={isAdmin ? 'Results, players, recaps' : 'Your players'} className="col-span-2 sm:col-span-1" />
+              )}
+            </div>
           </div>
         </div>
       </main>
@@ -820,19 +837,21 @@ export default function DashboardPage() {
 
 // ── sections ────────────────────────────────────────────────────────────────
 
-function PickChip({ team, standing, star, empty, live }: {
+function PickChip({ team, standing, star, empty, live, small = false }: {
   team?: string
   standing: PickStanding
   star: boolean
   empty?: boolean
   /** Game in progress right now — adds the red live dot. */
   live?: boolean
+  small?: boolean
 }) {
+  const box = small ? 'w-7 h-7' : 'w-8 h-8'
   const dot = live && <span className="absolute -bottom-0.5 -left-0.5 w-2 h-2 rounded-full bg-red-500 border border-surface animate-pulse" />
   if (empty || !team) {
     return (
       <span
-        className="relative w-8 h-8 rounded-full border border-dashed border-white/[0.15] flex items-center justify-center text-[10px] text-slate-600"
+        className={`relative ${box} rounded-full border border-dashed border-white/[0.15] flex items-center justify-center text-[10px] text-slate-600`}
         title="Not picked"
       >
         ?{dot}
@@ -852,10 +871,10 @@ function PickChip({ team, standing, star, empty, live }: {
   }[standing]
   const word = { won: 'won', lost: 'lost', tie: 'tied', winning: 'winning', losing: 'losing', level: 'level', upcoming: 'not started' }[standing]
   return (
-    <span className={`relative w-8 h-8 rounded-full flex items-center justify-center ${ring}`} title={`${t.city} ${t.name} — ${word}`}>
+    <span className={`relative ${box} rounded-full flex items-center justify-center ${ring}`} title={`${t.city} ${t.name} — ${word}`}>
       <img
         src={t.logo} alt={team} loading="lazy" decoding="async"
-        className="w-6 h-6 object-contain"
+        className={`${small ? 'w-5 h-5' : 'w-6 h-6'} object-contain`}
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
       />
       {star && <span className="absolute -top-1.5 -right-1.5 text-[11px] leading-none">⭐</span>}
@@ -865,7 +884,7 @@ function PickChip({ team, standing, star, empty, live }: {
   )
 }
 
-function ThisWeekCard(props: {
+interface WeekCardProps {
   week: number
   season: number
   state: 'open' | 'live' | 'final'
@@ -882,8 +901,10 @@ function ThisWeekCard(props: {
   live: Map<string, LiveGame>
   anyLive: boolean
   projection: Projection | null
-}) {
-  const { week, season, state, games, myPicks, myBestTeams, pickedCount, bestCount, lockTime, now, weekRecord, weekRank, weekPlayers, live, anyLive, projection } = props
+}
+
+/** What both This Week cards are built from: how each pick stands, and the tallies. */
+function summarizeWeek({ state, games, myPicks, pickedCount, bestCount, lockTime, now, weekRecord, live, anyLive }: WeekCardProps) {
   const total = games.length
   const msLeft = lockTime ? Math.max(0, lockTime.getTime() - now.getTime()) : 0
   const urgent = msLeft < 2 * 3600_000
@@ -915,10 +936,17 @@ function ThisWeekCard(props: {
     ties: Math.max(weekRecord?.ties ?? 0, c.tie),
   }
 
+  const border = state === 'open' && !allIn ? 'border-amber-500/20' : state === 'open' && allIn ? 'border-emerald-500/25' : anyLive ? 'border-red-500/25' : ''
+
+  return { total, msLeft, urgent, allIn, standings, c, finals, badge, shownRecord, border }
+}
+
+function ThisWeekCard(props: WeekCardProps) {
+  const { week, season, state, games, myPicks, myBestTeams, pickedCount, bestCount, lockTime, weekRank, weekPlayers, live, projection } = props
+  const { total, msLeft, urgent, allIn, standings, c, badge, shownRecord, border } = summarizeWeek(props)
+
   return (
-    <div className={`mb-5 glass-card rounded-2xl p-4 animate-slide-up ${
-      state === 'open' && !allIn ? 'border-amber-500/20' : state === 'open' && allIn ? 'border-emerald-500/25' : anyLive ? 'border-red-500/25' : ''
-    }`}>
+    <div className={`mb-5 glass-card rounded-2xl p-4 animate-slide-up ${border}`}>
       <div className="flex items-center justify-between mb-3">
         <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Week {week}</p>
         {badge}
@@ -1042,18 +1070,143 @@ function ThisWeekCard(props: {
   )
 }
 
+/**
+ * Phone version of the This Week card: the same facts, packed into fewer
+ * rows — countdown and progress share lines, the record sits beside "if it
+ * ended now", and the picks are a size smaller.
+ */
+function ThisWeekCompact(props: WeekCardProps) {
+  const { week, season, state, games, myPicks, myBestTeams, pickedCount, bestCount, lockTime, weekRank, weekPlayers, live, projection } = props
+  const { total, msLeft, urgent, allIn, standings, c, badge, shownRecord, border } = summarizeWeek(props)
+  const tone = urgent ? 'text-red-400' : 'text-amber-400'
+
+  return (
+    <div className={`mb-3 glass-card rounded-2xl p-3 animate-slide-up ${border}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Week {week}</p>
+        {badge}
+      </div>
+
+      {state === 'open' && (
+        <div className="mb-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className={`text-[11px] truncate ${tone}`}>
+              {urgent ? '🚨' : '⏰'} Locks {lockTime ? formatKickoff(lockTime.toISOString()) : ''}
+            </span>
+            <span className={`font-mono font-bold text-sm tabular-nums shrink-0 ${tone}`}>{formatCountdown(msLeft)}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
+              <div
+                className={`h-1.5 rounded-full transition-all duration-500 ${allIn ? 'bg-emerald-500' : 'progress-gradient'}`}
+                style={{ width: `${total > 0 ? (pickedCount / total) * 100 : 0}%` }}
+              />
+            </div>
+            <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+              {allIn ? <span className="text-emerald-400 font-medium">✓ All {total} picked</span> : `${pickedCount}/${total} picked`}
+            </span>
+            <span className={`text-[11px] tabular-nums shrink-0 ${bestCount >= MAX_BEST_PICKS ? 'text-amber-400 font-medium' : 'text-slate-400'}`}>
+              ⭐ {bestCount}/{MAX_BEST_PICKS}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {shownRecord && (
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-baseline gap-2 shrink-0">
+            <WinLoss {...shownRecord} className="text-xl" />
+            <span className="text-[10px] text-slate-500">{state === 'final' ? 'your week' : 'final so far'}</span>
+          </div>
+          {projection ? (
+            <p className="text-[11px] text-slate-400 text-right leading-tight min-w-0">
+              <span className="text-[9px] text-slate-500 uppercase tracking-wider">If it ended now </span>
+              <span className="text-white font-semibold tabular-nums">
+                {recordText(projection.weekRecord.wins, projection.weekRecord.losses, projection.weekRecord.ties)}
+              </span>
+              <br />
+              {projection.weekRank !== null && <><span className="text-white font-semibold">#{projection.weekRank}</span> this week · </>}
+              <span className="text-white font-semibold">{placeText(projection.seasonRank, projection.seasonTied)}</span> overall
+            </p>
+          ) : weekRank !== null && (
+            <p className="text-[11px] text-slate-400 text-right">
+              {state === 'live' ? 'Currently ' : ''}<span className="text-white font-semibold">#{weekRank}</span>
+              <span className="text-slate-500"> of {weekPlayers} this week</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {state !== 'open' && c.winning + c.losing + c.level > 0 && (
+        <p className="text-[11px] text-slate-400 mb-2 flex flex-wrap gap-x-3">
+          {c.winning > 0 && <span className="text-emerald-400/90">{c.winning} winning</span>}
+          {c.losing > 0 && <span className="text-red-400/90">{c.losing} losing</span>}
+          {c.level > 0 && <span className="text-amber-400/90">{c.level} tied</span>}
+          {c.upcoming > 0 && <span>{c.upcoming} to play</span>}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-1.5 mb-3" aria-label="Your picks this week">
+        {games.map((g, i) => {
+          const pick = myPicks[g.id]
+          return (
+            <PickChip
+              key={g.id}
+              team={pick}
+              empty={!pick}
+              star={!!pick && myBestTeams.includes(pick)}
+              standing={standings[i]}
+              live={live.get(g.id)?.state === 'in'}
+              small
+            />
+          )
+        })}
+      </div>
+
+      {state === 'open' ? (
+        <Link
+          href="/picks"
+          className={`press block text-center text-sm font-semibold rounded-xl py-2.5 transition ${
+            allIn
+              ? 'bg-white/[0.08] text-white hover:bg-white/[0.12]'
+              : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/20 hover:brightness-110'
+          }`}
+        >
+          {allIn ? 'Review your picks' : pickedCount === 0 ? `Make your Week ${week} picks` : 'Finish your picks'}
+        </Link>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          {state === 'final' ? (
+            <Link href={`/recap?season=${season}&week=${week}`} className="press text-center text-[13px] font-semibold rounded-xl py-2 bg-blue-600 text-white hover:bg-blue-500 transition">
+              📰 Week {week} Recap
+            </Link>
+          ) : (
+            <Link href="/picks" className="press text-center text-[13px] font-semibold rounded-xl py-2 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
+              Your picks
+            </Link>
+          )}
+          <Link href="/all-picks?view=games" className="press text-center text-[13px] font-semibold rounded-xl py-2 bg-white/[0.08] text-white hover:bg-white/[0.12] transition">
+            Everyone&apos;s picks
+          </Link>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Game-day strip: one small card per game in progress, scrolling sideways. */
-function LiveNowRow({ games, live, myPicks, events }: {
+function LiveNowRow({ games, live, myPicks, events, dense = false }: {
   games: WeekGame[]
   live: Map<string, LiveGame>
   myPicks: Record<string, string>
   events: Map<string, PlayEvent>
+  dense?: boolean
 }) {
   const on = games.filter(g => live.get(g.id)?.state === 'in')
   if (on.length === 0) return null
   return (
-    <div className="mb-5 animate-slide-up">
-      <div className="flex items-center gap-2 mb-3">
+    <div className={`${dense ? 'mb-3' : 'mb-5'} animate-slide-up`}>
+      <div className={`flex items-center gap-2 ${dense ? 'mb-2' : 'mb-3'}`}>
         <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
         <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Live now · {on.length}</p>
       </div>
@@ -1063,6 +1216,9 @@ function LiveNowRow({ games, live, myPicks, events }: {
           const pick = myPicks[g.id]
           const standing = pickStanding(pick, g, lg)
           const lead = leaderOf(lg)
+          const pickTone = standing === 'winning' ? 'text-emerald-400 font-semibold'
+            : standing === 'losing' ? 'text-red-400 font-semibold'
+              : 'text-amber-400 font-semibold'
           const line = (team: string, score: number | null) => (
             <div className="flex items-center gap-2">
               <img src={getTeam(team).logo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
@@ -1075,12 +1231,14 @@ function LiveNowRow({ games, live, myPicks, events }: {
             <Link
               key={g.id}
               href={`/all-picks?view=games#game-${g.id}`}
-              className={`relative overflow-hidden press snap-start shrink-0 w-48 glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
+              className={`relative overflow-hidden press snap-start shrink-0 ${dense ? 'w-52' : 'w-48'} glass-card rounded-2xl p-3 hover:bg-white/[0.05] transition ${lg.redZone ? 'border-red-500/30 bg-red-500/[0.04]' : ''}`}
             >
               <PlayFlash event={events.get(g.id)} compact />
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-mono font-semibold text-red-300">{lg.label}</span>
-                {lg.redZone && <span className="text-[9px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">RED ZONE</span>}
+              <div className="flex items-center justify-between gap-1.5 mb-2">
+                <span className="text-[11px] font-mono font-semibold text-red-300 whitespace-nowrap">{lg.label}</span>
+                {lg.redZone && !dense && <span className="text-[9px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full whitespace-nowrap">RED ZONE</span>}
+                {/* On a phone your pick rides in the top line instead of a footer of its own. */}
+                {dense && <span className={`ml-auto text-[10px] truncate ${pickTone}`}>{pick ? `You: ${pick}` : 'No pick'}</span>}
               </div>
               <div className="space-y-1">
                 {line(g.away_team, lg.awayScore)}
@@ -1088,22 +1246,29 @@ function LiveNowRow({ games, live, myPicks, events }: {
               </div>
               <div className="mt-2">
                 <FieldStrip game={lg} compact />
-                {(lg.downDistance ?? lg.lastPlayType) && (
+                {(lg.downDistance ?? lg.lastPlayType) && (dense ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <p className="flex-1 min-w-0 text-[10px] text-slate-400 truncate">
+                      {lg.possession && <span className="text-white font-semibold">{lg.possession} · </span>}
+                      {lg.downDistance ?? lg.lastPlayType}
+                    </p>
+                    {/* On a phone the red zone moves down here, leaving the top line for your pick. */}
+                    {lg.redZone && <span className="shrink-0 text-[8px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">RED ZONE</span>}
+                  </div>
+                ) : (
                   <p className="text-[10px] text-slate-400 mt-1 truncate">
                     {lg.possession && <span className="text-white font-semibold">{lg.possession} · </span>}
                     {lg.downDistance ?? lg.lastPlayType}
                   </p>
-                )}
+                ))}
               </div>
-              <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.06] text-[10px]">
-                <span className={
-                  standing === 'winning' ? 'text-emerald-400 font-semibold'
-                    : standing === 'losing' ? 'text-red-400 font-semibold'
-                      : 'text-amber-400 font-semibold'
-                }>
-                  {pick ? `You: ${pick}` : 'No pick'}
-                </span>
-              </div>
+              {!dense && (
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.06] text-[10px]">
+                  <span className={pickTone}>
+                    {pick ? `You: ${pick}` : 'No pick'}
+                  </span>
+                </div>
+              )}
             </Link>
           )
         })}
@@ -1210,7 +1375,115 @@ function SplitsCard({ week, splits, players }: { week: number; splits: SplitRow[
   )
 }
 
-function StandingsCard({ standings }: { standings: StandingRow[] }) {
+/**
+ * Phone version of Who's in: a count, a bar, and only the names still to come
+ * — the people you'd chase — instead of an avatar for everyone.
+ */
+function WhoIsInCompact({ whoIsIn, meId }: { whoIsIn: WhoIsIn; meId: string }) {
+  const n = whoIsIn.players.length
+  const done = whoIsIn.players.filter(p => p.complete).length
+  const partway = whoIsIn.players.filter(p => !p.complete && p.pickCount > 0).length
+  // Partway first (closest to done), then not started — names alphabetical within.
+  const waiting = whoIsIn.players
+    .filter(p => !p.complete)
+    .sort((a, b) => Number(b.pickCount > 0) - Number(a.pickCount > 0) || a.name.localeCompare(b.name))
+  return (
+    <div className="mb-3 animate-slide-up" style={{ animationDelay: '80ms' }}>
+      <SectionHeader title={`Who's in · Week ${whoIsIn.week}`} href="/all-picks" linkText="Details" className="mb-2" />
+      <div className="glass-card rounded-2xl p-3">
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-white font-medium shrink-0">
+            <span className="text-emerald-400">{done}</span> of {n} have their picks in
+          </p>
+          <div className="flex-1 flex h-1.5 rounded-full overflow-hidden bg-white/[0.06]">
+            <div className="bg-emerald-500" style={{ width: `${(done / n) * 100}%` }} />
+            <div className="bg-amber-500/60" style={{ width: `${(partway / n) * 100}%` }} />
+          </div>
+        </div>
+        {waiting.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            <span className="text-[10px] text-slate-500 mr-0.5">Waiting on</span>
+            {waiting.map(p => (
+              <span
+                key={p.id}
+                className={`text-[11px] px-2 py-0.5 rounded-full ${p.pickCount > 0 ? 'bg-amber-500/10 text-amber-300' : 'bg-white/[0.05] text-slate-400'}`}
+                title={`${p.name}: ${p.pickCount}/${whoIsIn.totalGames} · ⭐ ${p.bestCount}/${MAX_BEST_PICKS}`}
+              >
+                {p.id === meId ? 'You' : shortName(p.name)}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-emerald-400 mt-2">✓ Everyone&apos;s in</p>
+        )}
+        <p className="text-[10px] text-slate-600 mt-2">
+          <span className="text-amber-500">●</span> partway · picks stay hidden until lock
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Phone version of Everyone's picks: one line a game. The bar carries the
+ * split, with your side in blue — so going against the crowd shows as a short
+ * blue bar without a sentence under every game.
+ */
+function SplitsCompact({ week, splits, players }: { week: number; splits: SplitRow[]; players: number }) {
+  const share = (s: SplitRow) => {
+    const total = s.awayCount + s.homeCount
+    if (!s.myPick || total === 0) return 1
+    return (s.myPick === s.game.away_team ? s.awayCount : s.homeCount) / total
+  }
+  const closeness = (s: SplitRow) => Math.abs(s.awayCount - s.homeCount)
+  const contrarian = splits.filter(s => share(s) < 0.5).sort((a, b) => share(a) - share(b))
+  const rest = splits.filter(s => !contrarian.includes(s)).sort((a, b) => closeness(a) - closeness(b))
+  const shown = [...contrarian, ...rest].slice(0, 4)
+  const against = shown.filter(s => share(s) < 0.5).length
+
+  return (
+    <div className="mb-3 animate-slide-up" style={{ animationDelay: '80ms' }}>
+      <SectionHeader title={`Everyone's picks · Week ${week}`} href="/all-picks?view=games" linkText="See all" className="mb-2" />
+      <div className="glass-card rounded-2xl overflow-hidden">
+        {shown.map(s => {
+          const g = s.game
+          const total = Math.max(1, s.awayCount + s.homeCount)
+          const side = (team: string, count: number, align: 'left' | 'right') => {
+            const mine = s.myPick === team
+            const won = g.winning_team === team
+            return (
+              <div className={`flex items-center gap-1.5 w-[5.5rem] shrink-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
+                <img src={getTeam(team).logo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <span className={`text-xs font-semibold ${won ? 'text-emerald-400' : mine ? 'text-blue-300' : 'text-slate-300'}`}>
+                  {team}{won ? ' ✓' : ''}
+                </span>
+                <span className={`text-[11px] tabular-nums ${mine ? 'text-blue-300 font-semibold' : 'text-slate-500'}`}>{count}</span>
+              </div>
+            )
+          }
+          const tone = (team: string) => (s.myPick === team ? 'bg-blue-500/80' : 'bg-white/[0.14]')
+          return (
+            <Link key={g.id} href={`/all-picks?view=games#game-${g.id}`} className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition">
+              {side(g.away_team, s.awayCount, 'left')}
+              <div className="flex-1 flex h-1.5 rounded-full overflow-hidden bg-white/[0.06] gap-px">
+                <div className={tone(g.away_team)} style={{ width: `${(s.awayCount / total) * 100}%` }} />
+                <div className={tone(g.home_team)} style={{ width: `${(s.homeCount / total) * 100}%` }} />
+              </div>
+              {side(g.home_team, s.homeCount, 'right')}
+            </Link>
+          )
+        })}
+        <p className="px-3 py-2 text-[10px] text-slate-600 border-t border-white/[0.04]">
+          <span className="text-blue-400">■</span> your pick
+          {against > 0 && <span className="text-amber-400/80"> · against the crowd on {against}</span>}
+          {' '}· {players} {players === 1 ? 'player' : 'players'} · {shown.length} of {splits.length} games
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function StandingsCard({ standings, dense = false }: { standings: StandingRow[]; dense?: boolean }) {
   // Top 3, then you and the player either side of you — so you can see who
   // you're chasing and who's chasing you, wherever you are in the table.
   const meIdx = standings.findIndex(s => s.isYou)
@@ -1219,8 +1492,8 @@ function StandingsCard({ standings }: { standings: StandingRow[] }) {
   const idxs = [...show].sort((a, b) => a - b)
 
   return (
-    <div className="mb-5 animate-slide-up" style={{ animationDelay: '40ms' }}>
-      <SectionHeader title="Standings" href="/standings" linkText="Full table" />
+    <div className={`${dense ? 'mb-3' : 'mb-5'} animate-slide-up`} style={{ animationDelay: '40ms' }}>
+      <SectionHeader title="Standings" href="/standings" linkText="Full table" className={dense ? 'mb-2' : 'mb-3'} />
       <div className="glass-card rounded-2xl overflow-hidden">
         {idxs.map((i, n) => {
           const s = standings[i]
@@ -1230,13 +1503,13 @@ function StandingsCard({ standings }: { standings: StandingRow[] }) {
               {gap && (
                 <div className="px-4 py-1 text-center text-[10px] text-slate-600 border-b border-white/[0.04] tracking-[0.3em]">• • •</div>
               )}
-              <div className={`flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.04] ${s.isYou ? 'bg-blue-500/10' : ''}`}>
+              <div className={`flex items-center gap-3 border-b border-white/[0.04] ${dense ? 'px-3 py-1.5' : 'px-4 py-2.5'} ${s.isYou ? 'bg-blue-500/10' : ''}`}>
                 <span className="w-8 text-center shrink-0">
                   {medal(s.rank)
                     ? <span className="text-base">{medal(s.rank)}</span>
                     : <span className="text-xs text-slate-500 font-medium tabular-nums">{placeText(s.rank, s.isTied)}</span>}
                 </span>
-                <Avatar name={s.name} url={s.avatar_url} size={28} you={s.isYou} />
+                <Avatar name={s.name} url={s.avatar_url} size={dense ? 24 : 28} you={s.isYou} />
                 <p className={`flex-1 min-w-0 text-sm font-medium truncate ${s.isYou ? 'text-blue-400' : 'text-white'}`}>
                   {shortName(s.name)}{s.isYou ? ' (you)' : ''}
                 </p>
@@ -1332,7 +1605,76 @@ function YouCard(props: {
   )
 }
 
-function TalkCard({ latest, unread, now, meId }: { latest: TalkLatest | null; unread: number; now: Date; meId: string }) {
+/**
+ * Phone version of the You card: your season in one row of numbers. Taps
+ * through to the full table.
+ */
+function YouStrip(props: Parameters<typeof YouCard>[0]) {
+  const { record: r, rank, isTied, rankChange, totalPlayers, prevWeek, prevWeekRecord, prevWeekRank } = props
+  const played = r.wins + r.losses + r.ties
+  if (played === 0) {
+    return (
+      <p className="mb-3 glass-card rounded-2xl px-3 py-2.5 text-xs text-slate-500">
+        No results yet — your record starts once Week 1 games are scored.
+      </p>
+    )
+  }
+  const winPct = Math.round((r.wins / played) * 100)
+  const cells: { label: string; value: React.ReactNode; sub: string }[] = [
+    { label: 'Season', value: <WinLoss wins={r.wins} losses={r.losses} ties={r.ties} />, sub: `${winPct}% right` },
+    {
+      label: 'Rank',
+      value: (
+        <span className="text-white">
+          {medal(rank) ?? placeText(rank, isTied)}
+          {rankChange !== null && rankChange !== 0 && (
+            <span className={`ml-1 text-[10px] font-bold ${rankChange > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {rankChange > 0 ? '▲' : '▼'}{Math.abs(rankChange)}
+            </span>
+          )}
+        </span>
+      ),
+      sub: `${isTied ? 'tied, ' : ''}of ${totalPlayers}`,
+    },
+    { label: 'Best 3', value: <WinLoss wins={r.bestWins} losses={r.bestLosses} ties={r.bestTies} best />, sub: 'season' },
+  ]
+  if (prevWeek !== null && prevWeekRecord) {
+    cells.push({
+      label: `Week ${prevWeek}`,
+      value: <span className="text-slate-200">{recordText(prevWeekRecord.wins, prevWeekRecord.losses, prevWeekRecord.ties)}</span>,
+      sub: prevWeekRank !== null ? `ranked #${prevWeekRank}` : '',
+    })
+  }
+  return (
+    <Link
+      href="/standings"
+      aria-label="Your season"
+      className={`press mb-3 glass-card rounded-2xl py-2.5 grid ${cells.length === 4 ? 'grid-cols-4' : 'grid-cols-3'} divide-x divide-white/[0.06] hover:bg-white/[0.04] transition animate-slide-up`}
+    >
+      {cells.map(c => (
+        <div key={c.label} className="px-1.5 text-center min-w-0">
+          <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider truncate">{c.label}</p>
+          <p className="text-base font-bold leading-tight mt-0.5 tabular-nums whitespace-nowrap">{c.value}</p>
+          <p className="text-[10px] text-slate-500 truncate">{c.sub}</p>
+        </div>
+      ))}
+    </Link>
+  )
+}
+
+/** A W–L(–T) record in the page's colours: green wins, red losses (amber for Best 3). */
+function WinLoss({ wins, losses, ties, best = false, className = '' }: { wins: number; losses: number; ties: number; best?: boolean; className?: string }) {
+  return (
+    <span className={`font-bold tabular-nums ${className}`}>
+      <span className={best ? 'text-amber-400' : 'text-emerald-400'}>{wins}</span>
+      <span className="text-slate-500 mx-0.5">–</span>
+      <span className={best ? 'text-amber-600' : 'text-red-400'}>{losses}</span>
+      {ties > 0 && <><span className="text-slate-500 mx-0.5">–</span><span className="text-slate-400">{ties}</span></>}
+    </span>
+  )
+}
+
+function TalkCard({ latest, unread, now, meId, dense = false }: { latest: TalkLatest | null; unread: number; now: Date; meId: string; dense?: boolean }) {
   const preview = !latest ? null
     : latest.recap_week != null ? `📰 Week ${latest.recap_week} Recap`
       : latest.body?.trim() ? latest.body.trim()
@@ -1340,10 +1682,10 @@ function TalkCard({ latest, unread, now, meId }: { latest: TalkLatest | null; un
   return (
     <Link
       href="/talk"
-      className="press mb-5 glass-card rounded-2xl p-4 flex items-start gap-3 hover:bg-white/[0.04] transition animate-slide-up"
+      className={`press glass-card rounded-2xl flex items-start gap-3 hover:bg-white/[0.04] transition animate-slide-up ${dense ? 'mb-3 px-3 py-2.5' : 'mb-5 p-4'}`}
       style={{ animationDelay: '120ms' }}
     >
-      <span className="text-2xl leading-none mt-0.5">💩</span>
+      <span className={`${dense ? 'text-xl' : 'text-2xl'} leading-none mt-0.5`}>💩</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold text-white">Talk</p>
@@ -1391,5 +1733,75 @@ function Tile({ href, icon, title, sub, badge = 0, disabled = false, className =
   )
   const cls = `glass-card rounded-2xl p-4 flex flex-col items-start min-w-0 transition ${className}`
   if (disabled || !href) return <div className={`${cls} opacity-50`}>{body}</div>
+  return <Link href={href} className={`press ${cls} hover:bg-white/[0.06]`}>{body}</Link>
+}
+
+function ManagedPlayersCard({ players, isLocked, dense = false }: { players: ManagedPlayerSummary[]; isLocked: boolean; dense?: boolean }) {
+  return (
+    <div className={`${dense ? 'mb-3' : 'mb-5'} animate-slide-up`} style={{ animationDelay: '60ms' }}>
+      <SectionHeader title="Players you manage" href="/picks" linkText="Make picks" className={dense ? 'mb-2' : 'mb-3'} />
+      <div className="glass-card rounded-2xl overflow-hidden">
+        {players.map(mp => (
+          <div
+            key={mp.id}
+            className={`flex items-center gap-3 border-b border-white/[0.04] last:border-0 ${dense ? 'px-3 py-2' : 'px-4 py-3'} ${
+              !mp.complete && !isLocked ? 'bg-amber-500/5' : ''
+            }`}
+          >
+            <Avatar name={mp.name} url={mp.avatar_url} size={dense ? 26 : 32} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{mp.name}</p>
+              <p className="text-[11px] text-slate-500">
+                {mp.totalGames > 0 ? (
+                  <>
+                    {mp.pickedCount}/{mp.totalGames} picks
+                    {mp.bestPickCount >= MAX_BEST_PICKS
+                      ? <span className="text-amber-400 ml-1.5">⭐ Best 3 set</span>
+                      : <span className="text-slate-500 ml-1.5">⭐ {mp.bestPickCount}/{MAX_BEST_PICKS}</span>}
+                  </>
+                ) : 'No games yet'}
+              </p>
+            </div>
+            {mp.totalGames > 0 && (
+              mp.complete ? (
+                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">Ready</span>
+              ) : isLocked ? (
+                <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Locked</span>
+              ) : (
+                <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">Incomplete</span>
+              )
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Phone link tile: icon and name only, four to a row. */
+function MiniTile({ href, icon, title, sub, badge = 0, disabled = false }: {
+  href?: string
+  icon: string
+  title: string
+  sub?: string
+  badge?: number
+  disabled?: boolean
+}) {
+  const body = (
+    <>
+      <span className="relative text-xl leading-none">
+        {icon}
+        {badge > 0 && (
+          <span className="absolute -top-1.5 -right-3 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white border-2 border-surface">
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
+      </span>
+      <span className="mt-1.5 text-[10px] tracking-tight min-[360px]:text-[11px] min-[360px]:tracking-normal font-semibold text-white truncate w-full text-center">{title}</span>
+      {sub && <span className="text-[9px] text-slate-500 leading-none">{sub}</span>}
+    </>
+  )
+  const cls = 'glass-card rounded-xl px-0.5 py-2.5 flex flex-col items-center min-w-0 transition'
+  if (disabled || !href) return <div className={`${cls} opacity-50`} title="After Week 1 finishes">{body}</div>
   return <Link href={href} className={`press ${cls} hover:bg-white/[0.06]`}>{body}</Link>
 }

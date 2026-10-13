@@ -3,6 +3,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser, isAdmin } from '@/lib/apiAuth'
 import { isValidOrigin } from '@/lib/validation'
 import { sendPush, pushConfigured } from '@/lib/push'
+import { attachmentLabel, isAllowedTalkImage, isGifUrl } from '@/lib/gifs'
 
 const MAX_BODY_LENGTH = 4000
 const PAGE_SIZE = 50
@@ -19,7 +20,7 @@ interface ParentRow {
 /** One line of the quoted message — enough to recognise it, never the whole thing. */
 function excerpt(body: string | null, imageUrl: string | null): string {
   const text = (body ?? '').replace(/\s+/g, ' ').trim()
-  if (!text) return imageUrl ? '📷 Photo' : ''
+  if (!text) return imageUrl ? attachmentLabel(imageUrl) : ''
   return text.length > QUOTE_LENGTH ? `${text.slice(0, QUOTE_LENGTH)}…` : text
 }
 
@@ -184,6 +185,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!text && !imageUrl) {
     return res.status(400).json({ error: 'Write something or attach a photo' })
   }
+  if (imageUrl && !isAllowedTalkImage(imageUrl)) {
+    return res.status(400).json({ error: 'That image can’t be posted — attach a photo or pick a GIF' })
+  }
   if (text.length > MAX_BODY_LENGTH) {
     return res.status(400).json({ error: `Messages are limited to ${MAX_BODY_LENGTH} characters` })
   }
@@ -263,7 +267,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const repliedTo = parent?.user_id && parent.user_id !== authUser.id && !mentionedSet.has(parent.user_id)
           ? parent.user_id
           : null
-        const preview = text ? text.slice(0, 140) : 'Sent a photo'
+        const preview = text ? text.slice(0, 140) : isGifUrl(imageUrl) ? 'Sent a GIF' : 'Sent a photo'
 
         // One send per audience so each gets the right title.
         const results = await Promise.all([

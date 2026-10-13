@@ -12,6 +12,8 @@ import {
   getPushState, getTalkEnabled, setTalkEnabled, refreshSubscription, type PushState,
 } from '@/lib/pushClient'
 import Nav from '@/components/Nav'
+import GifPicker from '@/components/GifPicker'
+import { attachmentLabel, isGifUrl } from '@/lib/gifs'
 
 interface Player { id: string; name: string; avatar_url?: string | null }
 
@@ -147,6 +149,9 @@ export default function TalkPage() {
   const [draft, setDraft] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  // The GIF button only appears once the server says GIPHY is set up.
+  const [gifsOn, setGifsOn] = useState(false)
+  const [showGifs, setShowGifs] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postError, setPostError] = useState('')
 
@@ -404,6 +409,15 @@ export default function TalkPage() {
     setShowMentions(false)
     el?.focus()
   }
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/gifs?status=1')
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (!cancelled) setGifsOn(!!j?.configured) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const pickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -920,7 +934,7 @@ export default function TalkPage() {
                               id: m.id,
                               author_name: m.author_name,
                               excerpt: m.body?.replace(/\s+/g, ' ').trim().slice(0, 140) ||
-                                (m.image_url ? '📷 Photo' : ''),
+                                (m.image_url ? attachmentLabel(m.image_url) : ''),
                               deleted: false,
                             })
                             textareaRef.current?.focus()
@@ -1075,7 +1089,7 @@ export default function TalkPage() {
               <button
                 onClick={() => setPendingImage(null)}
                 className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold"
-                aria-label="Remove photo"
+                aria-label={isGifUrl(pendingImage) ? 'Remove GIF' : 'Remove photo'}
               >×</button>
             </div>
           )}
@@ -1129,6 +1143,17 @@ export default function TalkPage() {
                 )}
             </button>
 
+            {gifsOn && (
+              <button
+                onClick={() => setShowGifs(true)}
+                disabled={uploading}
+                aria-label="Add a GIF"
+                className="shrink-0 w-9 h-9 rounded-full bg-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.10] flex items-center justify-center transition disabled:opacity-50"
+              >
+                <span className="text-[11px] font-black tracking-tight leading-none border-[1.5px] border-current rounded-[4px] px-[3px] py-[2px]">GIF</span>
+              </button>
+            )}
+
             <textarea
               ref={textareaRef}
               value={draft}
@@ -1157,6 +1182,18 @@ export default function TalkPage() {
           </div>
         </div>
       </div>
+
+      {showGifs && (
+        <GifPicker
+          onClose={() => setShowGifs(false)}
+          onPick={gif => {
+            // Staged like a photo: add a message or send it as is.
+            setPendingImage(gif.url)
+            setShowGifs(false)
+            textareaRef.current?.focus({ preventScroll: true })
+          }}
+        />
+      )}
     </div>
   )
 }

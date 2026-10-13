@@ -5,7 +5,7 @@ import { getCurrentSeason } from '@/lib/season'
 import { isAuthorized, getAuthUser } from '@/lib/apiAuth'
 import { isValidOrigin } from '@/lib/validation'
 import { fetchAllRows } from '@/lib/fetchAll'
-import { buildDigest, type Digest } from '@/lib/weeklyDigest'
+import { buildDigest, nameList as names, seasonLeadText, weeksToGo, BEST3_SWEEP_LINE, NO_PICKS_NOTE, type Digest } from '@/lib/weeklyDigest'
 import { sendPush, pushConfigured } from '@/lib/push'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
@@ -281,17 +281,14 @@ const record = (t: { wins: number; losses: number; ties: number }) =>
 function summaryLine(d: Digest): string {
   const parts: string[] = []
   if (d.leaders.length > 0) parts.push(`🥇 ${names(d.leaders)} ${record(d.leaders[0].week)}`)
+  if (d.seasonLead) parts.push(seasonLeadText(d.seasonLead).short)
   if (d.perfect.length > 0) parts.push(`🏆 Perfect: ${names(d.perfect)}`)
-  else if (d.bestThreeSweeps.length > 0) parts.push(`⭐ Best 3: ${names(d.bestThreeSweeps)}`)
+  // A sweep is roughly a one-in-three week, so a long list of them is the
+  // ordinary case — the full recap names them all, the one-liner only a few.
+  else if (d.bestThreeSweeps.length > 0 && d.bestThreeSweeps.length <= 3) parts.push(`⭐ Best 3 sweep: ${names(d.bestThreeSweeps)}`)
   if (d.climbers.length > 0) parts.push(`📈 ${names(d.climbers)} +${d.climbers[0].rankChange}`)
   return parts.join(' · ') || `Week ${d.week} is in the books.`
 }
-
-/** "Alex", "Alex and Amy", "Alex, Amy and Dani" */
-const names = (list: { name: string }[]) =>
-  list.length <= 1
-    ? list.map(p => p.name).join('')
-    : `${list.slice(0, -1).map(p => p.name).join(', ')} and ${list[list.length - 1].name}`
 
 function highlight(emoji: string, title: string, body: string): string {
   return `
@@ -314,13 +311,16 @@ function renderDigest(d: Digest): string {
       d.leaders.length > 1 ? `${names(d.leaders)} tied for the week` : `${d.leaders[0].name} won the week`,
       `${record(d.leaders[0].week)} on the week.`))
   }
+  if (d.seasonLead) {
+    const t = seasonLeadText(d.seasonLead)
+    highlights.push(highlight('👑', t.title, t.sub))
+  }
   if (d.perfect.length > 0) {
     highlights.push(highlight('🏆', `Perfect week — ${names(d.perfect)}`,
       `Every single game. Not one miss.`))
   }
   if (d.bestThreeSweeps.length > 0) {
-    highlights.push(highlight('⭐', `Best 3 swept — ${names(d.bestThreeSweeps)}`,
-      'Three out of three on the picks that count double.'))
+    highlights.push(highlight('⭐', `Best 3 swept — ${names(d.bestThreeSweeps)}`, BEST3_SWEEP_LINE))
   }
   if (d.climbers.length > 0) {
     const places = d.climbers[0].rankChange ?? 0
@@ -345,7 +345,7 @@ function renderDigest(d: Digest): string {
     return `
       <tr style="background:${i % 2 ? '#ffffff' : '#f8fafc'};">
         <td style="padding:7px 10px;color:#64748b;font-size:13px;">${p.isTied ? 'T-' : ''}${p.rank}</td>
-        <td style="padding:7px 10px;font-weight:600;color:#0f172a;font-size:14px;">${p.name}${p.perfect ? ' 🏆' : ''}</td>
+        <td style="padding:7px 10px;font-weight:600;color:#0f172a;font-size:14px;">${p.name}${p.perfect ? ' 🏆' : ''}${p.played ? '' : '<span style="color:#94a3b8;font-weight:400;font-size:12px;"> · no picks*</span>'}</td>
         <td style="padding:7px 10px;text-align:center;font-size:14px;color:#0f172a;">${record(p.week)}</td>
         <td style="padding:7px 10px;text-align:center;font-size:13px;color:#b45309;">${record(p.best3)}</td>
         <td style="padding:7px 10px;text-align:center;font-size:14px;color:#0f172a;">${record(p.season)}</td>
@@ -357,12 +357,12 @@ function renderDigest(d: Digest): string {
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:640px;margin:0 auto;color:#0f172a;">
     <h2 style="margin:0 0 2px;color:#1d4ed8;">🏈 Week ${d.week} Recap</h2>
     <p style="margin:0 0 18px;color:#64748b;font-size:13px;">
-      ${d.season} season · ${d.gamesInWeek} games · ${d.weeksRemaining} week${d.weeksRemaining === 1 ? '' : 's'} to go
+      ${d.season} season · ${d.gamesInWeek} games · ${weeksToGo(d.weeksRemaining)}
     </p>
 
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${highlights.join('')}</table>
 
-    <h3 style="margin:22px 0 8px;font-size:15px;">Everyone's week</h3>
+    <h3 style="margin:22px 0 8px;font-size:15px;">Standings after Week ${d.week}</h3>
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;">
       <tr style="background:#1e293b;">
         <th style="padding:8px 10px;text-align:left;color:#cbd5e1;font-size:11px;text-transform:uppercase;">#</th>
@@ -374,6 +374,7 @@ function renderDigest(d: Digest): string {
       </tr>
       ${rows}
     </table>
+    ${d.players.some(p => !p.played) ? `<p style="margin:6px 0 0;color:#94a3b8;font-size:12px;">* ${NO_PICKS_NOTE}</p>` : ''}
 
     <p style="margin:20px 0;">
       <a href="${APP_URL}/standings" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;font-weight:600;">

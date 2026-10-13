@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 import { fetchAllRows } from '@/lib/fetchAll'
-import { buildDigest, type Digest, type DigestPlayer } from '@/lib/weeklyDigest'
+import { buildDigest, seasonLeadText, weeksToGo, BEST3_SWEEP_LINE, NO_PICKS_NOTE, type Digest, type DigestPlayer } from '@/lib/weeklyDigest'
 import { shortName } from '@/lib/displayName'
 import Nav from '@/components/Nav'
 
@@ -135,7 +135,7 @@ export default function RecapPage() {
               <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">{digest.season} Season</p>
               <h1 className="text-2xl font-bold text-white mt-0.5">🏆 Week {digest.week} Recap</h1>
               <p className="text-white/70 text-sm mt-1">
-                {digest.gamesInWeek} games · {digest.weeksRemaining} week{digest.weeksRemaining === 1 ? '' : 's'} to go
+                {digest.gamesInWeek} games · {weeksToGo(digest.weeksRemaining)}
                 {!digest.complete && ` · ${digest.gamesDecided}/${digest.gamesInWeek} scored`}
               </p>
             </div>
@@ -146,11 +146,15 @@ export default function RecapPage() {
                 <Highlight emoji="🥇" title={digest.leaders.length > 1 ? `${nameList(digest.leaders)} tied for the week` : `${digest.leaders[0].name} won the week`}
                   sub={`${record(digest.leaders[0].week)} on the week`} players={digest.leaders} Avatar={Avatar} />
               )}
+              {digest.seasonLead && (() => {
+                const t = seasonLeadText(digest.seasonLead)
+                return <Highlight emoji="👑" title={t.title} sub={t.sub} players={digest.seasonLead.leaders} Avatar={Avatar} />
+              })()}
               {digest.perfect.length > 0 && (
                 <Highlight emoji="🏆" title={`Perfect week — ${nameList(digest.perfect)}`} sub="Every single game. Not one miss." players={digest.perfect} Avatar={Avatar} />
               )}
               {digest.bestThreeSweeps.length > 0 && (
-                <Highlight emoji="⭐" title={`Best 3 swept — ${nameList(digest.bestThreeSweeps)}`} sub="Three out of three on the picks that count double." players={digest.bestThreeSweeps} Avatar={Avatar} />
+                <Highlight emoji="⭐" title={`Best 3 swept — ${nameList(digest.bestThreeSweeps)}`} sub={BEST3_SWEEP_LINE} players={digest.bestThreeSweeps} Avatar={Avatar} />
               )}
               {digest.climbers.length > 0 && (
                 <Highlight emoji="📈" title={`Biggest climb — ${nameList(digest.climbers)}`} sub={`Up ${digest.climbers[0].rankChange} place${digest.climbers[0].rankChange === 1 ? '' : 's'} in the standings.`} players={digest.climbers} Avatar={Avatar} />
@@ -165,20 +169,26 @@ export default function RecapPage() {
             </div>
 
             {/* Everyone's week */}
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Everyone&apos;s week</p>
+            {/* Ranked by the season, with this week's numbers alongside — the
+                order is the standings, so the heading says so. */}
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Standings after Week {digest.week}</p>
             <div className="glass-card rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-3 px-4 py-2 border-b border-white/[0.06] text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                <span>#</span><span>Player</span><span className="text-center">Week</span><span className="text-center">Best 3</span><span className="text-center">Move</span>
+              <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-x-2.5 px-3 sm:px-4 py-2 border-b border-white/[0.06] text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                <span>#</span><span>Player</span><span className="text-center">Week</span><span className="text-center">Best 3</span><span className="text-center">Season</span><span className="text-center">Move</span>
               </div>
               {digest.players.map((p, i) => (
-                <div key={p.id} className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 items-center ${i % 2 ? '' : 'bg-white/[0.02]'}`}>
-                  <span className="text-xs text-slate-500 w-8">{p.isTied ? 'T-' : ''}{p.rank}</span>
+                <div key={p.id} className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-x-2.5 px-3 sm:px-4 py-2.5 items-center ${i % 2 ? '' : 'bg-white/[0.02]'}`}>
+                  <span className="text-xs text-slate-500 w-7">{p.isTied ? 'T-' : ''}{p.rank}</span>
                   <span className="flex items-center gap-2 min-w-0">
                     <Avatar id={p.id} name={p.name} size="w-7 h-7" />
-                    <span className="text-sm font-medium text-white truncate">{shortName(p.name)}{p.perfect ? ' 🏆' : ''}</span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-white truncate">{shortName(p.name)}{p.perfect ? ' 🏆' : ''}</span>
+                      {!p.played && <span className="block text-[10px] text-slate-500 leading-tight">no picks*</span>}
+                    </span>
                   </span>
-                  <span className="text-sm text-slate-200 text-center tabular-nums">{record(p.week)}</span>
+                  <span className={`text-sm text-center tabular-nums ${p.played ? 'text-slate-200' : 'text-slate-500'}`}>{record(p.week)}</span>
                   <span className="text-xs text-amber-400/90 text-center tabular-nums">{record(p.best3)}</span>
+                  <span className="text-sm font-semibold text-white text-center tabular-nums">{record(p.season)}</span>
                   <span className="text-xs text-center tabular-nums">
                     {p.rankChange === null || p.rankChange === 0
                       ? <span className="text-slate-600">–</span>
@@ -188,6 +198,10 @@ export default function RecapPage() {
                 </div>
               ))}
             </div>
+
+            {digest.players.some(p => !p.played) && (
+              <p className="text-[11px] text-slate-500 mt-2 px-1">* {NO_PICKS_NOTE}</p>
+            )}
 
             <Link href="/standings" className="mt-5 block text-center py-2.5 bg-white/[0.06] hover:bg-white/[0.10] rounded-xl text-sm font-medium text-slate-300 transition">
               Full season standings →

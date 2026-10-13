@@ -21,6 +21,23 @@ export default function App({ Component, pageProps }: AppProps) {
     }
   }, [])
 
+  // Tapping a notification while the app is open: if the service worker
+  // couldn't navigate this window itself, it asks the page to go there
+  // (public/sw.js). Same-site paths only.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (e: MessageEvent) => {
+      const url = e.data?.type === 'navigate' && typeof e.data.url === 'string' ? e.data.url : null
+      if (!url || !url.startsWith('/') || url.startsWith('//')) return
+      if (router.asPath !== url) router.push(url)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    // addEventListener alone doesn't start delivery of messages queued for
+    // this page before it was listening.
+    navigator.serviceWorker.startMessages?.()
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [router])
+
   useEffect(() => {
     const handleStart = () => setNavState('loading')
     const handleDone = () => {

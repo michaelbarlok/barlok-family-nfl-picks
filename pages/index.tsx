@@ -19,6 +19,7 @@ import PlayFlash from '@/components/PlayFlash'
 import Nav from '@/components/Nav'
 import FieldStrip from '@/components/FieldStrip'
 import SaveSeasonButton from '@/components/SaveSeasonButton'
+import { attachmentLabel } from '@/lib/gifs'
 
 /*
  * Home is the one screen that should answer "what's going on?" without a tap:
@@ -1678,7 +1679,7 @@ function TalkCard({ latest, unread, now, meId, dense = false }: { latest: TalkLa
   const preview = !latest ? null
     : latest.recap_week != null ? `📰 Week ${latest.recap_week} Recap`
       : latest.body?.trim() ? latest.body.trim()
-        : latest.image_url ? '📷 Photo' : ''
+        : latest.image_url ? attachmentLabel(latest.image_url) : ''
   return (
     <Link
       href="/talk"

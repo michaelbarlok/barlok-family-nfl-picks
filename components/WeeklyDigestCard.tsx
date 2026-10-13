@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { seasonLeadText, type SeasonLead } from '@/lib/weeklyDigest'
 
 interface Tally { wins: number; losses: number; ties: number }
-interface Player { id: string; name: string; week: Tally; best3: Tally; rank: number; isTied: boolean; rankChange: number | null; perfect: boolean }
+interface Player { id: string; name: string; week: Tally; best3: Tally; season: Tally; rank: number; isTied: boolean; rankChange: number | null; perfect: boolean; played: boolean }
 
 type Channel = 'email' | 'talk'
 
@@ -18,6 +19,7 @@ interface Preview {
   climbers: Player[]
   upset: { away: string; home: string; winner: string; calledBy: string[]; outOf: number } | null
   players: Player[]
+  seasonLead: SeasonLead | null
   sentAt: string | null
   talkPostedAt: string | null
   recipients: string[]
@@ -130,6 +132,10 @@ export default function WeeklyDigestCard({
   const bullets: { icon: string; text: string }[] = []
   if (preview.leaders.length > 0) {
     bullets.push({ icon: '🥇', text: `${names(preview.leaders)} — ${record(preview.leaders[0].week)}` })
+  }
+  if (preview.seasonLead) {
+    const t = seasonLeadText(preview.seasonLead)
+    bullets.push({ icon: '👑', text: `${t.title}: ${t.sub}` })
   }
   if (preview.perfect.length > 0) bullets.push({ icon: '🏆', text: `Perfect week: ${names(preview.perfect)}` })
   if (preview.bestThreeSweeps.length > 0) bullets.push({ icon: '⭐', text: `Best 3 swept: ${names(preview.bestThreeSweeps)}` })

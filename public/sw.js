@@ -1,6 +1,6 @@
 // Bump this string on each deploy so old caches are evicted and users get
 // fresh HTML/assets without having to force-reload.
-const CACHE_NAME = 'nfl-picks-v4'
+const CACHE_NAME = 'nfl-picks-v5'
 const PRECACHE_URLS = [
   '/',
   '/picks',
@@ -79,19 +79,45 @@ self.addEventListener('push', (event) => {
   )
 })
 
-// Focus an already-open window rather than opening a second copy of the app.
+// Tapping a notification goes to its page (Talk, My Picks…) — in the app
+// window that's already open if there is one, rather than a second copy.
+//
+// Reusing that window is where this used to go wrong: it called navigate()
+// without waiting to see whether it worked, then focused the window. When
+// the navigation was refused (a window the worker doesn't control yet, or a
+// platform that won't navigate a backgrounded app) the error vanished and the
+// app simply came forward on whatever it was last showing — for an installed
+// app that's usually My Picks, the page it starts on. Now each step is checked
+// and there's a fallback: navigate if it can, otherwise ask the page to route
+// itself, and open a new window only when there's nothing to reuse.
+async function openFromNotification(path) {
+  const target = new URL(path, self.location.origin)
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  const ours = windows.filter((c) => new URL(c.url).origin === target.origin)
+
+  // Already on that page: just bring it forward.
+  const there = ours.find((c) => new URL(c.url).pathname === target.pathname)
+  if (there) return there.focus()
+
+  // Prefer the window the person was last looking at.
+  const client = ours.find((c) => c.focused) || ours.find((c) => c.visibilityState === 'visible') || ours[0]
+  if (!client) return self.clients.openWindow(target.href)
+
+  // Focus first, while the tap still counts as a user gesture.
+  const focused = (await client.focus().catch(() => null)) || client
+  try {
+    const navigated = await focused.navigate(target.href)
+    if (navigated) return navigated
+  } catch (e) {
+    // Fall through to asking the page.
+  }
+  // The app listens for this and routes itself (pages/_app.tsx).
+  focused.postMessage({ type: 'navigate', url: target.pathname + target.search + target.hash })
+  return focused
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const target = (event.notification.data && event.notification.data.url) || '/talk'
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if ('focus' in client) {
-          client.navigate(target)
-          return client.focus()
-        }
-      }
-      return self.clients.openWindow(target)
-    })
-  )
+  const path = (event.notification.data && event.notification.data.url) || '/talk'
+  event.waitUntil(openFromNotification(path))
 })

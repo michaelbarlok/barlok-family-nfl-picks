@@ -201,6 +201,22 @@ export default function TalkPage() {
 
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token ?? ''
 
+  // Reading the thread counts as reading it: on open, and again whenever a
+  // new message lands while it's on screen — otherwise the unread badge would
+  // count messages you watched arrive.
+  const userIdRef = useRef<string | null>(null)
+  userIdRef.current = user?.id ?? null
+  const markRead = useCallback(() => {
+    const uid = userIdRef.current
+    if (!uid) return
+    supabase.from('talk_reads')
+      .upsert({ user_id: uid, last_read_at: new Date().toISOString() }, { onConflict: 'user_id' })
+      .then(() => {})
+  }, [])
+  // Newest message seen so far, to tell a refresh that brought something new
+  // from one that didn't.
+  const newestRef = useRef(0)
+
   const load = useCallback(async (mode: 'initial' | 'older' | 'refresh', before?: string) => {
     try {
       const url = before ? `/api/talk?before=${encodeURIComponent(before)}` : '/api/talk'
@@ -208,6 +224,11 @@ export default function TalkPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to load the thread')
       const incoming: Message[] = json.messages
+
+      const newest = incoming.reduce((t, m) => Math.max(t, new Date(m.created_at).getTime()), 0)
+      if (mode === 'refresh' && newest > newestRef.current && newestRef.current > 0 &&
+          document.visibilityState === 'visible') markRead()
+      newestRef.current = Math.max(newestRef.current, newest)
 
       setMessages(prev => {
         if (mode === 'initial') return incoming
@@ -231,7 +252,7 @@ export default function TalkPage() {
       setDataLoading(false)
       setLoadingMore(false)
     }
-  }, [])
+  }, [markRead])
 
   useEffect(() => {
     if (!user) return
@@ -248,21 +269,45 @@ export default function TalkPage() {
     refreshSubscription().catch(() => {})
 
     // Mark the thread read so the unread badge clears.
-    supabase.from('talk_reads')
-      .upsert({ user_id: user.id, last_read_at: new Date().toISOString() }, { onConflict: 'user_id' })
-      .then(() => {})
-  }, [user, load])
+    markRead()
+  }, [user, load, markRead])
 
-  // Live updates — the same realtime pattern the standings page uses.
+  // Live updates. Realtime is the fast path, but it can't be the only one: a
+  // phone drops the socket whenever the app goes to the background or the
+  // screen sleeps (an installed app most of all), and anything posted in that
+  // gap never arrives as an event — it just sat there until a reload. So the
+  // thread also re-reads the moment it's back on screen or back online, and
+  // checks in while it's showing: every minute as a safety net while the
+  // socket says it's connected, every 8 seconds while it doesn't.
+  const [live, setLive] = useState(false)
   useEffect(() => {
     if (!user) return
+    const refresh = () => { if (document.visibilityState === 'visible') load('refresh') }
+    // Unique per mount, like every other channel in the app: a fixed name can
+    // collide with the last visit's channel while that one is still leaving.
     const channel = supabase
-      .channel('talk-messages')
+      .channel(`talk-messages-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'talk_messages' }, () => load('refresh'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'talk_reactions' }, () => load('refresh'))
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+      .subscribe(status => setLive(status === 'SUBSCRIBED'))
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('online', refresh)
+    window.addEventListener('pageshow', refresh)
+    return () => {
+      supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('online', refresh)
+      window.removeEventListener('pageshow', refresh)
+    }
   }, [user, load])
+
+  useEffect(() => {
+    if (!user) return
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') load('refresh')
+    }, live ? 60_000 : 8_000)
+    return () => clearInterval(id)
+  }, [user, load, live])
 
   // The thread lives in a fixed-height column, so the height has to track the
   // visual viewport — 100dvh does not shrink when the keyboard opens, and

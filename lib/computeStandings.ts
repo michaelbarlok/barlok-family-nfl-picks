@@ -28,6 +28,7 @@
  *      which made opting out the optimal play.
  */
 import { MAX_BEST_PICKS } from '@/lib/constants'
+import { parseUTC } from '@/lib/lockTime'
 
 
 export interface ComputeInput {
@@ -302,4 +303,52 @@ export function assignRanks<T>(
   for (const rank of ranks) counts.set(rank, (counts.get(rank) ?? 0) + 1)
 
   return ranks.map(rank => ({ rank, isTied: (counts.get(rank) ?? 0) > 1 }))
+}
+
+/**
+ * The 🔥 streak: correct picks in a row, counting back from the latest game
+ * with a result.
+ *
+ * - A miss, a game left unpicked, or a tie ends it. A tie isn't a correct
+ *   pick, so it never adds to a streak; it ends one where it stands (it used
+ *   to wipe the count to zero instead).
+ * - Games that kick off at the same time count together. There is no "in a
+ *   row" among simultaneous games, and walking them in any particular order —
+ *   the database's, a list's — let one slot's wins land on either side of a
+ *   miss in that same slot, so the same picks could show different streaks.
+ *   A time slot adds to the streak only if every pick in it was right.
+ * - A week with no picks at all ends it too: those weeks are scored as losses.
+ */
+export function currentStreak(
+  userId: string,
+  games: (ComputeInput['games'][number] & { kickoff_time?: string | null })[],
+  picks: ComputeInput['picks'],
+): number {
+  const myPicks = new Map<string, string>()
+  const myWeeks = new Set<number>()
+  for (const p of picks) {
+    if (p.user_id !== userId) continue
+    myPicks.set(p.game_id, p.picked_team)
+    myWeeks.add(p.week)
+  }
+
+  const kickoff = (g: { kickoff_time?: string | null }) => (g.kickoff_time ? parseUTC(g.kickoff_time).getTime() : 0)
+  const slots = new Map<number, typeof games>()
+  for (const g of games) {
+    if (!g.winning_team) continue
+    const k = kickoff(g)
+    const slot = slots.get(k)
+    if (slot) slot.push(g)
+    else slots.set(k, [g])
+  }
+
+  let streak = 0
+  for (const k of [...slots.keys()].sort((a, b) => b - a)) {
+    const slot = slots.get(k)!
+    const allRight = slot.every(g =>
+      myWeeks.has(g.week) && g.winning_team !== 'TIE' && myPicks.get(g.id) === g.winning_team)
+    if (!allRight) break
+    streak += slot.length
+  }
+  return streak
 }

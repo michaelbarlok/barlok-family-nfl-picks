@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 
 import {
-  computeRecords, recordSort, assignRanks, isPerfectWeek, type WeekRecord as ComputedWeekRecord,
+  computeRecords, recordSort, assignRanks, isPerfectWeek, currentStreak, type WeekRecord as ComputedWeekRecord,
 } from '@/lib/computeStandings'
 import { fetchAllRows } from '@/lib/fetchAll'
 import { shortName } from '@/lib/displayName'
@@ -176,12 +176,6 @@ export default function StandingsPage() {
         const userIds = users.map(u => u.id)
         const allGames = games ?? []
         const decidedGames = allGames.filter((g: any) => g.winning_team)
-        const picksMap = new Map(picks.map(p => [`${p.user_id}-${p.game_id}`, p]))
-        const userWeeks = new Map<string, Set<number>>()
-        ;picks.forEach((p) => {
-          if (!userWeeks.has(p.user_id)) userWeeks.set(p.user_id, new Set())
-          userWeeks.get(p.user_id)!.add(p.week)
-        })
 
         // Compute records using shared logic
         const records = computeRecords({
@@ -260,23 +254,8 @@ export default function StandingsPage() {
           })
         }
 
-        // Win streaks: consecutive correct picks going backwards
-        const sortedDecided = [...decidedGames].sort((a: any, b: any) => {
-          if (a.week !== b.week) return b.week - a.week
-          return new Date(b.kickoff_time || 0).getTime() - new Date(a.kickoff_time || 0).getTime()
-        })
-        for (const s of result) {
-          let streak = 0
-          for (const game of sortedDecided) {
-            const participated = userWeeks.get(s.user.id)?.has(game.week)
-            if (!participated) continue
-            if (game.winning_team === 'TIE') { streak = 0; break }
-            const pick = picksMap.get(`${s.user.id}-${game.id}`)
-            if (pick && pick.picked_team === game.winning_team) streak++
-            else break
-          }
-          s.winStreak = streak
-        }
+        // 🔥 streaks — the rules live in currentStreak (lib/computeStandings).
+        for (const s of result) s.winStreak = currentStreak(s.user.id, allGames, picks)
 
         setStandings(result)
       } catch (err) {

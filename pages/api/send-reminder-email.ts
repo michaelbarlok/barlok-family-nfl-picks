@@ -26,8 +26,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const { week, lockTime } = upcoming
 
-  // Check the type param: "reminder" (default) sends only to users missing picks, "lock_warning" sends to all
-  const type = (req.query.type as string) || 'reminder'
+  // Every type goes only to people who still owe something for the week —
+  // nobody who's finished gets a reminder:
+  //   reminder         — the 6pm Tue–Thu nudge
+  //   deadline_warning — "picks lock in N minutes" (the 1-hour and 15-minute crons)
+  //   lock_warning     — older name for the 15-minute warning, kept for callers
+  const requested = (req.query.type as string) || 'reminder'
+  const type = requested === 'lock_warning' ? 'deadline_warning' : requested
 
   // Get all users with emails who are email recipients
   const { data: users } = await supabase
@@ -79,6 +84,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Filter to authenticated users with emails
   const emailableUsers = users.filter((u: any) => u.email && !u.is_managed && u.email_recipient === true)
 
+  // Done = every game picked and a full Best 3.
+  const incompleteUsers = emailableUsers.filter((u: any) => {
+    const count = pickCounts.get(u.id) || 0
+    return count < totalGames || !threeBestUserIds.has(u.id)
+  })
+
+  // What someone still owes, e.g. "3 game picks and Best 3 selections".
+  const missingFor = (u: { id: string }) => {
+    const missingPicks = totalGames - (pickCounts.get(u.id) || 0)
+    const parts: string[] = []
+    if (missingPicks > 0) parts.push(`${missingPicks} game pick${missingPicks > 1 ? 's' : ''}`)
+    if (!threeBestUserIds.has(u.id)) parts.push('Best 3 selections')
+    return parts.join(' and ')
+  }
+
+  if (incompleteUsers.length === 0) {
+    return res.status(200).json({
+      success: true, week, type, sent: 0,
+      message: emailableUsers.length === 0
+        ? 'No email recipients configured.'
+        : `Everyone with reminder emails on has finished Week ${week} picks. Nothing sent.`,
+    })
+  }
+
   const gmailAddress = process.env.GMAIL_ADDRESS
   const gmailAppPassword = process.env.GMAIL_APP_PASSWORD
   if (!gmailAddress || !gmailAppPassword) {
@@ -101,78 +130,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     timeZone: 'America/New_York',
   })
 
-  if (type === 'lock_warning') {
-    // Send to ALL email recipients — picks lock in 15 min
-    if (emailableUsers.length === 0) {
-      return res.status(200).json({ message: 'No email recipients configured.' })
-    }
-
-    const recipients = emailableUsers.map((u: any) => u.email)
-    await transporter.sendMail({
-      from: `Barlok Family NFL Picks <${gmailAddress}>`,
-      to: recipients.join(', '),
-      subject: `${LEAGUE_NAME} — Picks Lock in 15 Minutes!`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #dc2626;">🚨 Picks Lock in 15 Minutes!</h2>
-          <p>Week ${week} picks lock at <strong>${lockTimeStr}</strong>.</p>
-          <p>If you haven't submitted your picks yet, now is the time!</p>
-          <p style="margin: 20px 0;">
-            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'}/picks"
-               style="display: inline-block; background-color: #1d4ed8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
-              Submit Your Picks
-            </a>
-          </p>
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-          <p style="color: #9ca3af; font-size: 12px;">
-            ${LEAGUE_NAME} &middot; ${season} Season &middot; Week ${week}
-          </p>
-        </div>
-      `,
-    })
-
-    return res.status(200).json({
-      success: true,
-      week,
-      type: 'lock_warning',
-      recipients: recipients.length,
-      message: `Lock warning sent to ${recipients.length} recipients.`,
-    })
-  }
-
   if (type === 'deadline_warning') {
-    // Send personalized deadline warnings to ALL email recipients
-    const minutes = parseInt((req.query.minutes as string) || '60')
+    // Only to people who still owe picks — someone who's finished doesn't need
+    // a "picks lock soon" email, and the 15-minute one skips anyone who
+    // finished after the 1-hour one went out.
+    const minutes = parseInt((req.query.minutes as string) || (requested === 'lock_warning' ? '15' : '60'))
     const timeLabel = minutes >= 60 ? `${Math.round(minutes / 60)} Hour` : `${minutes} Minutes`
 
-    if (emailableUsers.length === 0) {
-      return res.status(200).json({ message: 'No email recipients configured.' })
-    }
-
     const buildDeadlineEmail = (u: { id: string; name: string; email: string }) => {
-      const count = pickCounts.get(u.id) || 0
-      const hasThreeBest = threeBestUserIds.has(u.id)
-      const isComplete = count >= totalGames && hasThreeBest
-
-      let bodyHtml: string
-      if (isComplete) {
-        bodyHtml = `
+      const bodyHtml = `
           <p>Hey ${u.name},</p>
-          <p>Your Week ${week} picks are submitted! If you have any last-minute changes, make sure to save them before the deadline.</p>
+          <p>You still need to submit <strong>${missingFor(u)}</strong> for Week ${week}!</p>
           <p>Picks lock at <strong>${lockTimeStr}</strong>.</p>
         `
-      } else {
-        const missingPicks = totalGames - count
-        const parts: string[] = []
-        if (missingPicks > 0) parts.push(`${missingPicks} game pick${missingPicks > 1 ? 's' : ''}`)
-        if (!hasThreeBest) parts.push('Best 3 selections')
-        const missingStr = parts.join(' and ')
-        bodyHtml = `
-          <p>Hey ${u.name},</p>
-          <p>You still need to submit <strong>${missingStr}</strong> for Week ${week}!</p>
-          <p>Picks lock at <strong>${lockTimeStr}</strong>.</p>
-        `
-      }
 
       return transporter.sendMail({
         from: `Barlok Family NFL Picks <${gmailAddress}>`,
@@ -185,7 +155,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             <p style="margin: 20px 0;">
               <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'}/picks"
                  style="display: inline-block; background-color: #1d4ed8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
-                ${isComplete ? 'Review Your Picks' : 'Submit Your Picks'}
+                Submit Your Picks
               </a>
             </p>
             <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
@@ -197,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
-    const settled = await Promise.allSettled(emailableUsers.map((u: any) => buildDeadlineEmail(u)))
+    const settled = await Promise.allSettled(incompleteUsers.map((u: any) => buildDeadlineEmail(u)))
     const sentCount = settled.filter(r => r.status === 'fulfilled').length
     const failed = settled.length - sentCount
 
@@ -208,30 +178,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       minutes,
       sent: sentCount,
       failed,
-      message: `Deadline warning (${timeLabel}) sent to ${sentCount} of ${settled.length} recipients.`,
+      message: `Deadline warning (${timeLabel}) sent to ${sentCount} of ${settled.length} player${settled.length !== 1 ? 's' : ''} with incomplete Week ${week} picks.`,
     })
   }
 
-  // Default: reminder — only send to users who haven't completed picks
-  const incompleteUsers = emailableUsers.filter((u: any) => {
-    const count = pickCounts.get(u.id) || 0
-    const hasThreeBest = threeBestUserIds.has(u.id)
-    return count < totalGames || !hasThreeBest
-  })
-
-  if (incompleteUsers.length === 0) {
-    return res.status(200).json({ message: `All email recipients have completed Week ${week} picks. No reminders sent.` })
-  }
-
-  // Send individual emails in parallel so each user gets a personalized message
+  // Default: reminder. Individual emails, sent in parallel, so each person
+  // gets a message about what they still owe.
   const buildReminder = (u: { id: string; name: string; email: string }) => {
-    const count = pickCounts.get(u.id) || 0
-    const hasThreeBest = threeBestUserIds.has(u.id)
-    const missingPicks = totalGames - count
-    const parts: string[] = []
-    if (missingPicks > 0) parts.push(`${missingPicks} game pick${missingPicks > 1 ? 's' : ''}`)
-    if (!hasThreeBest) parts.push('Best 3 selections')
-    const missingStr = parts.join(' and ')
+    const missingStr = missingFor(u)
 
     return transporter.sendMail({
       from: `Barlok Family NFL Picks <${gmailAddress}>`,

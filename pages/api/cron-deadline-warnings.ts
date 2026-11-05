@@ -7,9 +7,10 @@ import { callInternal } from '@/lib/callInternal'
 
 /**
  * Cron handler — runs every 15 minutes.
- * Sends personalized deadline warning emails:
- *   - 1 hour before lock time (to everyone)
- *   - 15 minutes before lock time (to everyone)
+ * Sends personalized deadline warning emails to anyone still missing picks
+ * or Best 3 (players who've finished get nothing):
+ *   - 1 hour before lock time
+ *   - 15 minutes before lock time
  * Uses cron_log table to prevent duplicate sends.
  */
 

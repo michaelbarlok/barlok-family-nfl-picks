@@ -1,4 +1,4 @@
-import { onSheet, sortGames, type BowlGame, type BowlTeam } from '@/lib/bowls/sheet'
+import { hasSampleTeam, onSheet, sortGames, type BowlGame, type BowlTeam } from '@/lib/bowls/sheet'
 
 /*
  * The playoff is each player's own bracket: a quarterfinal is the bye team
@@ -115,6 +115,8 @@ export function sheetIssues(games: BowlGame[]): string[] {
   const sheet = sortGames(games.filter(onSheet))
   if (!sheet.length) return ["No games are in the pick'em yet."]
   const issues: string[] = []
+  const samples = sheet.filter(hasSampleTeam).length
+  if (samples) issues.push(`Sample teams are still on ${samples} ${samples === 1 ? 'game' : 'games'} — tap “Remove sample teams” first.`)
   const fed = new Set<string>()
   for (const g of sheet) {
     if (!g.kickoff_time) issues.push(`${gameLabel(g)}: no kickoff date yet.`)

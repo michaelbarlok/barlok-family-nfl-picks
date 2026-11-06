@@ -1,5 +1,5 @@
 import { easternDate, fetchBowlSeason, fetchDate, type EspnGame, type Fetcher } from '@/lib/bowls/espn'
-import { phaseForRound, teamToRow, type GameRow } from '@/lib/bowls/sheet'
+import { isSampleTeam, phaseForRound, teamToRow, type GameRow } from '@/lib/bowls/sheet'
 
 /*
  * "Pull from ESPN" — the only way bowl games, times and results come in.
@@ -42,12 +42,14 @@ export function espnColumns(g: EspnGame, existing: GameRow | null, now: string):
   }
   // Teams, ranks and records: kept current until kickoff, then frozen, so a
   // finished bowl still shows the records people picked from. A TBD slot is
-  // filled whenever ESPN has the team; a known team is never blanked.
+  // filled whenever ESPN has the team; a known team is never blanked. A
+  // sample team (the admin's preview) counts as TBD: a real one replaces it.
   for (const side of ['away', 'home'] as const) {
     const t = g[side]
     if (!t) continue
     const known = existing?.[`${side}_team_id`]
-    if (!known || (!started(existing?.status) && !started(g.status))) Object.assign(out, teamToRow(side, t))
+    const real = !!known && !isSampleTeam(known)
+    if (!real || (!started(existing?.status) && !started(g.status))) Object.assign(out, teamToRow(side, t))
   }
   if (g.status === 'canceled' || g.status === 'postponed') out.removed = true
   return out

@@ -13,10 +13,14 @@ export const PHASE_TONE: Record<Phase, { dot: string; badge: string; text: strin
   title: { dot: 'bg-yellow-500', badge: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20', text: 'text-yellow-300' },
 }
 
+// A faint light edge, so dark logos (maroon, navy, black) still read on the
+// black background; bright ones barely change. Keeps every team's colors.
+const LOGO_EDGE = 'drop-shadow(0 0 1px rgba(255,255,255,0.55)) drop-shadow(0 0 1px rgba(255,255,255,0.35))'
+
 export function TeamLogo({ team, size = 28 }: { team: BowlTeam | null; size?: number }) {
   const [broken, setBroken] = useState(false)
   if (team?.logo && !broken) {
-    return <img src={team.logo} alt="" loading="lazy" onError={() => setBroken(true)} className="object-contain shrink-0" style={{ width: size, height: size }} />
+    return <img src={team.logo} alt="" loading="lazy" onError={() => setBroken(true)} className="object-contain shrink-0" style={{ width: size, height: size, filter: LOGO_EDGE }} />
   }
   return (
     <span className="rounded-full bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-[10px] font-bold text-zinc-400 shrink-0"

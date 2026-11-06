@@ -299,9 +299,12 @@ export default function AllPicksPage() {
       <Nav containerClassName="max-w-4xl xl:max-w-[1500px]" />
 
       <main className="max-w-4xl xl:max-w-[1500px] mx-auto px-3 sm:px-4 py-6 animate-fade-in">
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-          All Picks
-        </h2>
+        <div className="mb-4">
+          <h1 className="text-xl font-bold text-white">All Picks</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {season} season{selectedWeek ? ` · Week ${selectedWeek}` : ''}{selectedWeek && !isLocked ? ' · everyone’s picks show when the week locks' : ''}
+          </p>
+        </div>
 
         {/* Week selector */}
         <SeasonSelector value={season} onChange={setSeason} />

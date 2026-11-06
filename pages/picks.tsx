@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { useSeason } from '@/lib/season'
 import { MAX_BEST_PICKS } from '@/lib/constants'
+import { groupByKickoffWindow } from '@/lib/kickoffWindows'
 import { getTeam } from '@/lib/nflTeams'
 import { parseUTC, computeLockTime, formatKickoff } from '@/lib/lockTime'
 import { graceExpiry, formatGraceRemaining, GRACE_PERIOD_MINUTES } from '@/lib/pickGrace'
@@ -437,6 +438,199 @@ export default function PicksPage() {
   const countdown = formatCountdown(msLeft)
   const showMiniStatus = statusOffscreen && !isLocked && totalGames > 0 && !!deadline
 
+  // While picking, the week reads in kickoff windows (Thursday Night, Sunday
+  // Early, …). Locked weeks keep their All / Live / Final / Upcoming view.
+  const windowList = !isLocked && shownGames.length > 1 ? groupByKickoffWindow(shownGames) : []
+  const windows = windowList.length > 1 ? windowList : null
+
+  // One game's card (moved here unchanged so the week can show by kickoff window).
+  const renderGame = (game: Game, gameIdx: number) => {
+    const pickedTeam = picks[game.id]
+    const isStarred = bestPicks.has(game.id)
+    const canStar = !!pickedTeam && !isLocked
+    const starDisabled = !canStar || (!isStarred && bestPicks.size >= MAX_BEST_PICKS)
+
+    const liveG = live.byGameId.get(game.id)
+    const isLive = liveG?.state === 'in'
+    const standing = isLocked ? pickStanding(pickedTeam, game, liveG) : 'upcoming'
+    // Finished, whether recorded yet or only per the live feed
+    const isFinal = !!game.winning_team || liveG?.state === 'post'
+    const finalWinner = game.winning_team ?? (liveG?.state === 'post' ? leaderOf(liveG) : null)
+    // Recorded score first; the live feed until there is one
+    const scoreOf = (team: string): number | null => {
+      if (game.winning_team && game.away_score != null && game.home_score != null) {
+        return team === game.away_team ? game.away_score : game.home_score
+      }
+      if (liveG && liveG.state !== 'pre') return team === game.away_team ? liveG.awayScore : liveG.homeScore
+      return null
+    }
+    const leader = (() => {
+      const a = scoreOf(game.away_team), h = scoreOf(game.home_team)
+      return a === null || h === null || a === h ? null : a > h ? game.away_team : game.home_team
+    })()
+
+    const cardRing = !isLocked
+      ? (isStarred ? 'ring-1 ring-amber-500/30' : '')
+      : standing === 'won' ? 'ring-1 ring-emerald-500/40'
+        : standing === 'lost' ? 'ring-1 ring-red-500/30'
+          : standing === 'tie' ? 'ring-1 ring-slate-400/20'
+            : isLive ? 'ring-1 ring-red-500/25' : ''
+
+    // Picked team: blue until the game starts, then green/red/amber
+    // for ahead/behind/level, solid at the final.
+    const teamBtnClass = (team: string) => {
+      const isPicked = pickedTeam === team
+      const animClass = justPicked === `${game.id}:${team}` ? 'animate-pick-pop' : ''
+      if (!isLocked) {
+        return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'}`
+      }
+      if (isPicked) {
+        switch (standing) {
+          case 'won': return `${animClass} border-emerald-500/50 bg-emerald-500/10 text-white`
+          case 'lost': return `${animClass} border-red-500/40 bg-red-500/10 text-white`
+          case 'tie': return `${animClass} border-slate-400/30 bg-slate-500/10 text-slate-300`
+          case 'winning': return `${animClass} border-emerald-500/45 border-dashed bg-emerald-500/[0.06] text-white`
+          case 'losing': return `${animClass} border-red-500/45 border-dashed bg-red-500/[0.06] text-white`
+          case 'level': return `${animClass} border-amber-500/45 border-dashed bg-amber-500/[0.06] text-white`
+          default: return `${animClass} border-blue-500/60 bg-blue-500/15 text-white glow-blue`
+        }
+      }
+      if (isFinal && finalWinner === team) return 'border-white/[0.08] bg-white/[0.03] text-slate-300 cursor-default'
+      return `border-white/[0.03] bg-white/[0.02] ${liveG && liveG.state !== 'pre' ? 'text-slate-400' : 'text-slate-500'} cursor-default`
+    }
+
+    const resultIcon = (team: string) => {
+      if (pickedTeam !== team) return null
+      if (!isLocked || standing === 'upcoming') {
+        return <span className={`text-blue-400 text-sm ${justPicked === `${game.id}:${team}` ? 'animate-check-in' : ''}`}>✓</span>
+      }
+      if (standing === 'tie') return <span className="text-slate-400 text-sm font-bold">=</span>
+      if (standing === 'won') return <span className="text-emerald-400 text-sm font-bold">✓</span>
+      if (standing === 'lost') return <span className="text-red-400 text-sm font-bold">✗</span>
+      return null
+    }
+
+    const teamButton = (team: string, side: 'Away' | 'Home') => {
+      const t = getTeam(team)
+      const score = scoreOf(team)
+      const hasBall = isLive && liveG?.possession === team
+      return (
+        <button
+          type="button"
+          onClick={() => handlePickChange(game.id, team)}
+          disabled={isLocked}
+          className={`press relative min-w-0 flex items-center gap-2 sm:gap-3 py-3 pl-2.5 pr-3 sm:px-4 rounded-xl border-2 transition-all text-left ${teamBtnClass(team)}`}
+        >
+          <img
+            src={t.logo} alt={team}
+            loading="lazy" decoding="async"
+            className={`logo-edge max-[379px]:hidden w-7 h-7 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+              pickedTeam === team ? 'scale-110' : ''
+            } ${isLocked && pickedTeam !== team && standing === 'upcoming' && !isFinal ? 'opacity-30' : ''}`}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
+          <div className="min-w-0">
+            {/* The whole name, never cut off: city in bold, nickname in regular
+                weight, wrapping to a second line if need be. */}
+            <p className="text-[13px] sm:text-sm leading-snug">
+              <span className="font-bold">{t.city}</span> <span className="font-normal">{t.name}</span>
+              {hasBall && <span className="ml-1 text-xs" title="Has the ball">🏈</span>}
+            </p>
+            {/* Once there's a score it takes the Away/Home line, so
+                it costs no width — beside the name it squeezed
+                "Seahawks" down to "S…" on a phone. */}
+            {score !== null ? (
+              <p className={`text-lg font-bold tabular-nums leading-tight mt-0.5 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
+            ) : (
+              <p className={`text-[11px] mt-0.5 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
+            )}
+          </div>
+          <span className="absolute top-1 right-1.5 leading-none">{resultIcon(team)}</span>
+        </button>
+      )
+    }
+
+    return (
+      <div
+        key={game.id}
+        className={`relative glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${cardRing} ${
+          isLocked && standing === 'upcoming' && !isFinal ? 'opacity-80' : ''
+        }`}
+        style={{ animationDelay: `${gameIdx * 30}ms` }}
+      >
+        <PlayFlash event={events.get(game.id)} />
+        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            {isLive ? (
+              <>
+                <span className="flex items-center gap-1 text-[11px] font-bold text-red-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE
+                </span>
+                <span className="text-xs font-mono font-semibold text-slate-200">{liveG?.label}</span>
+                {liveG?.redZone && (
+                  <span className="text-[10px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">Red zone</span>
+                )}
+              </>
+            ) : isFinal ? (
+              <span className="text-xs font-semibold text-slate-300">
+                {liveG?.label === 'Final/OT' ? 'Final/OT' : 'Final'}
+                {finalWinner === 'TIE' && <span className="text-slate-500 ml-1 text-[10px]">TIE</span>}
+              </span>
+            ) : (
+              <p className="text-xs text-slate-500">
+                {liveG?.label && liveG.state === 'pre' ? `${liveG.label} · ` : ''}{formatKickoff(game.kickoff_time)}
+              </p>
+            )}
+          </div>
+          {!isLocked && (
+            <button
+              type="button"
+              onClick={() => toggleBestPick(game.id)}
+              disabled={starDisabled}
+              title={!canStar ? 'Pick a team first' : isStarred ? 'Remove best pick' : bestPicks.size >= MAX_BEST_PICKS ? 'Already selected 3' : 'Mark as best pick'}
+              className={`press shrink-0 whitespace-nowrap flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-all font-medium ${
+                isStarred ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 glow-amber'
+                : starDisabled ? 'border-white/[0.04] text-slate-600 cursor-not-allowed'
+                : 'border-white/[0.08] text-slate-400 hover:border-amber-500/30 hover:text-amber-400'
+              }`}
+            >
+              <span className={isStarred ? 'transition-transform scale-110' : ''}>{isStarred ? '⭐' : '☆'}</span>
+              <span>Best Pick</span>
+            </button>
+          )}
+          {isLocked && isStarred && (
+            <span className="shrink-0 text-xs text-amber-400 font-medium">⭐ Best Pick</span>
+          )}
+        </div>
+
+        {/* minmax(0,1fr), not 1fr: a plain 1fr column won't shrink below
+            its content, so a long name ("Commanders") pushed the
+            home button out past the card's right edge on a phone.
+            Under 380px (iPhone SE) the logos drop out too — at
+            that width they left room for about four letters. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-0 px-3 pb-3 items-stretch">
+          {teamButton(game.away_team, 'Away')}
+          <div className="flex items-center justify-center px-1.5">
+            <span className="text-[10px] font-bold text-slate-600 uppercase">@</span>
+          </div>
+          {teamButton(game.home_team, 'Home')}
+        </div>
+
+        {/* Where the ball is, and what just happened */}
+        {isLive && liveG && (
+          <div className="px-4 pb-3 -mt-1 space-y-1.5">
+            <FieldStrip game={liveG} />
+            {liveG.lastPlay && (
+              <p className="text-[11px] text-slate-500 leading-snug line-clamp-2">
+                <span className="text-slate-400 font-medium">Last play:</span> {liveG.lastPlay}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-surface pb-page">
       <Nav pickStatus={navStatus} containerClassName="max-w-3xl lg:max-w-5xl" />
@@ -726,192 +920,46 @@ export default function PicksPage() {
             ) : (
               // Two columns on a wide screen: one long column of 16 cards was
               // most of the scrolling, with the sides of the page empty.
-              <div className="grid gap-3 lg:grid-cols-2">
-                {shownGames.map((game, gameIdx) => {
-                  const pickedTeam = picks[game.id]
-                  const isStarred = bestPicks.has(game.id)
-                  const canStar = !!pickedTeam && !isLocked
-                  const starDisabled = !canStar || (!isStarred && bestPicks.size >= MAX_BEST_PICKS)
-
-                  const liveG = live.byGameId.get(game.id)
-                  const isLive = liveG?.state === 'in'
-                  const standing = isLocked ? pickStanding(pickedTeam, game, liveG) : 'upcoming'
-                  // Finished, whether recorded yet or only per the live feed
-                  const isFinal = !!game.winning_team || liveG?.state === 'post'
-                  const finalWinner = game.winning_team ?? (liveG?.state === 'post' ? leaderOf(liveG) : null)
-                  // Recorded score first; the live feed until there is one
-                  const scoreOf = (team: string): number | null => {
-                    if (game.winning_team && game.away_score != null && game.home_score != null) {
-                      return team === game.away_team ? game.away_score : game.home_score
-                    }
-                    if (liveG && liveG.state !== 'pre') return team === game.away_team ? liveG.awayScore : liveG.homeScore
-                    return null
-                  }
-                  const leader = (() => {
-                    const a = scoreOf(game.away_team), h = scoreOf(game.home_team)
-                    return a === null || h === null || a === h ? null : a > h ? game.away_team : game.home_team
-                  })()
-
-                  const cardRing = !isLocked
-                    ? (isStarred ? 'ring-1 ring-amber-500/30' : '')
-                    : standing === 'won' ? 'ring-1 ring-emerald-500/40'
-                      : standing === 'lost' ? 'ring-1 ring-red-500/30'
-                        : standing === 'tie' ? 'ring-1 ring-slate-400/20'
-                          : isLive ? 'ring-1 ring-red-500/25' : ''
-
-                  // Picked team: blue until the game starts, then green/red/amber
-                  // for ahead/behind/level, solid at the final.
-                  const teamBtnClass = (team: string) => {
-                    const isPicked = pickedTeam === team
-                    const animClass = justPicked === `${game.id}:${team}` ? 'animate-pick-pop' : ''
-                    if (!isLocked) {
-                      return `${animClass} ${isPicked ? 'border-blue-500/60 bg-blue-500/15 text-white glow-blue' : 'border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-blue-500/30 hover:bg-blue-500/5'}`
-                    }
-                    if (isPicked) {
-                      switch (standing) {
-                        case 'won': return `${animClass} border-emerald-500/50 bg-emerald-500/10 text-white`
-                        case 'lost': return `${animClass} border-red-500/40 bg-red-500/10 text-white`
-                        case 'tie': return `${animClass} border-slate-400/30 bg-slate-500/10 text-slate-300`
-                        case 'winning': return `${animClass} border-emerald-500/45 border-dashed bg-emerald-500/[0.06] text-white`
-                        case 'losing': return `${animClass} border-red-500/45 border-dashed bg-red-500/[0.06] text-white`
-                        case 'level': return `${animClass} border-amber-500/45 border-dashed bg-amber-500/[0.06] text-white`
-                        default: return `${animClass} border-blue-500/60 bg-blue-500/15 text-white glow-blue`
-                      }
-                    }
-                    if (isFinal && finalWinner === team) return 'border-white/[0.08] bg-white/[0.03] text-slate-300 cursor-default'
-                    return `border-white/[0.03] bg-white/[0.02] ${liveG && liveG.state !== 'pre' ? 'text-slate-400' : 'text-slate-500'} cursor-default`
-                  }
-
-                  const resultIcon = (team: string) => {
-                    if (pickedTeam !== team) return null
-                    if (!isLocked || standing === 'upcoming') {
-                      return <span className={`text-blue-400 text-sm ${justPicked === `${game.id}:${team}` ? 'animate-check-in' : ''}`}>✓</span>
-                    }
-                    if (standing === 'tie') return <span className="text-slate-400 text-sm font-bold">=</span>
-                    if (standing === 'won') return <span className="text-emerald-400 text-sm font-bold">✓</span>
-                    if (standing === 'lost') return <span className="text-red-400 text-sm font-bold">✗</span>
-                    return null
-                  }
-
-                  const teamButton = (team: string, side: 'Away' | 'Home') => {
-                    const t = getTeam(team)
-                    const score = scoreOf(team)
-                    const hasBall = isLive && liveG?.possession === team
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => handlePickChange(game.id, team)}
-                        disabled={isLocked}
-                        className={`press min-w-0 flex items-center gap-2.5 sm:gap-3 py-3 px-3 sm:px-4 rounded-xl border-2 transition-all text-left ${teamBtnClass(team)}`}
-                      >
-                        <img
-                          src={t.logo} alt={team}
-                          loading="lazy" decoding="async"
-                          className={`max-[379px]:hidden w-8 h-8 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
-                            pickedTeam === team ? 'scale-110' : ''
-                          } ${isLocked && pickedTeam !== team && standing === 'upcoming' && !isFinal ? 'opacity-30' : ''}`}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                        <div className="min-w-0">
-                          <p className="text-[11px] opacity-50 leading-tight truncate">{t.city}</p>
-                          <p className="font-semibold text-sm leading-tight truncate">
-                            {t.name}{hasBall && <span className="ml-1 text-xs" title="Has the ball">🏈</span>}
-                          </p>
-                          {/* Once there's a score it takes the Away/Home line, so
-                              it costs no width — beside the name it squeezed
-                              "Seahawks" down to "S…" on a phone. */}
-                          {score !== null ? (
-                            <p className={`text-lg font-bold tabular-nums leading-tight mt-0.5 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
-                          ) : (
-                            <p className={`text-[11px] mt-0.5 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
-                          )}
-                        </div>
-                        <span className="ml-auto shrink-0">{resultIcon(team)}</span>
-                      </button>
-                    )
-                  }
-
-                  return (
-                    <div
-                      key={game.id}
-                      className={`relative glass-card rounded-2xl overflow-hidden transition-all duration-300 animate-slide-up ${cardRing} ${
-                        isLocked && standing === 'upcoming' && !isFinal ? 'opacity-80' : ''
-                      }`}
-                      style={{ animationDelay: `${gameIdx * 30}ms` }}
-                    >
-                      <PlayFlash event={events.get(game.id)} />
-                      <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
-                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                          {isLive ? (
-                            <>
-                              <span className="flex items-center gap-1 text-[11px] font-bold text-red-400">
-                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE
-                              </span>
-                              <span className="text-xs font-mono font-semibold text-slate-200">{liveG?.label}</span>
-                              {liveG?.redZone && (
-                                <span className="text-[10px] font-bold text-red-300 bg-red-500/15 px-1.5 py-0.5 rounded-full">Red zone</span>
-                              )}
-                            </>
-                          ) : isFinal ? (
-                            <span className="text-xs font-semibold text-slate-300">
-                              {liveG?.label === 'Final/OT' ? 'Final/OT' : 'Final'}
-                              {finalWinner === 'TIE' && <span className="text-slate-500 ml-1 text-[10px]">TIE</span>}
-                            </span>
-                          ) : (
-                            <p className="text-xs text-slate-500">
-                              {liveG?.label && liveG.state === 'pre' ? `${liveG.label} · ` : ''}{formatKickoff(game.kickoff_time)}
-                            </p>
-                          )}
-                        </div>
-                        {!isLocked && (
-                          <button
-                            type="button"
-                            onClick={() => toggleBestPick(game.id)}
-                            disabled={starDisabled}
-                            title={!canStar ? 'Pick a team first' : isStarred ? 'Remove best pick' : bestPicks.size >= MAX_BEST_PICKS ? 'Already selected 3' : 'Mark as best pick'}
-                            className={`press shrink-0 whitespace-nowrap flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-all font-medium ${
-                              isStarred ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 glow-amber'
-                              : starDisabled ? 'border-white/[0.04] text-slate-600 cursor-not-allowed'
-                              : 'border-white/[0.08] text-slate-400 hover:border-amber-500/30 hover:text-amber-400'
-                            }`}
-                          >
-                            <span className={isStarred ? 'transition-transform scale-110' : ''}>{isStarred ? '⭐' : '☆'}</span>
-                            <span>Best Pick</span>
-                          </button>
-                        )}
-                        {isLocked && isStarred && (
-                          <span className="shrink-0 text-xs text-amber-400 font-medium">⭐ Best Pick</span>
-                        )}
-                      </div>
-
-                      {/* minmax(0,1fr), not 1fr: a plain 1fr column won't shrink below
-                          its content, so a long name ("Commanders") pushed the
-                          home button out past the card's right edge on a phone.
-                          Under 380px (iPhone SE) the logos drop out too — at
-                          that width they left room for about four letters. */}
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-0 px-3 pb-3 items-center">
-                        {teamButton(game.away_team, 'Away')}
-                        <div className="flex items-center justify-center px-2">
-                          <span className="text-[10px] font-bold text-slate-600 uppercase">@</span>
-                        </div>
-                        {teamButton(game.home_team, 'Home')}
-                      </div>
-
-                      {/* Where the ball is, and what just happened */}
-                      {isLive && liveG && (
-                        <div className="px-4 pb-3 -mt-1 space-y-1.5">
-                          <FieldStrip game={liveG} />
-                          {liveG.lastPlay && (
-                            <p className="text-[11px] text-slate-500 leading-snug line-clamp-2">
-                              <span className="text-slate-400 font-medium">Last play:</span> {liveG.lastPlay}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+              <>
+                {windows ? (
+                  <>
+                    {/* Jump to a kickoff window; each shows how many are picked. */}
+                    <nav aria-label="Kickoff windows" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 mb-4">
+                      {windows.map(w => {
+                        const done = w.games.filter(g => picks[g.id]).length
+                        return (
+                          <a key={w.key} href={`#kick-${w.key}`}
+                            className={`press shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${done === w.games.length ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-white/[0.08] bg-white/[0.04] text-slate-300 hover:text-white'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${done === w.games.length ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+                            {w.short}<span className="tabular-nums text-slate-400 font-medium">{done}/{w.games.length}</span>
+                          </a>
+                        )
+                      })}
+                    </nav>
+                    {windows.map(w => {
+                      const done = w.games.filter(g => picks[g.id]).length
+                      return (
+                        <section key={w.key} id={`kick-${w.key}`} aria-label={w.label} className="mb-6"
+                          style={{ scrollMarginTop: 'calc(var(--header-h, 0px) + 64px)' }}>
+                          <div className="flex items-baseline gap-2 mb-2.5 px-1">
+                            <span className="w-2 h-2 rounded-full bg-blue-400 self-center" />
+                            <h3 className="text-sm font-bold text-white">{w.label}</h3>
+                            <span className="text-[11px] text-slate-500">{w.games.length} {w.games.length === 1 ? 'game' : 'games'}</span>
+                            <span className={`ml-auto text-[11px] tabular-nums ${done === w.games.length ? 'text-emerald-400' : 'text-slate-400'}`}>{done}/{w.games.length}</span>
+                          </div>
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            {w.games.map(g => renderGame(g, shownGames.indexOf(g)))}
+                          </div>
+                        </section>
+                      )
+                    })}
+                  </>
+                ) : (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {shownGames.map((game, gameIdx) => renderGame(game, gameIdx))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -947,8 +995,8 @@ export default function PicksPage() {
                   const t = getTeam(team)
                   return (
                     <div key={gameId} className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
-                      <img src={t.logo} alt={team} loading="lazy" decoding="async" className="w-5 h-5 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                      <span className="text-sm font-semibold text-amber-200">{t.city} {t.name}</span>
+                      <img src={t.logo} alt={team} loading="lazy" decoding="async" className="logo-edge w-5 h-5 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      <span className="text-sm text-amber-200"><span className="font-bold">{t.city}</span> {t.name}</span>
                     </div>
                   )
                 })}

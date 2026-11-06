@@ -260,7 +260,7 @@ function GameCard({ card, meId, follow, bestOf, isUpset, showPicks, event, forma
     const t = getTeam(team)
     return (
       <div className={`flex items-center gap-2 min-w-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
-        <img src={t.logo} alt="" className="w-9 h-9 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        <img src={t.logo} alt="" className="logo-edge w-9 h-9 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         <div className="min-w-0">
           <p className={`text-base font-extrabold leading-none ${mine ? mineCls : lost ? 'text-slate-500' : 'text-white'}`}>
             {team}
@@ -294,10 +294,16 @@ function GameCard({ card, meId, follow, bestOf, isUpset, showPicks, event, forma
       const rank = (p: Player) => (p.id === meId ? 0 : p.id === follow ? 1 : 2)
       return rank(a) - rank(b) || a.name.localeCompare(b.name)
     })
+    const t = getTeam(team)
+    const share = Math.round((people.length / total) * 100)
     return (
-      <div className={`min-w-0 px-3 pt-2 pb-3 transition ${won ? 'bg-emerald-500/[0.06]' : lost ? 'opacity-55' : ''}`}>
-        <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${align === 'right' ? 'text-right' : ''} ${won ? 'text-emerald-400/80' : 'text-slate-500'}`}>
-          {team}{won ? ' ✓' : ''}
+      <div className={`min-w-0 px-3 pt-2 pb-3 transition ${won ? 'bg-emerald-500/[0.07] ring-1 ring-inset ring-emerald-500/40' : lost ? 'opacity-55' : ''}`}>
+        {/* The team in full — city bold, nickname regular — and how many took it. */}
+        <p className={`text-[12px] leading-tight break-words ${align === 'right' ? 'text-right' : ''} ${won ? 'text-emerald-300' : 'text-slate-200'}`}>
+          <span className="font-bold">{t.city}</span> {t.name}{won ? ' ✓' : ''}
+        </p>
+        <p className={`text-[10px] text-slate-500 mt-0.5 mb-1.5 tabular-nums ${align === 'right' ? 'text-right' : ''}`}>
+          {people.length} {people.length === 1 ? 'pick' : 'picks'} · {share}%
         </p>
         <div className={`flex flex-wrap gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
           {ordered.map(p => {

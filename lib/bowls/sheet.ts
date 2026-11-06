@@ -161,3 +161,47 @@ export function gameFromRow(row: GameRow): BowlGame {
     manual: !!row.manual,
   }
 }
+
+/* ── how picks are laid out ─────────────────────────────────────────── */
+
+export type SectionKey = 'little' | 'between' | 'big' | 'playoff'
+
+export interface PickRound { key: string; label: string; points: string; games: BowlGame[] }
+export interface PickSection {
+  key: SectionKey
+  title: string
+  short: string
+  points: string
+  games: BowlGame[]
+  /** The playoff, round by round: first round, quarterfinals, semifinals, champion. */
+  rounds: PickRound[]
+}
+
+const SECTION_META: { key: SectionKey; title: string; short: string; points: string }[] = [
+  { key: 'little', title: 'Phase 1 · The Little Ones', short: 'Phase 1', points: '1 point per win' },
+  { key: 'between', title: 'Phase 2 · In Betweeners', short: 'Phase 2', points: '1.5 points per win' },
+  { key: 'big', title: 'Phase 3 · The Big Ones', short: 'Phase 3', points: '2 points per win' },
+  { key: 'playoff', title: 'Phase 4 · The Playoff', short: 'Playoff', points: '3 points per win' },
+]
+
+/**
+ * A player's picks in order: Phase 1, 2 and 3, then the whole playoff last —
+ * first round, quarterfinals, semifinals, then the champion. Empty phases are
+ * left out.
+ */
+export function pickSections(games: BowlGame[]): PickSection[] {
+  const sorted = sortGames(games.filter(onSheet))
+  return SECTION_META.map(m => {
+    if (m.key !== 'playoff') {
+      const list = sorted.filter(g => g.phase === m.key)
+      return { ...m, games: list, rounds: [{ key: m.key, label: '', points: '', games: list }] }
+    }
+    const rounds: PickRound[] = [
+      { key: 'first', label: 'First round', points: '3 points each', games: sorted.filter(g => g.phase === 'playoff' && g.playoff_round === 'first') },
+      { key: 'quarter', label: 'Quarterfinals', points: '3 points each', games: sorted.filter(g => g.phase === 'playoff' && g.playoff_round !== 'first') },
+      { key: 'semi', label: 'Semifinals', points: '3 points each', games: sorted.filter(g => g.phase === 'semi') },
+      { key: 'title', label: 'National Champion', points: '3 points', games: sorted.filter(g => g.phase === 'title') },
+    ].filter(r => r.games.length)
+    return { ...m, games: rounds.flatMap(r => r.games), rounds }
+  }).filter(s => s.games.length)
+}

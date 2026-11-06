@@ -106,6 +106,22 @@ export default function BowlAdmin() {
     }
   }
 
+  const remind = async () => {
+    const waiting = (sheet?.players ?? []).filter(p => !p.complete).length
+    if (!confirm(`Email and push a reminder to the ${waiting} player${waiting === 1 ? '' : 's'} who haven't finished their picks?`)) return
+    setBusy('remind')
+    try {
+      const r = await post('/api/bowls/admin/remind', {})
+      toast.show(r.players
+        ? `Reminder sent to ${r.players} player${r.players === 1 ? '' : 's'} (${r.emails} email${r.emails === 1 ? '' : 's'}, ${r.pushes} push)${r.failed ? ` — ${r.failed} email${r.failed === 1 ? '' : 's'} failed` : ''}`
+        : 'Everyone has finished — nobody to remind.', r.failed ? 'error' : 'success')
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Reminder failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   if (loading || !isAdmin) return <div className="min-h-screen bg-zinc-950"><BowlHeader /></div>
 
   const sheetOut = !!sheet && sheet.status !== 'setup' && sheet.totalGames > 0
@@ -193,11 +209,30 @@ export default function BowlAdmin() {
           )}
         </div>
 
+        {sheet?.status === 'open' && players.length > 0 && (() => {
+          const waiting = (sheet.players ?? []).filter(p => !p.complete).length
+          return (
+            <div className="glass-card rounded-2xl p-4 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">Reminders</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {waiting ? `${waiting} player${waiting === 1 ? ' hasn’t' : 's haven’t'} finished.` : 'Everyone’s picks are in.'}{' '}
+                  Automatic reminders go out when picks open, then 3 days, 1 day, 1 hour and 15 minutes before the lock — only to players who aren&apos;t done.
+                </p>
+              </div>
+              <button onClick={remind} disabled={busy === 'remind' || !waiting}
+                className="press shrink-0 px-4 py-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 text-yellow-300 text-sm font-semibold hover:bg-yellow-500/15 disabled:opacity-40 transition">
+                {busy === 'remind' ? 'Sending…' : 'Send a reminder now'}
+              </button>
+            </div>
+          )
+        })()}
+
         <p className="text-xs text-zinc-500 text-center px-4">
           &ldquo;Enter picks&rdquo; is for picks someone sent you — it shows you their picks, so use it only when they ask.
         </p>
         <div className="flex justify-center gap-5 text-sm">
-          <Link href="/bowls/admin/sheet" className="text-yellow-400 hover:text-yellow-300">Pick sheet</Link>
+          <Link href="/bowls/admin/sheet" className="text-yellow-400 hover:text-yellow-300">Games</Link>
           <Link href="/bowls" className="text-yellow-400 hover:text-yellow-300">Bowl Pick&apos;em home</Link>
         </div>
       </main>

@@ -2,9 +2,9 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASES, type BowlGame, type BowlTeam } from '@/lib/bowls/sheet'
+import { pickSections, type BowlGame, type BowlTeam } from '@/lib/bowls/sheet'
 import { cleanPicks, indexGames, optionsFor, progress, type PickMap } from '@/lib/bowls/bracket'
-import { countdown, kickoffText, lockText, pointsText } from '@/lib/bowls/format'
+import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
 import BowlHeader from '@/components/bowls/BowlHeader'
 import BowlRules from '@/components/bowls/BowlRules'
@@ -181,6 +181,7 @@ export default function BowlPicks() {
   }
 
   const titleGame = games.find(g => g.phase === 'title')
+  const sections = pickSections(games)
   const prog = progress(games, picks, best5, total === '' ? null : Number(total))
   const left = data?.lockAt ? countdown(data.lockAt, now) : null
   const firstName = data?.player?.name.split(' ')[0] ?? ''
@@ -261,44 +262,56 @@ export default function BowlPicks() {
 
             <Best5Summary games={games} best5={best5} />
 
-            {PHASES.map(p => {
-              const list = games.filter(g => g.phase === p.key)
-              if (!list.length) return null
-              const done = list.filter(g => picks[g.id]).length
-              const sub = p.key === 'playoff'
-                ? [['First round', list.filter(g => g.playoff_round === 'first')], ['Quarterfinals', list.filter(g => g.playoff_round !== 'first')]] as const
-                : [[null, list]] as const
+            {sections.length > 1 && (
+              <nav aria-label="Phases" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pt-1">
+                {sections.map(sec => {
+                  const done = sec.games.filter(g => picks[g.id]).length
+                  return (
+                    <a key={sec.key} href={`#phase-${sec.key}`}
+                      className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${done === sec.games.length ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[sec.key].dot}`} />
+                      {sec.short}<span className="tabular-nums text-zinc-400 font-medium">{done}/{sec.games.length}</span>
+                    </a>
+                  )
+                })}
+              </nav>
+            )}
+
+            {sections.map(sec => {
+              const done = sec.games.filter(g => picks[g.id]).length
               return (
-                <section key={p.key} aria-label={p.label} className="pt-3">
+                <section key={sec.key} id={`phase-${sec.key}`} aria-label={sec.title} className="pt-3 scroll-mt-[150px]">
                   <div className="flex items-baseline gap-2 mb-2 px-1">
-                    <span className={`w-2 h-2 rounded-full self-center ${PHASE_TONE[p.key].dot}`} />
-                    <h2 className="text-sm font-bold text-white">
-                      {p.key === 'semi' || p.key === 'title' ? p.label : `${p.tag} · ${p.label}`}
-                    </h2>
-                    <span className="text-[11px] text-zinc-500">{p.key === 'semi' ? '3 points each' : p.key === 'title' ? '3 points' : pointsText(p.points)}</span>
-                    <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">{done}/{list.length}</span>
+                    <span className={`w-2 h-2 rounded-full self-center ${PHASE_TONE[sec.key].dot}`} />
+                    <h2 className="text-sm font-bold text-white">{sec.title}</h2>
+                    <span className="text-[11px] text-zinc-500">{sec.points}</span>
+                    <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">{done}/{sec.games.length}</span>
                   </div>
-                  {sub.map(([label, gs]) => gs.length > 0 && (
-                    <div key={label ?? 'all'} className="space-y-2 mb-3">
-                      {label && <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-1 pt-1">{label}</p>}
-                      {gs.map(g => (
+                  {sec.rounds.map(r => (
+                    <div key={r.key} className="space-y-2 mb-3">
+                      {r.label && (
+                        <p className="flex items-baseline gap-2 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-1 pt-1">
+                          {r.label}<span className="normal-case tracking-normal font-normal text-zinc-600">{r.points}</span>
+                        </p>
+                      )}
+                      {r.games.map(g => (
                         <GameCard key={g.id} game={g} byId={byId} picks={picks}
                           starred={best5.includes(g.id)} editable={editable}
                           onPick={t => choose(g, t)} onStar={() => toggleStar(g)} />
                       ))}
+                      {r.key === 'title' && titleGame && (
+                        <div className="glass-card rounded-2xl p-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-white">Total points in the title game</p>
+                            <p className="text-[11px] text-zinc-500 mt-0.5">The last tiebreaker: closest guess wins. On an equal miss, the guess under wins.</p>
+                          </div>
+                          <input value={total} onChange={e => changeTotal(e.target.value)} disabled={!editable}
+                            inputMode="numeric" pattern="[0-9]*" placeholder="—" aria-label="Total points in the title game"
+                            className="w-20 shrink-0 text-center text-lg font-bold px-2 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-60" />
+                        </div>
+                      )}
                     </div>
                   ))}
-                  {p.key === 'title' && titleGame && (
-                    <div className="glass-card rounded-2xl p-3 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white">Total points in the title game</p>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">The last tiebreaker: closest guess wins. On an equal miss, the guess under wins.</p>
-                      </div>
-                      <input value={total} onChange={e => changeTotal(e.target.value)} disabled={!editable}
-                        inputMode="numeric" pattern="[0-9]*" placeholder="—" aria-label="Total points in the title game"
-                        className="w-20 shrink-0 text-center text-lg font-bold px-2 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-60" />
-                    </div>
-                  )}
                 </section>
               )
             })}

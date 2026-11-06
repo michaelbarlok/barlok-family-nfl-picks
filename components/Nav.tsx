@@ -253,9 +253,7 @@ export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: Na
         <div className={`${containerClassName} mx-auto px-4`}>
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <span className="text-sm">🏈</span>
-              </div>
+              <img src="/logos/nfl.png" alt="NFL" className="w-8 h-8 object-contain shrink-0" />
               <div>
                 <p className="font-semibold text-white text-sm leading-tight">Barlok Family NFL Picks</p>
                 <p className="text-[11px] text-slate-500">

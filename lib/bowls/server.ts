@@ -73,7 +73,7 @@ export async function sendBowlEmail(to: string, subject: string, bodyHtml: strin
 /** A big call-to-action button in a bowl email. */
 export function emailButton(href: string, label: string): string {
   return `<p style="margin: 0 0 24px;">
-    <a href="${href}" style="display: inline-block; background: #d97706; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 10px;">${label}</a>
+    <a href="${href}" style="display: inline-block; background: #a16207; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 10px;">${label}</a>
   </p>`
 }
 

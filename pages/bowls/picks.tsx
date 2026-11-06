@@ -36,7 +36,7 @@ const emptyPending = (): Pending => ({ picks: {} })
  * against whoever you picked in the first round, and so on to the champion.
  * Everything saves as you go and locks at the first kickoff.
  *
- * The bowl admin can open someone's sheet (?for=) to enter picks they sent in.
+ * The bowl admin can open someone's picks (?for=) to enter picks they sent in.
  */
 export default function BowlPicks() {
   const router = useRouter()
@@ -70,14 +70,14 @@ export default function BowlPicks() {
     try {
       const res = await fetch(`/api/bowls/sheet${forId ? `?for=${encodeURIComponent(forId)}` : ''}`, { headers: { Authorization: `Bearer ${await token()}` } })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Could not load the sheet')
+      if (!res.ok) throw new Error(json.error ?? 'Could not load your picks')
       setData(json)
       setPicks(json.picks ?? {})
       setBest5(json.best5 ?? [])
       setTotal(json.titleTotal == null ? '' : String(json.titleTotal))
       setError('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load the sheet')
+      setError(err instanceof Error ? err.message : 'Could not load your picks')
     }
   }, [forId, token])
 
@@ -170,7 +170,7 @@ export default function BowlPicks() {
 
   if (loading || !account || (!data && !error)) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="min-h-screen bg-zinc-950">
         <BowlHeader subtitle="My Picks" />
         <main className="max-w-3xl mx-auto px-4 py-6 space-y-3">
           <div className="skeleton h-14 rounded-2xl" />
@@ -189,28 +189,28 @@ export default function BowlPicks() {
     <div className="glass-card rounded-2xl p-6 text-center">
       <p className="text-3xl mb-2">{icon}</p>
       <p className="text-white font-medium">{title}</p>
-      {body && <div className="text-sm text-slate-400 mt-2">{body}</div>}
+      {body && <div className="text-sm text-zinc-400 mt-2">{body}</div>}
     </div>
   )
 
   return (
-    <div className="min-h-screen bg-surface pb-16">
+    <div className="min-h-screen bg-zinc-950 pb-16">
       <BowlHeader subtitle={data?.proxy ? `Picks for ${data.player?.name}` : 'My Picks'}>
       {data && data.inSeason && games.length > 0 && (
         <div className="border-t border-white/[0.06]">
           <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2 text-[11px]">
-            <span className={`font-semibold px-2 py-1 rounded-full ${prog.picked === prog.total ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-slate-200'}`}>
+            <span className={`font-semibold px-2 py-1 rounded-full ${prog.picked === prog.total ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
               {prog.picked}/{prog.total} picks
             </span>
-            <span className={`font-semibold px-2 py-1 rounded-full ${prog.best5 === prog.best5Needed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-slate-200'}`}>
+            <span className={`font-semibold px-2 py-1 rounded-full ${prog.best5 === prog.best5Needed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
               ★ {prog.best5}/{prog.best5Needed}
             </span>
             {prog.needsTotal && (
-              <span className={`font-semibold px-2 py-1 rounded-full ${prog.hasTotal ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-slate-200'}`}>
+              <span className={`font-semibold px-2 py-1 rounded-full ${prog.hasTotal ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
                 Total {prog.hasTotal ? '✓' : '—'}
               </span>
             )}
-            <span className="ml-auto text-slate-500 truncate" aria-live="polite">
+            <span className="ml-auto text-zinc-500 truncate" aria-live="polite">
               {saving ? 'Saving…' : saveFailed ? 'Not saved' : editable && left ? `Due in ${left}` : lockPassed ? 'Locked' : ''}
             </span>
           </div>
@@ -220,43 +220,43 @@ export default function BowlPicks() {
 
       <main className="max-w-3xl mx-auto px-4 py-4 space-y-3 animate-fade-in">
         {error ? message('⚠️', error) : !data ? null : !data.inSeason ? (
-          message('🏆', "You're not in this year's Bowl Pick'em yet", <Link href="/bowls" className="text-amber-400 hover:text-amber-300">Go to the Bowl Pick&apos;em home to join</Link>)
+          message('🏆', "You're not in this year's Bowl Pick'em yet", <Link href="/bowls" className="text-yellow-400 hover:text-yellow-300">Go to the Bowl Pick&apos;em home to join</Link>)
         ) : games.length === 0 ? (
-          message('📋', "The pick sheet isn't out yet", 'It comes out once the College Football Playoff field is set on Selection Sunday. All picks are due at the first kickoff.')
+          message('🗓️', "Picks aren't open yet", 'They open once the College Football Playoff field is set on Selection Sunday. All picks are due at the first kickoff.')
         ) : (
           <>
             {data.proxy && (
-              <div className="rounded-2xl px-4 py-3 bg-amber-500/10 border border-amber-500/25 flex items-center gap-3">
-                <p className="flex-1 text-sm text-amber-100">
+              <div className="rounded-2xl px-4 py-3 bg-yellow-500/10 border border-yellow-500/25 flex items-center gap-3">
+                <p className="flex-1 text-sm text-yellow-100">
                   Entering picks for <strong>{data.player?.name}</strong>
-                  {lockPassed && <span className="block text-xs text-amber-200/80 mt-0.5">Picks are locked — you&apos;re changing them after the deadline.</span>}
+                  {lockPassed && <span className="block text-xs text-yellow-200/80 mt-0.5">Picks are locked — you&apos;re changing them after the deadline.</span>}
                 </p>
-                <Link href="/bowls/admin" className="shrink-0 text-xs font-semibold text-amber-300 hover:text-amber-200">Done</Link>
+                <Link href="/bowls/admin" className="shrink-0 text-xs font-semibold text-yellow-300 hover:text-yellow-200">Done</Link>
               </div>
             )}
             {data.status === 'setup' && (
-              <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-slate-300">
-                Preview — picks aren&apos;t open yet, and players can&apos;t see the sheet.
+              <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-zinc-300">
+                Preview — picks aren&apos;t open yet, and players can&apos;t see these games.
               </div>
             )}
             {!data.proxy && data.status !== 'setup' && (
               lockPassed ? (
-                <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-slate-300">
-                  🔒 Picks locked {data.lockAt ? lockText(data.lockAt) : ''}. Here&apos;s your sheet.
+                <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-zinc-300">
+                  🔒 Picks locked {data.lockAt ? lockText(data.lockAt) : ''}. Here are yours — <Link href="/bowls/all-picks" className="font-semibold text-yellow-500 hover:text-yellow-400">see everyone&apos;s in All Picks</Link>.
                 </div>
               ) : prog.complete ? (
                 <div className="rounded-2xl px-4 py-3 bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-200">
-                  ✓ Your sheet is complete, {firstName}. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.
+                  ✓ Your picks are all in, {firstName}. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.
                 </div>
               ) : (
-                <div className="rounded-2xl px-4 py-3 bg-gradient-to-br from-amber-600/20 to-orange-700/10 border border-amber-500/20 text-sm text-amber-100">
+                <div className="rounded-2xl px-4 py-3 bg-gradient-to-br from-yellow-500/[0.10] to-transparent border border-yellow-500/25 text-sm text-zinc-200">
                   Pick every game, star your <strong>Best 5</strong> and guess the title game&apos;s total. All picks are due{' '}
                   <strong>{data.lockAt ? lockText(data.lockAt) : 'at the first kickoff'}</strong>.
                 </div>
               )
             )}
             {!!data.enteredByAdmin && !data.proxy && (
-              <p className="text-xs text-slate-500 px-1">The bowl admin entered {data.enteredByAdmin} of these picks for you.</p>
+              <p className="text-xs text-zinc-500 px-1">The bowl admin entered {data.enteredByAdmin} of these picks for you.</p>
             )}
 
             <Best5Summary games={games} best5={best5} />
@@ -275,12 +275,12 @@ export default function BowlPicks() {
                     <h2 className="text-sm font-bold text-white">
                       {p.key === 'semi' || p.key === 'title' ? p.label : `${p.tag} · ${p.label}`}
                     </h2>
-                    <span className="text-[11px] text-slate-500">{p.key === 'semi' ? '3 points each' : p.key === 'title' ? '3 points' : pointsText(p.points)}</span>
-                    <span className="ml-auto text-[11px] text-slate-400 tabular-nums">{done}/{list.length}</span>
+                    <span className="text-[11px] text-zinc-500">{p.key === 'semi' ? '3 points each' : p.key === 'title' ? '3 points' : pointsText(p.points)}</span>
+                    <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">{done}/{list.length}</span>
                   </div>
                   {sub.map(([label, gs]) => gs.length > 0 && (
                     <div key={label ?? 'all'} className="space-y-2 mb-3">
-                      {label && <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-1 pt-1">{label}</p>}
+                      {label && <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-1 pt-1">{label}</p>}
                       {gs.map(g => (
                         <GameCard key={g.id} game={g} byId={byId} picks={picks}
                           starred={best5.includes(g.id)} editable={editable}
@@ -292,11 +292,11 @@ export default function BowlPicks() {
                     <div className="glass-card rounded-2xl p-3 flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-white">Total points in the title game</p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">The last tiebreaker: closest guess wins. On an equal miss, the guess under wins.</p>
+                        <p className="text-[11px] text-zinc-500 mt-0.5">The last tiebreaker: closest guess wins. On an equal miss, the guess under wins.</p>
                       </div>
                       <input value={total} onChange={e => changeTotal(e.target.value)} disabled={!editable}
                         inputMode="numeric" pattern="[0-9]*" placeholder="—" aria-label="Total points in the title game"
-                        className="w-20 shrink-0 text-center text-lg font-bold px-2 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40 disabled:opacity-60" />
+                        className="w-20 shrink-0 text-center text-lg font-bold px-2 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-60" />
                     </div>
                   )}
                 </section>
@@ -315,8 +315,8 @@ function Best5Summary({ games, best5 }: { games: BowlGame[]; best5: string[] }) 
   const names = best5.map(id => games.find(g => g.id === id)).filter(Boolean) as BowlGame[]
   return (
     <div className="glass-card rounded-2xl px-4 py-3">
-      <p className="text-sm font-semibold text-white">★ Your Best 5 <span className="text-slate-500 font-normal">· {names.length} of 5</span></p>
-      <p className="text-xs text-slate-400 mt-1">
+      <p className="text-sm font-semibold text-white">★ Your Best 5 <span className="text-zinc-500 font-normal">· {names.length} of 5</span></p>
+      <p className="text-xs text-zinc-400 mt-1">
         {names.length
           ? names.map(g => g.playoff_round === 'first' ? `${g.away?.name ?? 'TBD'}–${g.home?.name ?? 'TBD'}` : g.name).join(' · ')
           : 'Tap the star on any five games — your Best 5 record is the first tiebreaker.'}
@@ -353,14 +353,14 @@ function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
       <div className="flex items-start gap-2 mb-2">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white truncate">{game.name}</p>
-          <p className="text-[11px] text-slate-500 truncate">
+          <p className="text-[11px] text-zinc-500 truncate">
             {kickoffText(game.kickoff_time, game.time_tbd)}{game.tv ? ` · ${game.tv}` : ''}
             {game.status === 'final' && game.away_score !== null && ` · Final ${game.away_score}–${game.home_score}`}
           </p>
         </div>
         <button onClick={onStar} disabled={!editable && !starred} aria-pressed={starred}
           aria-label={starred ? `Remove ${game.name} from your Best 5` : `Add ${game.name} to your Best 5`}
-          className={`shrink-0 w-8 h-8 -mr-1 -mt-1 rounded-full flex items-center justify-center text-lg transition ${starred ? 'text-amber-400' : 'text-slate-600 hover:text-slate-300'} disabled:cursor-default`}>
+          className={`shrink-0 w-8 h-8 -mr-1 -mt-1 rounded-full flex items-center justify-center text-lg transition ${starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-zinc-300'} disabled:cursor-default`}>
           {starred ? '★' : '☆'}
         </button>
       </div>
@@ -371,8 +371,8 @@ function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
             const from = side === 'away' ? game.away_from : game.home_from
             return (
               <div key={side} className="rounded-xl border border-dashed border-white/[0.1] px-2.5 py-2.5 min-h-[52px] flex flex-col justify-center">
-                <p className="text-xs text-slate-400 leading-tight">{from ? feederText(byId.get(from), byId, picks) : 'TBD'}</p>
-                {from && <p className="text-[10px] text-slate-600 mt-0.5">Pick that game first</p>}
+                <p className="text-xs text-zinc-400 leading-tight">{from ? feederText(byId.get(from), byId, picks) : 'TBD'}</p>
+                {from && <p className="text-[10px] text-zinc-600 mt-0.5">Pick that game first</p>}
               </div>
             )
           }
@@ -383,18 +383,18 @@ function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
             <button key={side} onClick={() => onPick(team)} disabled={!editable} aria-pressed={selected}
               aria-label={`Pick ${team.name}`}
               className={`press relative flex items-center gap-2 rounded-xl px-2.5 py-2.5 min-h-[52px] text-left border transition disabled:cursor-default ${selected
-                ? right ? 'bg-emerald-500/15 border-emerald-500/50' : wrong ? 'bg-red-500/10 border-red-500/40' : 'bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-500/30'
+                ? right ? 'bg-emerald-500/15 border-emerald-500/50' : wrong ? 'bg-red-500/10 border-red-500/40' : 'bg-yellow-500/15 border-yellow-500/60 ring-1 ring-yellow-500/30'
                 : `bg-white/[0.03] border-white/[0.06] ${editable ? 'hover:bg-white/[0.06]' : 'opacity-60'}`}`}>
               <TeamLogo team={team} size={30} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-semibold text-white truncate">
-                  {team.rank && <span className="text-[10px] font-semibold text-slate-400 mr-1">#{team.rank}</span>}
+                  {team.rank && <span className="text-[10px] font-semibold text-zinc-400 mr-1">#{team.rank}</span>}
                   {team.name}
                 </span>
-                {team.record && <span className="block text-[11px] text-slate-500">{team.record}</span>}
+                {team.record && <span className="block text-[11px] text-zinc-500">{team.record}</span>}
               </span>
               {selected && (
-                <span className={`absolute top-1.5 right-1.5 w-4 h-4 rounded-full text-[9px] text-white flex items-center justify-center ${right ? 'bg-emerald-500' : wrong ? 'bg-red-500' : 'bg-amber-500'}`}>
+                <span className={`absolute top-1.5 right-1.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center ${right ? 'bg-emerald-500 text-white' : wrong ? 'bg-red-500 text-white' : 'bg-yellow-500 text-zinc-950'}`}>
                   {wrong ? '✗' : '✓'}
                 </span>
               )}

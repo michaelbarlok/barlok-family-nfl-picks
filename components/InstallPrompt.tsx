@@ -140,7 +140,7 @@ export default function InstallPrompt() {
       <div className="relative w-full sm:max-w-sm bg-[#1a1d23] border border-white/[0.08] rounded-t-2xl sm:rounded-2xl shadow-2xl shadow-black/50 animate-slide-up safe-bottom safe-x max-h-[85vh] overflow-y-auto">
         <div className="p-5">
           <div className="flex items-start gap-3 mb-4">
-            <img src="/icons/icon-192.svg" alt="" className="w-12 h-12 rounded-xl shrink-0" />
+            <img src="/icons/app-192.png" alt="" className="w-12 h-12 rounded-xl shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="text-white font-semibold leading-tight">Add to your Home Screen</p>
               <p className="text-[13px] text-slate-400 leading-snug mt-1">

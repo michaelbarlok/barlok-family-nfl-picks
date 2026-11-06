@@ -1,6 +1,6 @@
 // Bump this string on each deploy so old caches are evicted and users get
 // fresh HTML/assets without having to force-reload.
-const CACHE_NAME = 'nfl-picks-v5'
+const CACHE_NAME = 'nfl-picks-v6'
 const PRECACHE_URLS = [
   '/',
   '/picks',
@@ -9,6 +9,7 @@ const PRECACHE_URLS = [
   '/favicon.svg',
   '/icons/icon-192.svg',
   '/icons/icon-512.svg',
+  '/icons/app-192.png',
 ]
 
 self.addEventListener('install', (event) => {
@@ -68,7 +69,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title || 'Barlok Family NFL Picks', {
       body: payload.body || 'Open the app for details',
-      icon: '/icons/icon-192.svg',
+      icon: '/icons/app-192.png',
       badge: '/icons/icon-192.svg',
       // A shared tag means a burst of messages collapses into one notification
       // rather than stacking a column of them.

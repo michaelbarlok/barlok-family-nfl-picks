@@ -69,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         case 'add': {
-          if (locked) return fail('Picks are locked — the sheet can’t change now.')
+          if (locked) return fail('Picks are locked — the games can’t change now.')
           const phase = body.phase as Phase
           if (!PICKABLE_PHASES.includes(phase)) return fail('Choose a phase for the game.')
           const date = String(body.date ?? '')
@@ -158,8 +158,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         case 'open': {
           if (state.status !== 'setup') return fail(state.status === 'open' ? 'Picks are already open.' : 'Picks are locked.')
           const issues = sheetIssues(games)
-          if (issues.length) return fail(`The sheet isn't ready: ${issues[0]}`)
-          if (!state.lockAt || Date.parse(state.lockAt) <= Date.now()) return fail('The first game on the sheet has already kicked off.')
+          if (issues.length) return fail(`Picks can't open — the games aren't ready: ${issues[0]}`)
+          if (!state.lockAt || Date.parse(state.lockAt) <= Date.now()) return fail('The first game has already kicked off.')
           const { error } = await supabase.from('bowl_seasons').update({ status: 'open' }).eq('season', state.season)
           if (error) throw new Error(error.message)
           break

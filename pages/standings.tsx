@@ -316,6 +316,7 @@ export default function StandingsPage() {
   if (!user) return null
 
   const hasScores = standings.some(s => s.totalPicks > 0)
+  const throughWeek = Math.max(0, ...standings.flatMap(s => s.weekRecords.map(wr => wr.week)))
   const podiumStandings = standings.filter(s => s.totalPicks > 0).slice(0, 3)
 
   // Confetti: fire when the current user expands their own row and has a perfect week
@@ -331,15 +332,6 @@ export default function StandingsPage() {
       }
     }
   }
-
-  const podiumConfig = [
-    // 1st — gold, center (rendered in middle slot)
-    { emoji: '🥇', textColor: 'text-amber-400', ringColor: 'ring-amber-400/40', podiumColor: 'bg-amber-500/20', podiumH: 40, avatarSize: 64, nameSz: 'text-sm' },
-    // 2nd — silver, left slot
-    { emoji: '🥈', textColor: 'text-slate-300', ringColor: 'ring-slate-400/30', podiumColor: 'bg-slate-400/15', podiumH: 28, avatarSize: 52, nameSz: 'text-xs' },
-    // 3rd — bronze, right slot
-    { emoji: '🥉', textColor: 'text-orange-400', ringColor: 'ring-orange-500/30', podiumColor: 'bg-orange-600/15', podiumH: 20, avatarSize: 44, nameSz: 'text-xs' },
-  ]
 
   return (
     <div className="min-h-screen bg-surface pb-page">
@@ -357,13 +349,12 @@ export default function StandingsPage() {
           </div>
         )}
 
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            {season} Season Standings{isArchivedSeason ? ' — Final' : ''}
-          </h2>
-          {lastUpdated && (
-            <p className="text-xs text-slate-500">Updated {lastUpdated}</p>
-          )}
+        <div className="mb-5">
+          <h1 className="text-xl font-bold text-white">Standings</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {season} season{isArchivedSeason ? ' · Final' : throughWeek ? ` · through Week ${throughWeek}` : ''}
+            {lastUpdated && !isArchivedSeason ? ` · updated ${lastUpdated}` : ''}
+          </p>
         </div>
 
         <SeasonSelector value={season} onChange={setSeason} onSeasonsLoaded={setSeasonRows} />
@@ -434,50 +425,43 @@ export default function StandingsPage() {
                   podiumStandings[2] ? { standing: podiumStandings[2], rank: 2 } : null,
                 ].filter(Boolean) as { standing: UserStanding; rank: number }[]
 
+                const MEDAL = [
+                  { badge: 'from-amber-300 to-amber-500 text-slate-950', ring: 'ring-amber-400/70', card: 'border-amber-500/40 bg-amber-500/[0.07]', big: 'text-amber-300' },
+                  { badge: 'from-slate-200 to-slate-400 text-slate-950', ring: 'ring-slate-300/60', card: 'border-white/[0.08] bg-white/[0.03]', big: 'text-white' },
+                  { badge: 'from-orange-400 to-orange-700 text-white', ring: 'ring-orange-500/60', card: 'border-white/[0.08] bg-white/[0.03]', big: 'text-white' },
+                ]
                 return (
-                  <div className="flex items-end justify-center gap-3">
-                    {slots.map(({ standing: s, rank }) => {
+                  <div className="grid grid-cols-3 gap-2.5 items-end pt-3">
+                    {slots.map(({ standing: s }) => {
                       // The slot is positional (left, centre, right), but the
-                      // medal, colour and step height follow the actual rank —
-                      // so a three-way tie is three golds on level steps,
-                      // matching the TIED rows in the table below.
-                      const cfg = podiumConfig[Math.min(Math.max(s.rank, 1), 3) - 1] ?? podiumConfig[rank]
+                      // medal, colour and height follow the actual rank — so a
+                      // three-way tie is three golds side by side, matching
+                      // the TIED rows in the table below.
+                      const place = Math.min(Math.max(s.rank, 1), 3)
+                      const m = MEDAL[place - 1]
                       const isMe = s.user.id === user.id
-                      const record = `${s.wins}-${s.losses}${s.ties > 0 ? `-${s.ties}` : ''}`
+                      const raised = place === 1
+                      const size = raised ? 64 : 52
                       return (
-                        <div key={s.user.id} className="flex flex-col items-center" style={{ minWidth: rank === 0 ? 100 : 80 }}>
-                          {/* Avatar + medal */}
-                          <div className="relative mb-2">
-                            {s.user.avatar_url ? (
-                              <img
-                                src={s.user.avatar_url}
-                                alt=""
-                                className={`rounded-full object-cover border-2 ring-2 ${cfg.ringColor} ${isMe ? 'border-blue-400/60' : 'border-white/10'} transition-all`}
-                                style={{ width: cfg.avatarSize, height: cfg.avatarSize }}
-                              />
-                            ) : (
-                              <div
-                                className={`rounded-full flex items-center justify-center font-bold ring-2 ${cfg.ringColor} ${
-                                  isMe ? 'bg-gradient-to-br from-blue-500 to-indigo-600 border-2 border-blue-400/60' : 'bg-gradient-to-br from-slate-600 to-slate-700 border-2 border-white/10'
-                                } text-white`}
-                                style={{ width: cfg.avatarSize, height: cfg.avatarSize, fontSize: cfg.avatarSize * 0.35 }}
-                              >
-                                {s.user.name?.charAt(0).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="absolute -bottom-1 -right-1 text-base leading-none">{cfg.emoji}</span>
-                          </div>
-                          {/* Name */}
-                          <p className={`font-semibold text-center truncate w-full px-1 ${cfg.nameSz} ${isMe ? 'text-blue-400' : 'text-white'}`}>
-                            {shortName(s.user.name)}
+                        <div key={s.user.id}
+                          className={`relative rounded-2xl border px-2 pt-6 ${raised ? 'pb-5' : 'pb-4'} flex flex-col items-center text-center ${m.card} ${isMe ? 'ring-1 ring-blue-500/50' : ''}`}>
+                          <span className={`absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-gradient-to-b ${m.badge} text-[11px] font-extrabold flex items-center justify-center shadow-lg shadow-black/40`}
+                            title={s.isTied ? `Tied for ${place}` : undefined}>
+                            {place}
+                          </span>
+                          {s.user.avatar_url ? (
+                            <img src={s.user.avatar_url} alt="" className={`rounded-full object-cover ring-2 ${m.ring}`} style={{ width: size, height: size }} />
+                          ) : (
+                            <div className={`rounded-full flex items-center justify-center font-bold ring-2 ${m.ring} ${isMe ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' : 'bg-gradient-to-br from-slate-600 to-slate-700 text-white'}`}
+                              style={{ width: size, height: size, fontSize: size * 0.38 }}>
+                              {s.user.name?.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <p className={`mt-2 text-sm font-semibold leading-tight break-words w-full ${isMe ? 'text-blue-400' : 'text-white'}`}>{shortName(s.user.name)}</p>
+                          <p className={`mt-1 font-extrabold tabular-nums leading-none ${raised ? 'text-2xl' : 'text-xl'} ${m.big}`}>
+                            {s.wins}&ndash;{s.losses}{s.ties > 0 ? `–${s.ties}` : ''}
                           </p>
-                          {/* Record */}
-                          <p className={`text-[11px] font-mono mt-0.5 mb-2 ${cfg.textColor}`}>{record}</p>
-                          {/* Podium block */}
-                          <div
-                            className={`w-full rounded-t-lg ${cfg.podiumColor} border border-white/[0.06]`}
-                            style={{ height: cfg.podiumH }}
-                          />
+                          <p className="mt-1 text-[11px] text-slate-500 tabular-nums">⭐ {s.bestWins}&ndash;{s.bestLosses}{s.isTied ? ' · tied' : ''}</p>
                         </div>
                       )
                     })}
@@ -554,6 +538,10 @@ export default function StandingsPage() {
               ][s.rank - 1] : null
               const isExpanded = expandedUserId === s.user.id
               const hasWeekData = s.weekRecords.length > 0
+              // Level on record with the player just below, and ahead of them
+              // only on the Best 3 tiebreaker — say so, like the bowl standings.
+              const below = standings[idx + 1]
+              const aheadOnBest = !!below && below.rank !== s.rank && below.wins === s.wins && below.losses === s.losses && s.totalPicks > 0
 
               return (
                 <div key={s.user.id}>
@@ -576,7 +564,7 @@ export default function StandingsPage() {
                         {medal ? (
                           <span className="text-lg" title={s.isTied ? `Tied for ${s.rank}` : undefined}>{medal}</span>
                         ) : (
-                          <span className="text-sm text-slate-500 font-medium tabular-nums">
+                          <span className="text-xs sm:text-sm text-slate-500 font-medium tabular-nums whitespace-nowrap">
                             {s.isTied ? 'T-' : ''}{s.rank}
                           </span>
                         )}
@@ -604,10 +592,11 @@ export default function StandingsPage() {
                           </div>
                         )}
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className={`text-sm font-semibold truncate ${isMe ? 'text-blue-400' : 'text-white'}`}>
-                              {s.user.name} {isMe && <span className="text-blue-400/60 font-normal text-xs">(you)</span>}
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                            <p className={`text-sm font-semibold leading-tight ${isMe ? 'text-blue-400' : 'text-white'}`}>
+                              {s.user.name}
                             </p>
+                            {isMe && <span className="shrink-0 text-[9px] font-bold tracking-wider text-blue-300 bg-blue-500/15 px-1 py-0.5 rounded">YOU</span>}
                             {s.winStreak >= 3 && (
                               <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-full leading-none shrink-0" title={`${s.winStreak} correct in a row`}>
                                 🔥{s.winStreak}
@@ -634,6 +623,9 @@ export default function StandingsPage() {
                               </svg>
                             )}
                           </div>
+                          {aheadOnBest && (
+                            <p className="text-[10px] font-medium text-amber-400/90 mt-0.5">Ahead on Best 3</p>
+                          )}
                           {winPct !== null && (
                             <div className="flex items-center gap-2 mt-0.5">
                               <div className="w-12 h-1 bg-white/[0.06] rounded-full overflow-hidden">

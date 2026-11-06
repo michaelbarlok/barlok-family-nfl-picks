@@ -86,6 +86,12 @@ body {
   transform: scale(0.98);
 }
 
+/* A faint light edge on team logos, so dark ones (Raiders, Saints, Steelers,
+   Ravens) still read on the dark background; bright ones barely change. */
+.logo-edge {
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.55)) drop-shadow(0 0 1px rgba(255, 255, 255, 0.35));
+}
+
 /* Glow effect for selected items */
 .glow-blue {
   box-shadow: 0 0 20px rgba(59, 130, 246, 0.2), 0 0 40px rgba(59, 130, 246, 0.1);

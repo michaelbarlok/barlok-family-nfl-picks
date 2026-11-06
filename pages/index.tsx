@@ -875,7 +875,7 @@ function PickChip({ team, standing, star, empty, live, small = false }: {
     <span className={`relative ${box} rounded-full flex items-center justify-center ${ring}`} title={`${t.city} ${t.name} — ${word}`}>
       <img
         src={t.logo} alt={team} loading="lazy" decoding="async"
-        className={`${small ? 'w-5 h-5' : 'w-6 h-6'} object-contain`}
+        className={`logo-edge ${small ? 'w-5 h-5' : 'w-6 h-6'} object-contain`}
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
       />
       {star && <span className="absolute -top-1.5 -right-1.5 text-[11px] leading-none">⭐</span>}
@@ -1222,7 +1222,7 @@ function LiveNowRow({ games, live, myPicks, events, dense = false }: {
               : 'text-amber-400 font-semibold'
           const line = (team: string, score: number | null) => (
             <div className="flex items-center gap-2">
-              <img src={getTeam(team).logo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <img src={getTeam(team).logo} alt="" className="logo-edge w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               <span className={`text-sm font-semibold ${pick === team ? 'text-blue-300' : 'text-slate-200'}`}>{team}</span>
               {lg.possession === team && <span className="text-[10px]" title="Has the ball">🏈</span>}
               <span className={`ml-auto text-lg font-bold tabular-nums ${lead === team ? 'text-white' : 'text-slate-500'}`}>{score ?? 0}</span>
@@ -1341,7 +1341,7 @@ function SplitsCard({ week, splits, players }: { week: number; splits: SplitRow[
             const won = g.winning_team === team
             return (
               <div className={`flex items-center gap-1.5 min-w-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
-                <img src={getTeam(team).logo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <img src={getTeam(team).logo} alt="" className="logo-edge w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 <span className={`text-xs font-semibold ${won ? 'text-emerald-400' : 'text-slate-300'}`}>{team}{won ? ' ✓' : ''}</span>
                 <span className="text-[11px] text-slate-500 tabular-nums">{count}</span>
                 {mine && <span className="text-[9px] font-bold text-blue-300 bg-blue-500/15 px-1.5 py-0.5 rounded-full">YOU</span>}
@@ -1454,7 +1454,7 @@ function SplitsCompact({ week, splits, players }: { week: number; splits: SplitR
             const won = g.winning_team === team
             return (
               <div className={`flex items-center gap-1.5 w-[5.5rem] shrink-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
-                <img src={getTeam(team).logo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <img src={getTeam(team).logo} alt="" className="logo-edge w-5 h-5 object-contain shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 <span className={`text-xs font-semibold ${won ? 'text-emerald-400' : mine ? 'text-blue-300' : 'text-slate-300'}`}>
                   {team}{won ? ' ✓' : ''}
                 </span>

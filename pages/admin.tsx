@@ -1091,7 +1091,7 @@ export default function AdminPage() {
                               <img
                                 src={info.logo} alt={abbr}
                                 loading="lazy" decoding="async"
-                                className={`w-8 h-8 object-contain flex-shrink-0 ${winner && !isWinner && !isTie ? 'opacity-30' : ''}`}
+                                className={`logo-edge w-8 h-8 object-contain flex-shrink-0 ${winner && !isWinner && !isTie ? 'opacity-30' : ''}`}
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                               />
                               <div className="min-w-0">
@@ -1315,7 +1315,7 @@ export default function AdminPage() {
                                     <img
                                       src={info.logo} alt={abbr}
                                       loading="lazy" decoding="async"
-                                      className={`w-8 h-8 object-contain flex-shrink-0 ${currentPick && !isPicked ? 'opacity-30' : ''}`}
+                                      className={`logo-edge w-8 h-8 object-contain flex-shrink-0 ${currentPick && !isPicked ? 'opacity-30' : ''}`}
                                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                                     />
                                     <div className="min-w-0">

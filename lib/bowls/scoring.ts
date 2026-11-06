@@ -11,6 +11,12 @@ import { cleanBest5, cleanPicks, indexGames, optionsFor, type PickMap } from '@/
  * the closest guess at the title game's total points — on an equal miss, the
  * guess under wins.
  *
+ * Records work like the NFL side's: a decided game you didn't pick is a loss.
+ * Best 5 follows Best 3 — a starred game counts its result (a win only if you
+ * picked the winner), and once the games are under way every Best 5 spot left
+ * empty is a loss, so starring nothing never beats starring badly. A record
+ * compares on wins, then on fewer losses.
+ *
  * Results are whatever the last "Pull from ESPN" brought in. Canceled or
  * postponed games are off the pick'em and count for nobody.
  */
@@ -103,6 +109,7 @@ export function score(games: BowlGame[], entries: Entry[]): Scoreboard {
   const titleActual = title && isDecided(title) && title.away_score !== null && title.home_score !== null
     ? title.away_score + title.home_score : null
 
+  const anyDecided = sheet.some(isDecided)
   const rows: Standing[] = entries.map(e => {
     const picks = cleanPicks(games, e.picks).picks
     const best5 = cleanBest5(games, e.best5)
@@ -118,9 +125,10 @@ export function score(games: BowlGame[], entries: Entry[]): Scoreboard {
     let possible = 0
     for (const g of sheet) {
       const t = picks[g.id]
-      if (!t) continue
-      r.picked++
-      const st = pickState(g, t, out)
+      // No pick: nothing to win, and a loss once the game is decided.
+      const st: PickState | null = t ? pickState(g, t, out) : isDecided(g) ? 'lost' : null
+      if (t) r.picked++
+      if (!st) continue
       const pts = PHASE_BY_KEY[g.phase!].points
       if (st === 'won') { r.points += pts; r.wins++; r.byPhase[g.phase!] += pts }
       else if (st === 'lost') r.losses++
@@ -128,6 +136,8 @@ export function score(games: BowlGame[], entries: Entry[]): Scoreboard {
       if (g.phase === 'semi') { if (st === 'won') r.semiWins++; else if (st === 'lost') r.semiLosses++ }
       if (best5.includes(g.id)) { if (st === 'won') r.best5Wins++; else if (st === 'lost') r.best5Losses++ }
     }
+    // Best 5 spots never filled: a loss each, once games have results.
+    if (anyDecided) r.best5Losses += Math.max(0, 5 - best5.length)
     if (title && picks[title.id]) {
       const [a, h] = optionsFor(title, byId, picks)
       r.champion = [a, h].find(t => t?.id === picks[title.id]) ?? teams.get(picks[title.id]) ?? null
@@ -160,7 +170,9 @@ export function score(games: BowlGame[], entries: Entry[]): Scoreboard {
 export function compare(a: Standing, b: Standing, titleActual: number | null): [number, Tiebreak | null] {
   if (a.points !== b.points) return [b.points - a.points, null]
   if (a.best5Wins !== b.best5Wins) return [b.best5Wins - a.best5Wins, 'best5']
+  if (a.best5Losses !== b.best5Losses) return [a.best5Losses - b.best5Losses, 'best5']
   if (a.semiWins !== b.semiWins) return [b.semiWins - a.semiWins, 'semis']
+  if (a.semiLosses !== b.semiLosses) return [a.semiLosses - b.semiLosses, 'semis']
   if (titleActual !== null) {
     const am = a.titleMiss, bm = b.titleMiss
     if (am !== null || bm !== null) {

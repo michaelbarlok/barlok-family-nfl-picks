@@ -30,7 +30,7 @@ export default function BowlRules() {
         <li>Pick a winner for every game. <strong className="text-zinc-200">All picks are due at the first kickoff</strong> — no changes after.</li>
         <li>The playoff is your own bracket: your quarterfinal picks come from who you picked in the first round, and so on up to your champion.</li>
         <li>No penalty for a wrong pick.</li>
-        <li>Choose your <strong className="text-zinc-200">Best 5</strong> — any five games — and guess the total points in the title game.</li>
+        <li>Star your <strong className="text-zinc-200">Best 5</strong> — any five games you&apos;ve picked; empty spots count as losses, like Best 3 — and guess the total points in the title game.</li>
         <li>Ties are broken by Best 5 record, then semifinal picks, then the closest title-game total (on an equal miss, the guess under wins).</li>
         <li>Everyone&apos;s picks show up in All Picks once the first game kicks off.</li>
         <li>A canceled or postponed bowl is removed from the pick&apos;em.</li>

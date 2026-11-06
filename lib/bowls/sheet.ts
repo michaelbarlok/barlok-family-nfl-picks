@@ -120,6 +120,16 @@ function teamFromRow(row: GameRow, side: Side): BowlTeam | null {
 }
 
 /** Team columns for one side of a bowl_games row (all null for TBD). */
+/**
+ * Sample teams — the admin's "preview with real teams" fills empty slots with
+ * last season's matchups. Their ids carry this prefix so they can always be
+ * told apart from real ones: removed in one tap, replaced by a pull, and picks
+ * can't open while any are left.
+ */
+export const SAMPLE_PREFIX = 'sample-'
+export const isSampleTeam = (id: string | null | undefined): boolean => !!id && id.startsWith(SAMPLE_PREFIX)
+export const hasSampleTeam = (g: BowlGame): boolean => isSampleTeam(g.away?.id) || isSampleTeam(g.home?.id)
+
 export function teamToRow(side: Side, t: BowlTeam | null): GameRow {
   const out: GameRow = {}
   for (const c of TEAM_COLS) out[`${side}_${c}`] = null

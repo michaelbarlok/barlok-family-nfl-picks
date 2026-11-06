@@ -4,9 +4,10 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { bowlCaller } from '@/lib/bowls/server'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { pullFromEspn, newGameRow } from '@/lib/bowls/sync'
+import { clearSampleTeams, fillSampleTeams } from '@/lib/bowls/sample'
 import { espnFetch, fetchDate } from '@/lib/bowls/espn'
 import { guessBracket, sheetIssues } from '@/lib/bowls/bracket'
-import { PICKABLE_PHASES, onSheet, sortGames, type BowlGame, type Phase } from '@/lib/bowls/sheet'
+import { PICKABLE_PHASES, isSampleTeam, onSheet, sortGames, type BowlGame, type Phase } from '@/lib/bowls/sheet'
 
 /**
  * Bowl admin: building the pick sheet.
@@ -23,6 +24,8 @@ import { PICKABLE_PHASES, onSheet, sortGames, type BowlGame, type Phase } from '
  *     delete { gameId }            → drop a game added by date
  *     open                         → open picks (the sheet must be complete)
  *     setup                        → back to setting up (before the lock only)
+ *     sample                       → preview: fill empty slots with last season's teams (setup only)
+ *     unsample                     → take every sample team off again
  *
  * Results only ever come in through `pull` — there's no schedule.
  */
@@ -165,6 +168,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           break
         }
 
+        case 'sample': {
+          // A preview only: never once players can see the games.
+          if (state.status !== 'setup') return fail('Sample teams are only for previewing before picks open.')
+          note = await fillSampleTeams(supabase, state.season, espnFetch)
+          break
+        }
+
+        case 'unsample': {
+          note = await clearSampleTeams(supabase, state.season)
+          break
+        }
+
         case 'setup': {
           if (state.status !== 'open') return fail(state.status === 'setup' ? 'Already setting up.' : 'Picks are locked.')
           const { error } = await supabase.from('bowl_seasons').update({ status: 'setup' }).eq('season', state.season)
@@ -200,6 +215,7 @@ async function adminView(supabase: any, loaded: NonNullable<Awaited<ReturnType<t
     ...state,
     games: sortGames(games) as BowlGame[],
     issues: sheetIssues(games),
+    sampleTeams: games.reduce((n, g) => n + (isSampleTeam(g.away?.id) ? 1 : 0) + (isSampleTeam(g.home?.id) ? 1 : 0), 0),
     counts,
     playersWithPicks,
   }

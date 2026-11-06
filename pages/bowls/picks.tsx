@@ -86,7 +86,12 @@ export default function BowlPicks() {
   const games = useMemo(() => data?.games ?? [], [data])
   const byId = useMemo(() => indexGames(games), [games])
   const lockPassed = !!data?.lockAt && now >= Date.parse(data.lockAt)
-  const editable = !!data?.canEdit && (!lockPassed || !!data?.proxy)
+  // Before picks open only the admin sees the games: a preview to tap around
+  // in, where nothing is saved.
+  const preview = data?.status === 'setup'
+  const previewRef = useRef(false)
+  previewRef.current = preview
+  const editable = preview || (!!data?.canEdit && (!lockPassed || !!data?.proxy))
 
   // One save at a time; taps made meanwhile go in the next one.
   const flush = useCallback(async () => {
@@ -129,6 +134,7 @@ export default function BowlPicks() {
   }, [forId, token, toast, load])
 
   const queue = useCallback((delay = 250) => {
+    if (previewRef.current) { pending.current = emptyPending(); return }
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(flush, delay)
   }, [flush])
@@ -212,7 +218,7 @@ export default function BowlPicks() {
               </span>
             )}
             <span className="ml-auto text-zinc-500 truncate" aria-live="polite">
-              {saving ? 'Saving…' : saveFailed ? 'Not saved' : editable && left ? `Due in ${left}` : lockPassed ? 'Locked' : ''}
+              {preview ? 'Preview' : saving ? 'Saving…' : saveFailed ? 'Not saved' : editable && left ? `Due in ${left}` : lockPassed ? 'Locked' : ''}
             </span>
           </div>
         </div>
@@ -237,7 +243,7 @@ export default function BowlPicks() {
             )}
             {data.status === 'setup' && (
               <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-zinc-300">
-                Preview — picks aren&apos;t open yet, and players can&apos;t see these games.
+                Preview — picks aren&apos;t open yet, and players can&apos;t see these games. Tap around all you like: nothing here is saved.
               </div>
             )}
             {!data.proxy && data.status !== 'setup' && (

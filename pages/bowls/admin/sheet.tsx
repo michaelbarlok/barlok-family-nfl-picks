@@ -20,6 +20,7 @@ interface SheetAdmin {
   pulledAt: string | null
   games: BowlGame[]
   issues: string[]
+  sampleTeams: number
   counts: Partial<Record<Phase, number>>
   playersWithPicks: number
 }
@@ -88,6 +89,15 @@ export default function SheetBuilder() {
     } finally {
       setBusy(null)
     }
+  }
+
+  const fillSamples = async () => {
+    const json = await act('sample', { action: 'sample' })
+    if (json?.result) toast.show(`Sample teams on ${json.result.games} games, from the ${json.result.from} bowls`, 'success')
+  }
+  const clearSamples = async () => {
+    const json = await act('unsample', { action: 'unsample' })
+    if (json?.result) toast.show(`Removed ${json.result.teams} sample teams — those slots are TBD again`, 'success')
   }
 
   const pull = async () => {
@@ -239,6 +249,45 @@ export default function SheetBuilder() {
               )}
               {locked && <p className="text-xs font-semibold text-zinc-300">🔒 Picks are locked. You can still pull results and take a canceled game off.</p>}
             </section>
+
+            {/* Preview with real teams */}
+            {(data.status === 'setup' || data.sampleTeams > 0) && games.length > 0 && (
+              <section aria-label="Preview with real teams" className={`rounded-2xl p-4 space-y-3 border ${data.sampleTeams ? 'bg-sky-500/[0.06] border-sky-500/20' : 'glass-card'}`}>
+                {data.sampleTeams ? (
+                  <>
+                    <div>
+                      <p className="text-sm font-semibold text-white">Sample teams are on</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        {data.sampleTeams} team slots are filled with last season&apos;s matchups so you can see how it looks.
+                        Only admins see the games until picks open — and picks can&apos;t open until these come off.
+                        A pull from ESPN replaces any of them it has the real team for.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button onClick={clearSamples} disabled={busy === 'unsample'}
+                        className="press px-4 py-2 rounded-xl bg-white/[0.08] border border-white/[0.12] text-white text-sm font-semibold hover:bg-white/[0.12] disabled:opacity-50 transition">
+                        {busy === 'unsample' ? 'Removing…' : 'Remove sample teams'}
+                      </button>
+                      <Link href="/bowls/picks" className="text-sm font-semibold text-yellow-400 hover:text-yellow-300">See it in My Picks →</Link>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-white">Preview with real teams</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        Fill every TBD slot with last season&apos;s bowl matchups from ESPN — real names, logos and records — to see
+                        how the pick&apos;em will look. Only admins see it, and one tap takes them all off again.
+                      </p>
+                    </div>
+                    <button onClick={fillSamples} disabled={busy === 'sample'}
+                      className="press shrink-0 px-4 py-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 text-yellow-300 text-sm font-semibold hover:bg-yellow-500/15 disabled:opacity-40 transition">
+                      {busy === 'sample' ? 'Filling…' : 'Fill sample teams'}
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Sections */}
             <div>

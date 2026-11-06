@@ -4,6 +4,10 @@ import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
 import { BOWL_SHORT_NAME } from '@/lib/bowls/constants'
 import { LeagueSwitch } from '@/components/bowls/LeagueSwitch'
+import { refreshBowlDevice } from '@/lib/bowls/pushClient'
+
+// Once per visit: keep this device's bowl notifications pointed at its current registration.
+let deviceRefreshed = false
 
 export function BowlAvatar({ name, url, size = 32 }: { name: string; url?: string | null; size?: number }) {
   const [broken, setBroken] = useState(false)
@@ -29,7 +33,33 @@ export function BowlAvatar({ name, url, size = 32 }: { name: string; url?: strin
  */
 export default function BowlHeader({ subtitle, children }: { subtitle?: string; children?: React.ReactNode }) {
   const router = useRouter()
-  const { player, account, nflProfile, isAdmin, signOut } = useBowlAuth()
+  const { player, account, nflProfile, isAdmin, signOut, token } = useBowlAuth()
+  const [unread, setUnread] = useState(0)
+  const onTalk = router.pathname === '/bowls/talk'
+
+  // Bowl Talk's unread count, for the tab. Checked now and then, and whenever
+  // the app comes back to the front.
+  useEffect(() => {
+    if (!player || onTalk) { setUnread(0); return }
+    let cancelled = false
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const res = await fetch('/api/bowls/talk?unread=1', { headers: { Authorization: `Bearer ${await token()}` } })
+        if (res.ok && !cancelled) setUnread((await res.json()).unread ?? 0)
+      } catch { /* the badge is extra */ }
+    }
+    check()
+    const id = setInterval(check, 60000)
+    document.addEventListener('visibilitychange', check)
+    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', check) }
+  }, [player, onTalk, token])
+  useEffect(() => {
+    if (!player || deviceRefreshed) return
+    deviceRefreshed = true
+    token().then(refreshBowlDevice).catch(() => { /* best effort */ })
+  }, [player, token])
+
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -46,6 +76,7 @@ export default function BowlHeader({ subtitle, children }: { subtitle?: string; 
     { href: '/bowls/picks', label: 'My Picks' },
     { href: '/bowls/all-picks', label: 'All Picks' },
     { href: '/bowls/standings', label: 'Standings' },
+    { href: '/bowls/talk', label: 'Talk' },
     ...(isAdmin ? [{ href: '/bowls/admin', label: 'Admin' }] : []),
   ]
   const active = (href: string) => href === '/bowls/admin' ? router.pathname.startsWith('/bowls/admin') : router.pathname === href
@@ -82,6 +113,11 @@ export default function BowlHeader({ subtitle, children }: { subtitle?: string; 
                       </Link>
                     </>
                   )}
+                  {player && (
+                    <Link href="/bowls/settings" onClick={() => setOpen(false)} className="block px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/[0.06] transition">
+                      Notifications
+                    </Link>
+                  )}
                   <button
                     onClick={async () => { setOpen(false); await signOut(); router.push('/bowls/login') }}
                     className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-white/[0.06] transition border-t border-white/[0.06]"
@@ -101,6 +137,11 @@ export default function BowlHeader({ subtitle, children }: { subtitle?: string; 
                 <Link key={t.href} href={t.href} aria-current={on ? 'page' : undefined}
                   className={`shrink-0 h-8 flex items-center px-3 text-[13px] font-medium rounded-full whitespace-nowrap transition ${on ? 'bg-white/[0.10] text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'}`}>
                   {t.label}
+                  {t.href === '/bowls/talk' && unread > 0 && (
+                    <span className="ml-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-yellow-500 text-zinc-950 text-[10px] font-bold flex items-center justify-center" aria-label={`${unread} unread`}>
+                      {unread > 9 ? '9+' : unread}
+                    </span>
+                  )}
                 </Link>
               )
             })}

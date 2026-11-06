@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASE_BY_KEY, PHASES, type BowlGame, type BowlTeam, type Phase } from '@/lib/bowls/sheet'
+import { PHASE_BY_KEY, pickSections, type BowlGame, type BowlTeam, type Phase } from '@/lib/bowls/sheet'
 import { eliminated, isDecided, pickState, teamDirectory, type PickState } from '@/lib/bowls/scoring'
 import { kickoffText } from '@/lib/bowls/format'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
@@ -301,40 +301,44 @@ function ByPlayer({ board, me, selected, onSelect }: { board: Board; me?: string
         </div>
       </div>
 
-      {PHASES.map(p => {
-        const list = (board.games ?? []).filter(g => g.phase === p.key)
-        if (!list.length) return null
+      {pickSections(board.games ?? []).map(sec => {
+        const secPts = sec.key === 'playoff' ? s.byPhase.playoff + s.byPhase.semi + s.byPhase.title : s.byPhase[sec.key]
         return (
-          <section key={p.key} aria-label={p.label}>
+          <section key={sec.key} aria-label={sec.title}>
             <div className="flex items-baseline gap-2 px-1 mb-1.5">
-              <span className={`w-2 h-2 rounded-full self-center ${PHASE_TONE[p.key].dot}`} />
-              <h2 className="text-sm font-bold text-white">{p.key === 'semi' || p.key === 'title' ? p.label : `${p.tag} · ${p.label}`}</h2>
-              <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">{pts(s.byPhase[p.key])} pts</span>
+              <span className={`w-2 h-2 rounded-full self-center ${PHASE_TONE[sec.key].dot}`} />
+              <h2 className="text-sm font-bold text-white">{sec.title}</h2>
+              <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">{pts(secPts)} pts</span>
             </div>
-            <div className="glass-card rounded-2xl divide-y divide-white/[0.04]">
-              {list.map(g => {
-                const t = picks[g.id]
-                const team = t ? teams.get(t) : null
-                const st = t ? pickState(g, t, out) : null
-                const star = s.best5.includes(g.id)
-                return (
-                  <div key={g.id} className="flex items-center gap-3 px-3 py-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-zinc-400 truncate">{star && <span className="text-yellow-400 mr-1">★</span>}{g.name}</p>
-                      {team ? (
-                        <p className={`flex items-center gap-1.5 text-sm font-semibold text-white min-w-0 ${st === 'dead' || st === 'lost' ? 'opacity-70' : ''}`}>
-                          <TeamLogo team={team} size={18} /><span className={`truncate ${st === 'dead' ? 'line-through' : ''}`}>{team.name}</span>
-                        </p>
-                      ) : <p className="text-sm text-zinc-600">No pick</p>}
-                    </div>
-                    {st === 'won' && <span className="shrink-0 text-xs font-bold text-emerald-300">+{pts(PHASE_BY_KEY[g.phase!].points)}</span>}
-                    {st === 'lost' && <span className="shrink-0 text-xs font-bold text-red-300">✗</span>}
-                    {st === 'dead' && <span className="shrink-0 text-[11px] text-red-300/80">out</span>}
-                    {st === 'pending' && <span className="shrink-0 text-[11px] text-zinc-500">{g.status === 'in_progress' ? 'Live' : kickoffText(g.kickoff_time, g.time_tbd).split(' · ')[0]}</span>}
-                  </div>
-                )
-              })}
-            </div>
+            {sec.rounds.map(r => (
+              <div key={r.key} className="mb-2">
+                {r.label && <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-1 mb-1">{r.label}</p>}
+                <div className="glass-card rounded-2xl divide-y divide-white/[0.04]">
+                  {r.games.map(g => {
+                    const t = picks[g.id]
+                    const team = t ? teams.get(t) : null
+                    const st = t ? pickState(g, t, out) : null
+                    const star = s.best5.includes(g.id)
+                    return (
+                      <div key={g.id} className="flex items-center gap-3 px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-zinc-400 truncate">{star && <span className="text-yellow-400 mr-1">★</span>}{g.name}</p>
+                          {team ? (
+                            <p className={`flex items-center gap-1.5 text-sm font-semibold text-white min-w-0 ${st === 'dead' || st === 'lost' ? 'opacity-70' : ''}`}>
+                              <TeamLogo team={team} size={18} /><span className={`truncate ${st === 'dead' ? 'line-through' : ''}`}>{team.name}</span>
+                            </p>
+                          ) : <p className="text-sm text-zinc-600">No pick</p>}
+                        </div>
+                        {st === 'won' && <span className="shrink-0 text-xs font-bold text-emerald-300">+{pts(PHASE_BY_KEY[g.phase!].points)}</span>}
+                        {st === 'lost' && <span className="shrink-0 text-xs font-bold text-red-300">✗</span>}
+                        {st === 'dead' && <span className="shrink-0 text-[11px] text-red-300/80">out</span>}
+                        {st === 'pending' && <span className="shrink-0 text-[11px] text-zinc-500">{g.status === 'in_progress' ? 'Live' : kickoffText(g.kickoff_time, g.time_tbd).split(' · ')[0]}</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </section>
         )
       })}

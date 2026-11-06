@@ -9,6 +9,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
 import InstallPrompt from '@/components/InstallPrompt'
 import SetupPrompt from '@/components/SetupPrompt'
+import BowlApp from '@/components/bowls/BowlApp'
 import '@/styles/globals.css'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -53,6 +54,13 @@ export default function App({ Component, pageProps }: AppProps) {
       router.events.off('routeChangeError', handleDone)
     }
   }, [router])
+
+  // The Bowl Pick'em is its own app under /bowls, with its own sign-in,
+  // players, head tags and home-screen app. None of the NFL providers or
+  // prompts below run there, and nothing below changes for NFL pages.
+  if (router.pathname === '/bowls' || router.pathname.startsWith('/bowls/')) {
+    return <BowlApp Component={Component} pageProps={pageProps} routeKey={router.asPath} navState={navState} />
+  }
 
   return (
     <ErrorBoundary>

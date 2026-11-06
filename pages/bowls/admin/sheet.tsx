@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
 import { bowlSeasonLabel } from '@/lib/bowls/constants'
@@ -9,6 +9,7 @@ import { kickoffText, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
 import BowlHeader from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLine } from '@/components/bowls/ui'
+import SheetBoard from '@/components/bowls/SheetBoard'
 
 interface PullSummary { added: number; updated: number; finals: string[]; removed: string[]; notFound: string[]; pulledAt: string }
 interface SheetAdmin {
@@ -26,16 +27,16 @@ interface FoundGame {
   away: BowlTeam | null; home: BowlTeam | null; phase: Phase | null; removed: boolean; inPool: boolean
 }
 
-const SHORT: Record<Phase, string> = { little: 'Little', between: 'Between', big: 'Big', playoff: 'Playoff', semi: 'Semi', title: 'Title' }
 const ROUND_NAME = { first: 'First round', quarter: 'Quarterfinal', semi: 'Semifinal', title: 'Title game' } as const
 const ROUND_RANK = { first: 0, quarter: 1, semi: 2, title: 3 } as const
 
 /**
  * Bowl admin: build the pick sheet.
  *
- * Pull the bowl season from ESPN, put each game in a phase, add anything else
- * by date (Army–Navy), link up the playoff bracket and open picks. ESPN is
- * only ever asked when you tap Pull — results included.
+ * Pull the bowl season from ESPN, drag each bowl into its phase (playoff
+ * games place themselves), add anything else by date (Army–Navy), link up
+ * the playoff bracket and open picks. ESPN is only ever asked when you tap
+ * Pull — results included.
  */
 export default function SheetBuilder() {
   const router = useRouter()
@@ -45,8 +46,10 @@ export default function SheetBuilder() {
   const [loadError, setLoadError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [pulled, setPulled] = useState<PullSummary | null>(null)
-  const [filter, setFilter] = useState<'sheet' | 'off' | 'all'>('all')
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  // Board moves show at once and save one at a time, in order, so a quick run
+  // of drags can't land out of order.
+  const saves = useRef<Promise<unknown>>(Promise.resolve())
+  const pendingSaves = useRef(0)
   const [date, setDate] = useState('')
   const [found, setFound] = useState<FoundGame[] | null>(null)
   const [addPhase, setAddPhase] = useState<Phase>('big')
@@ -115,14 +118,35 @@ export default function SheetBuilder() {
 
   const byId = useMemo(() => new Map((data?.games ?? []).map(g => [g.id, g])), [data])
 
+  const save = (body: object, patch: (g: BowlGame) => BowlGame, gameId: string) => {
+    setData(d => d && { ...d, games: d.games.map(x => (x.id === gameId ? patch(x) : x)) })
+    pendingSaves.current++
+    saves.current = saves.current.then(async () => {
+      try {
+        const json = await call(body)
+        // Only the last save's answer is shown, so a later move never flickers back.
+        if (pendingSaves.current === 1) setData(json)
+      } catch (err) {
+        toast.show(err instanceof Error ? err.message : 'Could not save that change', 'error')
+        call().then(setData).catch(() => {})
+      } finally {
+        pendingSaves.current--
+      }
+    })
+  }
+  const moveGame = (g: BowlGame, to: Phase | null) => save({ action: 'update', gameId: g.id, phase: to }, x => ({ ...x, phase: to }), g.id)
+  const removeGame = (g: BowlGame, removed: boolean) => save({ action: 'update', gameId: g.id, removed }, x => ({ ...x, removed }), g.id)
+  const renameGame = async (g: BowlGame, name: string) => !!(await act(`name-${g.id}`, { action: 'update', gameId: g.id, name }))
+
   if (loading || !isAdmin) return <div className="min-h-screen bg-surface"><BowlHeader /></div>
 
   const locked = data?.status === 'locked' || data?.status === 'complete'
   const games = data?.games ?? []
   const on = games.filter(g => g.phase && !g.removed)
-  const shown = filter === 'sheet' ? on : filter === 'off' ? games.filter(g => !g.phase || g.removed) : games
   const playoff = on.filter(g => g.playoff_round)
   const total = on.length
+  const counts: Partial<Record<Phase, number>> = {}
+  for (const g of on) counts[g.phase!] = (counts[g.phase!] ?? 0) + 1
 
   return (
     <div className="min-h-screen bg-surface pb-16">
@@ -177,7 +201,7 @@ export default function SheetBuilder() {
               <div className="flex flex-wrap gap-1.5">
                 {PHASES.map(p => (
                   <span key={p.key} className={`text-[11px] font-medium px-2 py-1 rounded-full border ${PHASE_TONE[p.key].badge}`}>
-                    {p.label} · {data.counts[p.key] ?? 0}
+                    {p.label} · {counts[p.key] ?? 0}
                   </span>
                 ))}
               </div>
@@ -213,6 +237,61 @@ export default function SheetBuilder() {
               )}
               {locked && <p className="text-xs font-semibold text-slate-300">🔒 Picks are locked. You can still pull results and take a canceled game off.</p>}
             </section>
+
+            {/* Sections */}
+            <div>
+              <div className="flex items-baseline justify-between gap-2 mb-2 px-1">
+                <h2 className="text-sm font-bold text-white">Sections</h2>
+                <p className="text-[11px] text-slate-500 text-right">{locked ? 'Locked with the picks' : 'Drag games between sections · listed by kickoff'}</p>
+              </div>
+              {games.length === 0 ? (
+                <div className="glass-card rounded-2xl p-4 text-sm text-slate-500">No games yet — tap Pull from ESPN.</div>
+              ) : (
+                <SheetBoard games={games} locked={locked} canDelete={data.status === 'setup'}
+                  onMove={moveGame} onRemove={removeGame} onRename={renameGame}
+                  onDelete={g => act(`del-${g.id}`, { action: 'delete', gameId: g.id })} />
+              )}
+            </div>
+
+            {/* Add by date */}
+            {!locked && (
+              <section className="glass-card rounded-2xl p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Add a game by date</p>
+                  <p className="text-xs text-slate-500 mt-0.5">For a game that isn&apos;t in the pull, like Army–Navy: pick its date and the section it goes in, look it up, and tap Add. It lands in that section, and you can drag it from there.</p>
+                </div>
+                <form onSubmit={search} className="flex flex-wrap gap-2">
+                  <input type="date" value={date} onChange={e => { setDate(e.target.value); setFound(null) }} aria-label="Date" required
+                    className="flex-1 min-w-[150px] px-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 [color-scheme:dark]" />
+                  <select value={addPhase} onChange={e => setAddPhase(e.target.value as Phase)} aria-label="Phase for the game"
+                    className="px-2 py-2 bg-surface border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none">
+                    {PICKABLE_PHASES.map(p => <option key={p} value={p}>{PHASE_BY_KEY[p].label}</option>)}
+                  </select>
+                  <button type="submit" disabled={busy === 'search' || !date}
+                    className="px-4 py-2 rounded-xl bg-white/[0.08] text-sm font-semibold text-white hover:bg-white/[0.12] disabled:opacity-50 transition">
+                    {busy === 'search' ? 'Looking…' : 'Look up'}
+                  </button>
+                </form>
+                {found && (
+                  found.length === 0 ? <p className="text-xs text-slate-500">No games that day.</p> : (
+                    <div className="max-h-72 overflow-y-auto -mx-1 px-1 space-y-1">
+                      {found.map(g => (
+                        <div key={g.espn_id} className="flex items-center gap-2 text-xs rounded-lg px-2.5 py-2 bg-white/[0.03]">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-slate-200 truncate">{g.name}</p>
+                            <p className="text-slate-500 truncate">{kickoffText(g.kickoff_time, g.time_tbd)}{g.tv ? ` · ${g.tv}` : ''}</p>
+                          </div>
+                          {g.inPool && g.phase && !g.removed
+                            ? <span className="text-emerald-300 shrink-0">On the sheet</span>
+                            : <button onClick={() => add(g)} disabled={busy === `add-${g.espn_id}`}
+                                className="shrink-0 font-semibold text-amber-400 hover:text-amber-300 disabled:opacity-50">Add</button>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </section>
+            )}
 
             {/* Bracket */}
             {playoff.length > 0 && (
@@ -268,129 +347,6 @@ export default function SheetBuilder() {
               </section>
             )}
 
-            {/* Add by date */}
-            {!locked && (
-              <section className="glass-card rounded-2xl p-4 space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">Add a game by date</p>
-                  <p className="text-xs text-slate-500 mt-0.5">For games outside the bowl schedule, like Army–Navy.</p>
-                </div>
-                <form onSubmit={search} className="flex flex-wrap gap-2">
-                  <input type="date" value={date} onChange={e => { setDate(e.target.value); setFound(null) }} aria-label="Date" required
-                    className="flex-1 min-w-[150px] px-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 [color-scheme:dark]" />
-                  <select value={addPhase} onChange={e => setAddPhase(e.target.value as Phase)} aria-label="Phase for the game"
-                    className="px-2 py-2 bg-surface border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none">
-                    {PICKABLE_PHASES.map(p => <option key={p} value={p}>{PHASE_BY_KEY[p].label}</option>)}
-                  </select>
-                  <button type="submit" disabled={busy === 'search' || !date}
-                    className="px-4 py-2 rounded-xl bg-white/[0.08] text-sm font-semibold text-white hover:bg-white/[0.12] disabled:opacity-50 transition">
-                    {busy === 'search' ? 'Looking…' : 'Look up'}
-                  </button>
-                </form>
-                {found && (
-                  found.length === 0 ? <p className="text-xs text-slate-500">No games that day.</p> : (
-                    <div className="max-h-72 overflow-y-auto -mx-1 px-1 space-y-1">
-                      {found.map(g => (
-                        <div key={g.espn_id} className="flex items-center gap-2 text-xs rounded-lg px-2.5 py-2 bg-white/[0.03]">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-slate-200 truncate">{g.name}</p>
-                            <p className="text-slate-500 truncate">{kickoffText(g.kickoff_time, g.time_tbd)}{g.tv ? ` · ${g.tv}` : ''}</p>
-                          </div>
-                          {g.inPool && g.phase && !g.removed
-                            ? <span className="text-emerald-300 shrink-0">On the sheet</span>
-                            : <button onClick={() => add(g)} disabled={busy === `add-${g.espn_id}`}
-                                className="shrink-0 font-semibold text-amber-400 hover:text-amber-300 disabled:opacity-50">Add</button>}
-                        </div>
-                      ))}
-                    </div>
-                  )
-                )}
-              </section>
-            )}
-
-            {/* Games */}
-            <section className="glass-card rounded-2xl overflow-hidden">
-              <div className="px-4 pt-3 pb-2 flex items-center gap-1.5 border-b border-white/[0.06]">
-                {([['all', `All · ${games.length}`], ['sheet', `On the sheet · ${total}`], ['off', `Off · ${games.length - total}`]] as const).map(([k, label]) => (
-                  <button key={k} onClick={() => setFilter(k)}
-                    className={`text-xs font-medium px-2.5 py-1.5 rounded-full transition ${filter === k ? 'bg-white/[0.10] text-white' : 'text-slate-400 hover:text-slate-200'}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {games.length === 0 ? (
-                <p className="p-4 text-sm text-slate-500">No games yet — tap Pull from ESPN.</p>
-              ) : shown.map(g => (
-                <div key={g.id} className={`px-4 py-3 border-b border-white/[0.04] last:border-0 ${g.removed ? 'opacity-60' : ''}`}>
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1 min-w-0">
-                      {renaming?.id === g.id ? (
-                        <form onSubmit={async e => { e.preventDefault(); if (await act(`name-${g.id}`, { action: 'update', gameId: g.id, name: renaming.name })) setRenaming(null) }} className="flex gap-1.5">
-                          <input autoFocus value={renaming.name} onChange={e => setRenaming({ id: g.id, name: e.target.value })} aria-label="Game name"
-                            className="flex-1 min-w-0 px-2 py-1 bg-white/[0.06] border border-white/[0.1] rounded-lg text-sm text-white focus:outline-none" />
-                          <button type="submit" className="text-xs font-semibold text-amber-400">Save</button>
-                          <button type="button" onClick={() => setRenaming(null)} className="text-xs text-slate-500">Cancel</button>
-                        </form>
-                      ) : (
-                        <button onClick={() => setRenaming({ id: g.id, name: g.name })} className="text-sm font-medium text-white text-left hover:text-amber-200 transition" title={g.espn_name || undefined}>
-                          {g.name}
-                        </button>
-                      )}
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        {kickoffText(g.kickoff_time, g.time_tbd)}{g.tv ? ` · ${g.tv}` : ''}
-                        {g.status === 'final' && g.away_score !== null && ` · Final ${g.away_score}–${g.home_score}`}
-                        {g.status === 'in_progress' && ` · ${g.status_detail ?? 'In progress'}`}
-                      </p>
-                      <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                        <TeamLine team={g.away} fallback={g.away_from ? `Winner of ${byId.get(g.away_from) ? gameLabel(byId.get(g.away_from)!) : '…'}` : 'TBD'} />
-                        <span className="text-slate-600">vs</span>
-                        <TeamLine team={g.home} fallback={g.home_from ? `Winner of ${byId.get(g.home_from) ? gameLabel(byId.get(g.home_from)!) : '…'}` : 'TBD'} />
-                      </p>
-                      {(g.status === 'canceled' || g.status === 'postponed') && (
-                        <p className="text-[11px] text-red-300 mt-1">ESPN: {g.status} — off the pick&apos;em</p>
-                      )}
-                    </div>
-                    {g.playoff_round && (
-                      <span className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full border ${PHASE_TONE[g.phase ?? 'playoff'].badge}`}>
-                        {ROUND_NAME[g.playoff_round]}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    {!g.playoff_round && !g.removed && (
-                      <div className="flex rounded-full bg-white/[0.04] border border-white/[0.06] p-0.5" role="group" aria-label={`Phase for ${g.name}`}>
-                        {([null, ...PICKABLE_PHASES] as (Phase | null)[]).map(p => (
-                          <button key={p ?? 'off'} disabled={locked || busy === `phase-${g.id}`} aria-pressed={g.phase === p}
-                            onClick={() => g.phase !== p && act(`phase-${g.id}`, { action: 'update', gameId: g.id, phase: p })}
-                            className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition disabled:cursor-default ${g.phase === p
-                              ? p ? 'bg-amber-600 text-white' : 'bg-white/[0.12] text-white'
-                              : 'text-slate-400 hover:text-white'}`}>
-                            {p ? SHORT[p] : 'Off'}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {g.removed ? (
-                      <button onClick={() => act(`rm-${g.id}`, { action: 'update', gameId: g.id, removed: false }, `${g.name} is back on the pick'em`)}
-                        disabled={busy === `rm-${g.id}`} className="text-[11px] font-semibold text-amber-400 hover:text-amber-300">
-                        Put back
-                      </button>
-                    ) : g.phase && (
-                      <button onClick={() => confirm(`Take ${g.name} off the pick'em? Use this for a canceled or postponed game — it won't count for anyone.`) && act(`rm-${g.id}`, { action: 'update', gameId: g.id, removed: true }, `${g.name} is off the pick'em`)}
-                        disabled={busy === `rm-${g.id}`} className="text-[11px] text-slate-500 hover:text-red-400 transition">
-                        Canceled…
-                      </button>
-                    )}
-                    {g.manual && data.status === 'setup' && (
-                      <button onClick={() => confirm(`Delete ${g.name} from the list?`) && act(`del-${g.id}`, { action: 'delete', gameId: g.id })}
-                        className="text-[11px] text-slate-500 hover:text-red-400 transition">
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </section>
           </>
         )}
 

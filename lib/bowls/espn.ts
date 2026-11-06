@@ -135,7 +135,8 @@ export function sheetName(title: string, away: BowlTeam | null, home: BowlTeam |
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function team(c: any): BowlTeam | null {
   const t = c?.team
-  if (!t || String(t.id ?? c.id) === '-1' || t.abbreviation === 'TBD') return null
+  // ESPN's placeholders: TBD with a negative id (-1, -2).
+  if (!t || String(t.id ?? c.id).startsWith('-') || t.abbreviation === 'TBD') return null
   const rank = Number(c.curatedRank?.current)
   const overall = (c.records ?? []).find((r: any) => r.name === 'overall' || r.type === 'total') ?? c.records?.[0]
   return {

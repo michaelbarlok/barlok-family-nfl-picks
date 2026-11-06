@@ -24,7 +24,7 @@ export interface SeasonState {
 }
 
 export const SHEET_MIGRATION_HINT =
-  "The pick sheet isn't set up yet. Run supabase/migrations/21_bowl_sheet.sql in the Supabase SQL editor."
+  "The bowl games aren't set up yet. Run supabase/migrations/21_bowl_sheet.sql in the Supabase SQL editor."
 
 /** Migration 21's tables or column missing. */
 export function isMissingSheetTables(err: { message?: string } | null | undefined): boolean {

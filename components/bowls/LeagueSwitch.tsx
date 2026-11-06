@@ -8,17 +8,20 @@ import { supabase } from '@/lib/supabase'
  * the bowl header.
  */
 export function LeagueSwitch({ current, className = '' }: { current: 'nfl' | 'bowls'; className?: string }) {
-  // On a phone each side is its app's own mark (🏈 / 🏆) so the header title
-  // keeps its one line; from tablet width up they're spelled out.
-  const item = (on: boolean, tone: string) =>
-    `px-2 sm:px-2.5 py-1 rounded-full transition ${on ? `${tone} text-white shadow-sm` : 'text-slate-400 hover:text-slate-200 grayscale-[60%] opacity-80 hover:opacity-100 sm:grayscale-0 sm:opacity-100'}`
+  // Each side is its league's own logo — the NFL shield and the CFP trophy.
+  // On a phone that's all it shows, so the header title keeps its one line;
+  // from tablet width up the names are spelled out beside them.
+  const base = 'flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full transition'
+  const off = 'text-slate-400 hover:text-slate-200 opacity-70 hover:opacity-100 grayscale-[60%] hover:grayscale-0'
   return (
-    <div role="group" aria-label="Switch pick'em" className={`flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/[0.08] text-[13px] sm:text-[11px] font-semibold leading-none shrink-0 ${className}`}>
-      <Link href="/" aria-label="NFL" title="NFL Picks" aria-current={current === 'nfl' ? 'page' : undefined} className={item(current === 'nfl', 'bg-blue-600')}>
-        <span className="sm:hidden" aria-hidden="true">🏈</span><span className="hidden sm:inline">NFL</span>
+    <div role="group" aria-label="Switch pick'em" className={`flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/[0.08] text-[11px] font-semibold leading-none shrink-0 ${className}`}>
+      <Link href="/" aria-label="NFL" title="NFL Picks" aria-current={current === 'nfl' ? 'page' : undefined}
+        className={`${base} ${current === 'nfl' ? 'bg-blue-600 text-white shadow-sm' : off}`}>
+        <img src="/logos/nfl.png" alt="" className="w-4 h-4 object-contain" /><span className="hidden sm:inline">NFL</span>
       </Link>
-      <Link href="/bowls" aria-label="Bowls" title="Bowl Pick'em" aria-current={current === 'bowls' ? 'page' : undefined} className={item(current === 'bowls', 'bg-amber-600')}>
-        <span className="sm:hidden" aria-hidden="true">🏆</span><span className="hidden sm:inline">Bowls</span>
+      <Link href="/bowls" aria-label="Bowls" title="Bowl Pick'em" aria-current={current === 'bowls' ? 'page' : undefined}
+        className={`${base} ${current === 'bowls' ? 'bg-zinc-800 text-yellow-400 ring-1 ring-yellow-500/50 shadow-sm' : off}`}>
+        <img src="/logos/cfp-trophy.svg" alt="" className="w-4 h-4 object-contain" /><span className="hidden sm:inline">Bowls</span>
       </Link>
     </div>
   )

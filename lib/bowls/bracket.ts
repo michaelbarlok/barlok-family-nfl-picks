@@ -113,7 +113,7 @@ export function gameLabel(g: BowlGame): string {
 export function sheetIssues(games: BowlGame[]): string[] {
   const byId = indexGames(games)
   const sheet = sortGames(games.filter(onSheet))
-  if (!sheet.length) return ['No games are on the sheet yet.']
+  if (!sheet.length) return ["No games are in the pick'em yet."]
   const issues: string[] = []
   const fed = new Set<string>()
   for (const g of sheet) {
@@ -123,7 +123,7 @@ export function sheetIssues(games: BowlGame[]): string[] {
       const from = side === 'away' ? g.away_from : g.home_from
       if (from) {
         const f = byId.get(from)
-        if (!f || !onSheet(f)) issues.push(`${gameLabel(g)}: the game feeding it isn't on the sheet.`)
+        if (!f || !onSheet(f)) issues.push(`${gameLabel(g)}: the game feeding it isn't in the pick'em.`)
         else if (fed.has(from)) issues.push(`${gameLabel(f)} feeds two games.`)
         else fed.add(from)
       } else if (!(side === 'away' ? g.away : g.home)) {

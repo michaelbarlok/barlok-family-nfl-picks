@@ -61,20 +61,18 @@ export default function BowlLogin() {
     }
   }
 
-  const input = 'w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/30 transition'
+  const input = 'w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500/30 transition'
 
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center px-4 relative overflow-hidden">
-      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-amber-600/15 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[400px] h-[400px] bg-orange-700/10 rounded-full blur-[120px] pointer-events-none" />
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4 relative overflow-hidden">
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-yellow-600/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[400px] h-[400px] bg-zinc-500/10 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-md relative z-10 animate-fade-in">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl mb-5 shadow-lg shadow-amber-500/25">
-            <span className="text-3xl">🏆</span>
-          </div>
+          <img src="/logos/cfp-trophy.svg" alt="" className="mx-auto h-20 w-auto mb-5 drop-shadow-[0_8px_24px_rgba(202,138,4,0.25)]" />
           <h1 className="text-2xl font-bold text-white">{BOWL_NAME}</h1>
-          <p className="text-slate-400 mt-1.5 text-sm">College football bowl season</p>
+          <p className="text-zinc-400 mt-1.5 text-sm">College football bowl season</p>
         </div>
 
         <div className="glass-card rounded-2xl p-8">
@@ -84,24 +82,24 @@ export default function BowlLogin() {
             <div className="animate-slide-up">
               <div className="mb-5 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-sm">{resetSent}</div>
               <button type="button" onClick={() => { setMode('signin'); setResetSent('') }}
-                className="w-full press bg-white/[0.06] border border-white/[0.08] text-slate-200 font-semibold py-3 rounded-xl hover:bg-white/[0.10] transition">
+                className="w-full press bg-white/[0.06] border border-white/[0.08] text-zinc-200 font-semibold py-3 rounded-xl hover:bg-white/[0.10] transition">
                 Back to sign in
               </button>
             </div>
           ) : (
             <form onSubmit={mode === 'forgot' ? forgot : submit} className="space-y-5">
               {mode === 'forgot' && (
-                <p className="text-sm text-slate-400">Enter your email and we&apos;ll send you a link to choose a new password.</p>
+                <p className="text-sm text-zinc-400">Enter your email and we&apos;ll send you a link to choose a new password.</p>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">Email address</label>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">Email address</label>
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={input} placeholder="you@example.com" required />
               </div>
               {mode === 'signin' && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-medium text-slate-300">Password</label>
-                    <button type="button" onClick={() => { setMode('forgot'); setError('') }} className="text-xs text-amber-400 hover:text-amber-300 transition">
+                    <label className="block text-sm font-medium text-zinc-300">Password</label>
+                    <button type="button" onClick={() => { setMode('forgot'); setError('') }} className="text-xs text-yellow-400 hover:text-yellow-300 transition">
                       Forgot password?
                     </button>
                   </div>
@@ -109,18 +107,18 @@ export default function BowlLogin() {
                 </div>
               )}
               <button type="submit" disabled={busy}
-                className="w-full press bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold py-3 rounded-xl hover:brightness-110 disabled:opacity-50 transition shadow-lg shadow-amber-600/20">
+                className="w-full press bg-gradient-to-b from-yellow-400 to-yellow-600 text-zinc-950 font-semibold py-3 rounded-xl hover:brightness-110 disabled:opacity-50 transition shadow-lg shadow-yellow-600/20">
                 {busy ? (mode === 'forgot' ? 'Sending…' : 'Signing in…') : mode === 'forgot' ? 'Send reset link' : 'Sign in'}
               </button>
               {mode === 'forgot' && (
-                <button type="button" onClick={() => { setMode('signin'); setError('') }} className="w-full text-sm text-slate-400 hover:text-slate-200 transition">
+                <button type="button" onClick={() => { setMode('signin'); setError('') }} className="w-full text-sm text-zinc-400 hover:text-zinc-200 transition">
                   Back to sign in
                 </button>
               )}
             </form>
           )}
         </div>
-        <p className="text-center text-sm text-slate-500 mt-6">Not in yet? Ask Michael for an invite.</p>
+        <p className="text-center text-sm text-zinc-500 mt-6">Not in yet? Ask Michael for an invite.</p>
       </div>
     </div>
   )

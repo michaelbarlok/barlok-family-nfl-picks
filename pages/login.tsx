@@ -101,9 +101,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md relative z-10 animate-fade-in">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl mb-5 shadow-lg shadow-blue-500/25">
-            <span className="text-3xl">🏈</span>
-          </div>
+          <img src="/logos/nfl.png" alt="NFL" className="inline-block w-16 h-16 object-contain mb-5 drop-shadow-lg" />
           <h1 className="text-2xl font-bold text-white">Barlok Family</h1>
           <p className="text-slate-400 mt-1.5 text-sm">NFL Picks &middot; {CURRENT_SEASON} Season</p>
         </div>

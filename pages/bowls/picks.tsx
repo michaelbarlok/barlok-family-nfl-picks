@@ -133,7 +133,9 @@ export default function BowlPicks() {
     }
   }, [forId, token, toast, load])
 
-  const queue = useCallback((delay = 250) => {
+  // Picks and stars save the moment you tap (like NFL picks); the total waits
+  // for you to stop typing.
+  const queue = useCallback((delay = 0) => {
     if (previewRef.current) { pending.current = emptyPending(); return }
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(flush, delay)
@@ -145,8 +147,15 @@ export default function BowlPicks() {
     setPicks(next)
     pending.current.picks[game.id] = team.id
     for (const id of cleared) pending.current.picks[id] = null
+    // A star stays only on a picked game, so it comes off with a cleared pick.
+    const unstarred = best5.filter(id => cleared.includes(id))
+    if (unstarred.length) {
+      const nextBest = best5.filter(id => !cleared.includes(id))
+      setBest5(nextBest)
+      pending.current.best5 = nextBest
+    }
     if (cleared.length) {
-      toast.show(`That changes your bracket — ${cleared.length} later playoff ${cleared.length === 1 ? 'pick was' : 'picks were'} cleared. Pick ${cleared.length === 1 ? 'it' : 'them'} again.`, 'info')
+      toast.show(`That changes your bracket — ${cleared.length} later playoff ${cleared.length === 1 ? 'pick was' : 'picks were'} cleared${unstarred.length ? ` (and ${unstarred.length === 1 ? 'its' : 'their'} Best 5 ${unstarred.length === 1 ? 'star' : 'stars'})` : ''}. Pick ${cleared.length === 1 ? 'it' : 'them'} again.`, 'info')
     }
     queue()
   }
@@ -154,6 +163,11 @@ export default function BowlPicks() {
   const toggleStar = (game: BowlGame) => {
     if (!editable) return
     const has = best5.includes(game.id)
+    // Like Best 3: pick the game first, then star it.
+    if (!has && !picks[game.id]) {
+      toast.show('Pick a team in that game first, then star it.', 'info')
+      return
+    }
     if (!has && best5.length >= 5) {
       toast.show('You have your Best 5 — unstar one to swap it out.', 'info')
       return
@@ -171,8 +185,19 @@ export default function BowlPicks() {
     queue(700)
   }
 
-  // Save anything waiting before the page goes away.
-  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); flush() } }, [flush])
+  // Save anything waiting before the page goes away — or the app goes to the
+  // background, where a phone may never come back to it.
+  useEffect(() => {
+    const now = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; flush() } }
+    const onHide = () => { if (document.visibilityState === 'hidden') now() }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', now)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', now)
+      now()
+    }
+  }, [flush])
 
   if (loading || !account || (!data && !error)) {
     return (
@@ -338,7 +363,7 @@ function Best5Summary({ games, best5 }: { games: BowlGame[]; best5: string[] }) 
       <p className="text-xs text-zinc-400 mt-1">
         {names.length
           ? names.map(g => g.playoff_round === 'first' ? `${g.away?.name ?? 'TBD'}–${g.home?.name ?? 'TBD'}` : g.name).join(' · ')
-          : 'Tap the star on any five games — your Best 5 record is the first tiebreaker.'}
+          : 'Pick a game, then tap its star — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.'}
       </p>
     </div>
   )
@@ -377,8 +402,9 @@ function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
             {game.status === 'final' && game.away_score !== null && ` · Final ${game.away_score}–${game.home_score}`}
           </p>
         </div>
-        <button onClick={onStar} disabled={!editable && !starred} aria-pressed={starred}
+        <button onClick={onStar} disabled={(!editable || !picks[game.id]) && !starred} aria-pressed={starred}
           aria-label={starred ? `Remove ${game.name} from your Best 5` : `Add ${game.name} to your Best 5`}
+          title={!starred && !picks[game.id] ? 'Pick a team first' : undefined}
           className={`shrink-0 w-8 h-8 -mr-1 -mt-1 rounded-full flex items-center justify-center text-lg transition ${starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-zinc-300'} disabled:cursor-default`}>
           {starred ? '★' : '☆'}
         </button>

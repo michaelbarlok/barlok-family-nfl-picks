@@ -77,15 +77,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // ── Best 5 and the title-game total ──
-    let best5 = cleanBest5(games, stored.best5)
+    // Like Best 3 on the NFL side, a star goes only on a game you've picked:
+    // one asked for on an unpicked game is dropped, and a star comes off when
+    // its game's pick does (a changed playoff pick can clear later ones).
+    const starred = (ids: string[]) => cleanBest5(games, ids).filter(id => valid[id])
+    const storedBest5 = cleanBest5(games, stored.best5)
+    let best5 = starred(storedBest5)
     let titleTotal = stored.titleTotal
-    if (body.best5 !== undefined || body.titleTotal !== undefined) {
+    if (body.best5 !== undefined || body.titleTotal !== undefined || best5.length !== storedBest5.length) {
       if (body.best5 !== undefined) {
         if (!Array.isArray(body.best5) || body.best5.some((x: unknown) => typeof x !== 'string')) {
           return res.status(400).json({ error: 'best5 must be a list of games' })
         }
         if (new Set(body.best5).size > 5) return res.status(400).json({ error: 'Best 5 is five games.' })
-        best5 = cleanBest5(games, body.best5)
+        best5 = starred(body.best5)
       }
       if (body.titleTotal !== undefined) {
         const t = body.titleTotal

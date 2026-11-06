@@ -12,6 +12,7 @@ import { SHOW_INSTALL_EVENT } from '@/components/InstallPrompt'
 import { isStandalone } from '@/lib/pushClient'
 import { useTalkUnread } from '@/lib/useTalkUnread'
 import { useCurrentWeekLocked } from '@/lib/useCurrentWeekLocked'
+import { NflBowlsToggle } from '@/components/bowls/LeagueSwitch'
 
 const baseTabs = [
   { label: 'Home', icon: '🏠', href: '/' },
@@ -262,6 +263,8 @@ export default function Nav({ pickStatus, containerClassName = 'max-w-3xl' }: Na
                 </p>
               </div>
             </div>
+            {/* NFL ⇄ Bowls, only for people in both pick'ems — renders nothing for anyone else. */}
+            {user && <NflBowlsToggle userId={user.id} className="ml-auto mr-2" />}
             {user && (
               <div className="relative" ref={menuRef}>
                 <button

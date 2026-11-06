@@ -4,6 +4,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser } from '@/lib/apiAuth'
 import { currentBowlSeason, isMissingBowlTables, MIGRATION_HINT } from '@/lib/bowls/server'
 import { copyPhotoForBowls } from '@/lib/bowls/photo'
+import { loadSeason } from '@/lib/bowls/season'
 
 /**
  * Join this year's Bowl Pick'em with one tap.
@@ -28,7 +29,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (isMissingBowlTables(seasonErr)) return res.status(500).json({ error: MIGRATION_HINT })
     const current = (seasonRow as Awaited<ReturnType<typeof currentBowlSeason>>) ?? null
     if (!current) return res.status(400).json({ error: 'There is no bowl season open to join yet.' })
-    if (current.status === 'locked' || current.status === 'complete') {
+    // Locked by the clock at the first kickoff on the sheet.
+    let status = current.status
+    try {
+      const loaded = await loadSeason(supabase)
+      if (loaded) status = loaded.state.status
+    } catch { /* sheet tables not set up yet: go by the stored status */ }
+    if (status === 'locked' || status === 'complete') {
       return res.status(400).json({ error: "This year's picks are already locked, so joining is closed." })
     }
 

@@ -3,7 +3,7 @@ import type { AppProps } from 'next/app'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
 import { BowlAuthProvider } from '@/lib/bowls/auth'
-import { BOWL_NAME, BOWL_SHORT_NAME } from '@/lib/bowls/constants'
+import { BOWL_NAME } from '@/lib/bowls/constants'
 
 /**
  * The frame every /bowls page renders in — the Bowl Pick'em's own app.
@@ -30,8 +30,8 @@ export default function BowlApp({ Component, pageProps, routeKey, navState }: {
             <meta name="theme-color" content="#09090b" />
             <meta name="apple-mobile-web-app-capable" content="yes" />
             <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-            <meta name="apple-mobile-web-app-title" content={BOWL_SHORT_NAME} />
-            <link rel="apple-touch-icon" href="/icons/bowls-180.png" />
+            <meta name="apple-mobile-web-app-title" content="Football Picks" />
+            <link rel="apple-touch-icon" href="/icons/app-180.png" />
             <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
             {/* The bowl app's black, behind everything (overscroll, notch) — on bowl pages only. */}
             <style>{'html, body { background-color: #09090b; }'}</style>

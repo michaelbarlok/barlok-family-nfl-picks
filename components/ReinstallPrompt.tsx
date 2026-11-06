@@ -21,6 +21,8 @@ import { isStandalone } from '@/lib/pushClient'
 
 export const REINSTALL_CLOSED_EVENT = 'app:reinstall-closed'
 const SEEN_KEY = 'football-picks-icon'
+/** Where to reinstall from: the site's own domain. */
+const APP_HOME = 'https://barlokfootballpicks.app'
 
 function isIOS(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -93,7 +95,7 @@ export default function ReinstallPrompt({ tone = 'nfl' }: { tone?: 'nfl' | 'bowl
 
   if (!open) return null
 
-  const link = `${window.location.origin}${startPath}`
+  const link = `${APP_HOME}${startPath}`
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(link)
@@ -143,7 +145,7 @@ export default function ReinstallPrompt({ tone = 'nfl' }: { tone?: 'nfl' | 'bowl
           </ol>
 
           <div className={`flex items-center gap-2 mb-3 pl-3 pr-1 py-1 rounded-xl border ${t.link}`}>
-            <span className="flex-1 min-w-0 truncate text-[13px] select-all">{link}</span>
+            <span className="flex-1 min-w-0 truncate text-[13px] select-all">{link.replace(/^https:\/\//, '')}</span>
             <button onClick={copy} className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${t.primary}`}>
               {copied ? 'Copied ✓' : 'Copy link'}
             </button>

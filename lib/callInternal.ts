@@ -30,7 +30,24 @@ export async function callInternal(
     headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
   }
 
-  const res = await fetch(`${baseUrl}${path}`, { method: 'POST', headers })
+  // The production address can be a domain that forwards to its www form
+  // (barlokfootballpicks.app → www.barlokfootballpicks.app). fetch drops the
+  // Authorization header when a redirect changes host, and the target would
+  // then turn the call away — so follow that one hop here, headers kept. Only
+  // to the same site; anywhere else is left unfollowed.
+  let url = `${baseUrl}${path}`
+  let res = await fetch(url, { method: 'POST', headers, redirect: 'manual' })
+  for (let hops = 0; hops < 3 && res.status >= 300 && res.status < 400; hops++) {
+    const location = res.headers.get('location')
+    if (!location) break
+    const from = new URL(url)
+    const to = new URL(location, url)
+    const sameSite = to.protocol === 'https:' &&
+      (to.host === from.host || to.host === `www.${from.host}` || from.host === `www.${to.host}`)
+    if (!sameSite) break
+    url = to.toString()
+    res = await fetch(url, { method: 'POST', headers, redirect: 'manual' })
+  }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) console.error(`callInternal ${path} → ${res.status}`, typeof body === 'object' ? JSON.stringify(body).slice(0, 300) : '')
   return { status: res.status, body }

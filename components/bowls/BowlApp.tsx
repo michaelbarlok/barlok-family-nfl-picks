@@ -4,6 +4,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
 import { BowlAuthProvider } from '@/lib/bowls/auth'
 import { BOWL_NAME } from '@/lib/bowls/constants'
+import ReinstallPrompt from '@/components/ReinstallPrompt'
 
 /**
  * The frame every /bowls page renders in — the Bowl Pick'em's own app.
@@ -42,6 +43,8 @@ export default function BowlApp({ Component, pageProps, routeKey, navState }: {
           </div>
 
           <Component key={routeKey} {...pageProps} />
+          {/* Once, on iPhones with the app installed before the new icon. */}
+          <ReinstallPrompt tone="bowls" />
         </ToastProvider>
       </BowlAuthProvider>
     </ErrorBoundary>

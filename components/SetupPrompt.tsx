@@ -7,6 +7,7 @@ import {
   enableDevicePush, getPushState, getTalkEnabled, setTalkEnabled, type PushState,
 } from '@/lib/pushClient'
 import { INSTALL_CLOSED_EVENT, installPromptWillShow } from '@/components/InstallPrompt'
+import { reinstallPromptWillShow } from '@/components/ReinstallPrompt'
 
 /**
  * "Finish setting up" — asks for whatever this player is still missing:
@@ -59,6 +60,8 @@ export default function SetupPrompt() {
   useEffect(() => {
     if (!userId || onSkippedPage || checked.current) return
     checked.current = true
+    // Asked to reinstall this visit: the new install will ask for these itself.
+    if (reinstallPromptWillShow()) return
     let cancelled = false
 
     const evaluate = async () => {

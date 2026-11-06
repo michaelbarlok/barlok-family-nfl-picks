@@ -9,6 +9,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastProvider } from '@/components/Toast'
 import InstallPrompt from '@/components/InstallPrompt'
 import SetupPrompt from '@/components/SetupPrompt'
+import ReinstallPrompt from '@/components/ReinstallPrompt'
 import BowlApp from '@/components/bowls/BowlApp'
 import '@/styles/globals.css'
 
@@ -105,6 +106,8 @@ export default function App({ Component, pageProps }: AppProps) {
           <InstallPrompt />
           {/* Profile photo + notifications. Waits for the install sheet. */}
           <SetupPrompt />
+          {/* Once, on iPhones with the app installed before the new icon. */}
+          <ReinstallPrompt />
         </ToastProvider>
         </SeasonProvider>
       </AuthProvider>

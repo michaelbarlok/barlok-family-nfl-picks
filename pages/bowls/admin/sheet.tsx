@@ -1,0 +1,405 @@
+import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/router'
+import { useBowlAuth } from '@/lib/bowls/auth'
+import { bowlSeasonLabel } from '@/lib/bowls/constants'
+import { PHASES, PHASE_BY_KEY, PICKABLE_PHASES, type BowlGame, type BowlTeam, type Phase } from '@/lib/bowls/sheet'
+import { gameLabel } from '@/lib/bowls/bracket'
+import { kickoffText, lockText } from '@/lib/bowls/format'
+import { useToast } from '@/components/Toast'
+import BowlHeader from '@/components/bowls/BowlHeader'
+import { PHASE_TONE, TeamLine } from '@/components/bowls/ui'
+
+interface PullSummary { added: number; updated: number; finals: string[]; removed: string[]; notFound: string[]; pulledAt: string }
+interface SheetAdmin {
+  season: number
+  status: 'setup' | 'open' | 'locked' | 'complete'
+  lockAt: string | null
+  pulledAt: string | null
+  games: BowlGame[]
+  issues: string[]
+  counts: Partial<Record<Phase, number>>
+  playersWithPicks: number
+}
+interface FoundGame {
+  espn_id: string; name: string; kickoff_time: string | null; time_tbd: boolean; tv: string | null
+  away: BowlTeam | null; home: BowlTeam | null; phase: Phase | null; removed: boolean; inPool: boolean
+}
+
+const SHORT: Record<Phase, string> = { little: 'Little', between: 'Between', big: 'Big', playoff: 'Playoff', semi: 'Semi', title: 'Title' }
+const ROUND_NAME = { first: 'First round', quarter: 'Quarterfinal', semi: 'Semifinal', title: 'Title game' } as const
+const ROUND_RANK = { first: 0, quarter: 1, semi: 2, title: 3 } as const
+
+/**
+ * Bowl admin: build the pick sheet.
+ *
+ * Pull the bowl season from ESPN, put each game in a phase, add anything else
+ * by date (Army–Navy), link up the playoff bracket and open picks. ESPN is
+ * only ever asked when you tap Pull — results included.
+ */
+export default function SheetBuilder() {
+  const router = useRouter()
+  const { loading, account, isAdmin, token } = useBowlAuth()
+  const toast = useToast()
+  const [data, setData] = useState<SheetAdmin | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [pulled, setPulled] = useState<PullSummary | null>(null)
+  const [filter, setFilter] = useState<'sheet' | 'off' | 'all'>('all')
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const [date, setDate] = useState('')
+  const [found, setFound] = useState<FoundGame[] | null>(null)
+  const [addPhase, setAddPhase] = useState<Phase>('big')
+
+  useEffect(() => {
+    if (loading) return
+    if (!account) router.replace('/bowls/login')
+    else if (!isAdmin) router.replace('/bowls')
+  }, [loading, account, isAdmin, router])
+
+  const call = useCallback(async (body?: object) => {
+    const res = await fetch('/api/bowls/admin/sheet', body
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` }, body: JSON.stringify(body) }
+      : { headers: { Authorization: `Bearer ${await token()}` } })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error ?? 'Something went wrong')
+    return json
+  }, [token])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    call().then(setData).catch(err => setLoadError(err instanceof Error ? err.message : 'Could not load the sheet'))
+  }, [isAdmin, call])
+
+  const act = async (key: string, body: object, done?: string) => {
+    setBusy(key)
+    try {
+      const json = await call(body)
+      setData(json)
+      if (done) toast.show(done, 'success')
+      return json
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Something went wrong', 'error')
+      return null
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const pull = async () => {
+    const json = await act('pull', { action: 'pull' })
+    if (json?.result) {
+      setPulled(json.result)
+      toast.show('Pulled from ESPN', 'success')
+    }
+  }
+
+  const search = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!date) return
+    setBusy('search')
+    try {
+      const json = await call({ action: 'search', date })
+      setFound(json.games)
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Could not reach ESPN', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const add = async (g: FoundGame) => {
+    const json = await act(`add-${g.espn_id}`, { action: 'add', espnId: g.espn_id, date, phase: addPhase }, `${g.name} added to ${PHASE_BY_KEY[addPhase].label}`)
+    if (json) setFound(list => list?.map(x => x.espn_id === g.espn_id ? { ...x, inPool: true, phase: addPhase, removed: false } : x) ?? null)
+  }
+
+  const byId = useMemo(() => new Map((data?.games ?? []).map(g => [g.id, g])), [data])
+
+  if (loading || !isAdmin) return <div className="min-h-screen bg-surface"><BowlHeader /></div>
+
+  const locked = data?.status === 'locked' || data?.status === 'complete'
+  const games = data?.games ?? []
+  const on = games.filter(g => g.phase && !g.removed)
+  const shown = filter === 'sheet' ? on : filter === 'off' ? games.filter(g => !g.phase || g.removed) : games
+  const playoff = on.filter(g => g.playoff_round)
+  const total = on.length
+
+  return (
+    <div className="min-h-screen bg-surface pb-16">
+      <BowlHeader subtitle="Pick sheet" />
+      <main className="max-w-3xl mx-auto px-4 py-5 space-y-4 animate-fade-in">
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-lg font-bold text-white">Pick sheet</h1>
+          {data && (
+            <span className="text-[11px] font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+              {bowlSeasonLabel(data.season)} · {data.status === 'setup' ? 'Setting up' : data.status === 'open' ? 'Picks open' : data.status === 'locked' ? 'Locked' : 'Complete'}
+            </span>
+          )}
+        </div>
+
+        {loadError && <div className="glass-card rounded-2xl p-4 text-sm text-red-400">{loadError}</div>}
+        {!data && !loadError && <div className="skeleton h-40 rounded-2xl" />}
+
+        {data && (
+          <>
+            {/* ESPN */}
+            <section className="glass-card rounded-2xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white">ESPN</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Games, times, teams and results come in only when you tap Pull — nothing updates on its own.
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    {data.pulledAt ? `Last pulled ${new Date(data.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Not pulled yet'}
+                  </p>
+                </div>
+                <button onClick={pull} disabled={busy === 'pull'}
+                  className="press shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-semibold hover:brightness-110 disabled:opacity-50 transition">
+                  {busy === 'pull' ? 'Pulling…' : 'Pull from ESPN'}
+                </button>
+              </div>
+              {pulled && (
+                <div className="mt-3 text-xs text-slate-300 bg-white/[0.03] border border-white/[0.06] rounded-xl px-3 py-2 space-y-0.5" role="status">
+                  <p>{pulled.added ? `${pulled.added} new games · ` : ''}{pulled.updated} updated{pulled.finals.length ? ` · ${pulled.finals.length} newly final` : ''}</p>
+                  {pulled.removed.length > 0 && <p className="text-red-300">Canceled or postponed — off the pick&apos;em: {pulled.removed.join(', ')}</p>}
+                  {pulled.notFound.length > 0 && <p className="text-amber-300">Not found on ESPN this time: {pulled.notFound.join(', ')}</p>}
+                </div>
+              )}
+            </section>
+
+            {/* Where the sheet stands */}
+            <section className="glass-card rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">On the sheet · {total}</p>
+                {data.playersWithPicks > 0 && <p className="text-[11px] text-slate-500">{data.playersWithPicks} {data.playersWithPicks === 1 ? 'player has' : 'players have'} started picking</p>}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {PHASES.map(p => (
+                  <span key={p.key} className={`text-[11px] font-medium px-2 py-1 rounded-full border ${PHASE_TONE[p.key].badge}`}>
+                    {p.label} · {data.counts[p.key] ?? 0}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400">
+                {data.lockAt
+                  ? <>Picks lock <span className="text-white font-medium">{lockText(data.lockAt)}</span> — the first kickoff on the sheet.</>
+                  : 'Picks lock at the first kickoff on the sheet.'}
+              </p>
+              {data.issues.length > 0 && data.status === 'setup' && (
+                <div className="text-xs text-amber-200/90 bg-amber-500/[0.06] border border-amber-500/15 rounded-xl px-3 py-2">
+                  <p className="font-semibold mb-1">Before picks can open:</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {data.issues.slice(0, 6).map(i => <li key={i}>{i}</li>)}
+                    {data.issues.length > 6 && <li>…and {data.issues.length - 6} more</li>}
+                  </ul>
+                </div>
+              )}
+              {data.status === 'setup' && (
+                <button onClick={() => confirm(`Open picks? Everyone in the pick'em can start picking, and the sheet locks ${data.lockAt ? lockText(data.lockAt) : 'at the first kickoff'}.`) && act('open', { action: 'open' }, 'Picks are open')}
+                  disabled={busy === 'open' || data.issues.length > 0}
+                  className="press w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-semibold hover:brightness-110 disabled:opacity-40 transition">
+                  {busy === 'open' ? 'Opening…' : 'Open picks'}
+                </button>
+              )}
+              {data.status === 'open' && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-semibold text-emerald-300">✓ Picks are open</span>
+                  <button onClick={() => confirm('Hide the sheet again while you fix something? Picks already made are kept.') && act('setup', { action: 'setup' }, 'Back to setting up')}
+                    disabled={busy === 'setup'} className="text-xs text-slate-400 hover:text-white transition">
+                    Back to setup
+                  </button>
+                </div>
+              )}
+              {locked && <p className="text-xs font-semibold text-slate-300">🔒 Picks are locked. You can still pull results and take a canceled game off.</p>}
+            </section>
+
+            {/* Bracket */}
+            {playoff.length > 0 && (
+              <section className="glass-card rounded-2xl p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white">Playoff bracket</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Each slot is the winner of an earlier game — that&apos;s how everyone&apos;s picks carry up their own bracket.
+                      Check it against the official bracket: ESPN doesn&apos;t say which semifinal each quarterfinal winner goes to.
+                    </p>
+                  </div>
+                  {!locked && (
+                    <button onClick={() => act('guess', { action: 'guess' }, 'Filled in from the rankings')} disabled={busy === 'guess'}
+                      className="shrink-0 text-xs font-semibold text-amber-400 hover:text-amber-300 disabled:opacity-50 transition">
+                      Fill in from rankings
+                    </button>
+                  )}
+                </div>
+                {(['quarter', 'semi', 'title'] as const).map(round => {
+                  const list = playoff.filter(g => g.playoff_round === round)
+                  if (!list.length) return null
+                  const feeders = playoff.filter(f => f.playoff_round && ROUND_RANK[f.playoff_round] < ROUND_RANK[round])
+                  return (
+                    <div key={round} className="space-y-2">
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{ROUND_NAME[round]}{list.length > 1 ? 's' : ''}</p>
+                      {list.map(g => (
+                        <div key={g.id} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2.5">
+                          <p className="text-xs font-medium text-slate-300 mb-1.5">{g.name}</p>
+                          <div className="grid sm:grid-cols-2 gap-1.5">
+                            {(['away', 'home'] as const).map(side => {
+                              const from = side === 'away' ? g.away_from : g.home_from
+                              const team = side === 'away' ? g.away : g.home
+                              if (!from && team) {
+                                return <div key={side} className="text-xs text-slate-200 px-2.5 py-2 rounded-lg bg-white/[0.03]"><TeamLine team={team} /></div>
+                              }
+                              return (
+                                <select key={side} value={from ?? ''} disabled={locked || busy === `link-${g.id}-${side}`}
+                                  aria-label={`${g.name} ${side === 'away' ? 'first' : 'second'} team`}
+                                  onChange={e => act(`link-${g.id}-${side}`, { action: 'link', gameId: g.id, side, from: e.target.value || null })}
+                                  className={`w-full text-xs rounded-lg px-2 py-2 bg-surface border ${from ? 'border-white/[0.1] text-slate-200' : 'border-amber-500/40 text-amber-200'} focus:outline-none focus:ring-2 focus:ring-amber-500/40`}>
+                                  <option value="">Winner of…</option>
+                                  {feeders.map(f => <option key={f.id} value={f.id}>Winner of {gameLabel(f)}</option>)}
+                                </select>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </section>
+            )}
+
+            {/* Add by date */}
+            {!locked && (
+              <section className="glass-card rounded-2xl p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Add a game by date</p>
+                  <p className="text-xs text-slate-500 mt-0.5">For games outside the bowl schedule, like Army–Navy.</p>
+                </div>
+                <form onSubmit={search} className="flex flex-wrap gap-2">
+                  <input type="date" value={date} onChange={e => { setDate(e.target.value); setFound(null) }} aria-label="Date" required
+                    className="flex-1 min-w-[150px] px-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 [color-scheme:dark]" />
+                  <select value={addPhase} onChange={e => setAddPhase(e.target.value as Phase)} aria-label="Phase for the game"
+                    className="px-2 py-2 bg-surface border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none">
+                    {PICKABLE_PHASES.map(p => <option key={p} value={p}>{PHASE_BY_KEY[p].label}</option>)}
+                  </select>
+                  <button type="submit" disabled={busy === 'search' || !date}
+                    className="px-4 py-2 rounded-xl bg-white/[0.08] text-sm font-semibold text-white hover:bg-white/[0.12] disabled:opacity-50 transition">
+                    {busy === 'search' ? 'Looking…' : 'Look up'}
+                  </button>
+                </form>
+                {found && (
+                  found.length === 0 ? <p className="text-xs text-slate-500">No games that day.</p> : (
+                    <div className="max-h-72 overflow-y-auto -mx-1 px-1 space-y-1">
+                      {found.map(g => (
+                        <div key={g.espn_id} className="flex items-center gap-2 text-xs rounded-lg px-2.5 py-2 bg-white/[0.03]">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-slate-200 truncate">{g.name}</p>
+                            <p className="text-slate-500 truncate">{kickoffText(g.kickoff_time, g.time_tbd)}{g.tv ? ` · ${g.tv}` : ''}</p>
+                          </div>
+                          {g.inPool && g.phase && !g.removed
+                            ? <span className="text-emerald-300 shrink-0">On the sheet</span>
+                            : <button onClick={() => add(g)} disabled={busy === `add-${g.espn_id}`}
+                                className="shrink-0 font-semibold text-amber-400 hover:text-amber-300 disabled:opacity-50">Add</button>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </section>
+            )}
+
+            {/* Games */}
+            <section className="glass-card rounded-2xl overflow-hidden">
+              <div className="px-4 pt-3 pb-2 flex items-center gap-1.5 border-b border-white/[0.06]">
+                {([['all', `All · ${games.length}`], ['sheet', `On the sheet · ${total}`], ['off', `Off · ${games.length - total}`]] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => setFilter(k)}
+                    className={`text-xs font-medium px-2.5 py-1.5 rounded-full transition ${filter === k ? 'bg-white/[0.10] text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {games.length === 0 ? (
+                <p className="p-4 text-sm text-slate-500">No games yet — tap Pull from ESPN.</p>
+              ) : shown.map(g => (
+                <div key={g.id} className={`px-4 py-3 border-b border-white/[0.04] last:border-0 ${g.removed ? 'opacity-60' : ''}`}>
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      {renaming?.id === g.id ? (
+                        <form onSubmit={async e => { e.preventDefault(); if (await act(`name-${g.id}`, { action: 'update', gameId: g.id, name: renaming.name })) setRenaming(null) }} className="flex gap-1.5">
+                          <input autoFocus value={renaming.name} onChange={e => setRenaming({ id: g.id, name: e.target.value })} aria-label="Game name"
+                            className="flex-1 min-w-0 px-2 py-1 bg-white/[0.06] border border-white/[0.1] rounded-lg text-sm text-white focus:outline-none" />
+                          <button type="submit" className="text-xs font-semibold text-amber-400">Save</button>
+                          <button type="button" onClick={() => setRenaming(null)} className="text-xs text-slate-500">Cancel</button>
+                        </form>
+                      ) : (
+                        <button onClick={() => setRenaming({ id: g.id, name: g.name })} className="text-sm font-medium text-white text-left hover:text-amber-200 transition" title={g.espn_name || undefined}>
+                          {g.name}
+                        </button>
+                      )}
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {kickoffText(g.kickoff_time, g.time_tbd)}{g.tv ? ` · ${g.tv}` : ''}
+                        {g.status === 'final' && g.away_score !== null && ` · Final ${g.away_score}–${g.home_score}`}
+                        {g.status === 'in_progress' && ` · ${g.status_detail ?? 'In progress'}`}
+                      </p>
+                      <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                        <TeamLine team={g.away} fallback={g.away_from ? `Winner of ${byId.get(g.away_from) ? gameLabel(byId.get(g.away_from)!) : '…'}` : 'TBD'} />
+                        <span className="text-slate-600">vs</span>
+                        <TeamLine team={g.home} fallback={g.home_from ? `Winner of ${byId.get(g.home_from) ? gameLabel(byId.get(g.home_from)!) : '…'}` : 'TBD'} />
+                      </p>
+                      {(g.status === 'canceled' || g.status === 'postponed') && (
+                        <p className="text-[11px] text-red-300 mt-1">ESPN: {g.status} — off the pick&apos;em</p>
+                      )}
+                    </div>
+                    {g.playoff_round && (
+                      <span className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full border ${PHASE_TONE[g.phase ?? 'playoff'].badge}`}>
+                        {ROUND_NAME[g.playoff_round]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {!g.playoff_round && !g.removed && (
+                      <div className="flex rounded-full bg-white/[0.04] border border-white/[0.06] p-0.5" role="group" aria-label={`Phase for ${g.name}`}>
+                        {([null, ...PICKABLE_PHASES] as (Phase | null)[]).map(p => (
+                          <button key={p ?? 'off'} disabled={locked || busy === `phase-${g.id}`} aria-pressed={g.phase === p}
+                            onClick={() => g.phase !== p && act(`phase-${g.id}`, { action: 'update', gameId: g.id, phase: p })}
+                            className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition disabled:cursor-default ${g.phase === p
+                              ? p ? 'bg-amber-600 text-white' : 'bg-white/[0.12] text-white'
+                              : 'text-slate-400 hover:text-white'}`}>
+                            {p ? SHORT[p] : 'Off'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {g.removed ? (
+                      <button onClick={() => act(`rm-${g.id}`, { action: 'update', gameId: g.id, removed: false }, `${g.name} is back on the pick'em`)}
+                        disabled={busy === `rm-${g.id}`} className="text-[11px] font-semibold text-amber-400 hover:text-amber-300">
+                        Put back
+                      </button>
+                    ) : g.phase && (
+                      <button onClick={() => confirm(`Take ${g.name} off the pick'em? Use this for a canceled or postponed game — it won't count for anyone.`) && act(`rm-${g.id}`, { action: 'update', gameId: g.id, removed: true }, `${g.name} is off the pick'em`)}
+                        disabled={busy === `rm-${g.id}`} className="text-[11px] text-slate-500 hover:text-red-400 transition">
+                        Canceled…
+                      </button>
+                    )}
+                    {g.manual && data.status === 'setup' && (
+                      <button onClick={() => confirm(`Delete ${g.name} from the list?`) && act(`del-${g.id}`, { action: 'delete', gameId: g.id })}
+                        className="text-[11px] text-slate-500 hover:text-red-400 transition">
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </section>
+          </>
+        )}
+
+        <div className="flex justify-center gap-5 text-sm">
+          <Link href="/bowls/admin" className="text-amber-400 hover:text-amber-300">Players</Link>
+          <Link href="/bowls/picks" className="text-amber-400 hover:text-amber-300">Preview the sheet</Link>
+          <Link href="/bowls" className="text-amber-400 hover:text-amber-300">Home</Link>
+        </div>
+      </main>
+    </div>
+  )
+}

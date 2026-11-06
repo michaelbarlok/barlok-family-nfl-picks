@@ -125,7 +125,8 @@ export function BowlAuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.signOut().catch(() => {})
   }
 
-  const token = async () => (await supabase.auth.getSession()).data.session?.access_token ?? ''
+  // Stable, so pages can depend on it without refetching on every render.
+  const token = useCallback(async () => (await supabase.auth.getSession()).data.session?.access_token ?? '', [])
 
   const isAdmin = !!account && (account.email.toLowerCase() === ADMIN_EMAIL || player?.is_admin === true)
 

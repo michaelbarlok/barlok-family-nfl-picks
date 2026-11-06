@@ -15,12 +15,15 @@ interface AdminPlayer {
   signed_in: boolean
 }
 
+interface Progress { id: string; picked: number; complete: boolean }
+
 /**
  * Bowl admin — run separately from the NFL admin page.
  *
  * Invite people by name and email: someone new gets a bowl-only account with
  * no NFL access; an NFL player is added with the login they already have.
- * The pick sheet builder comes in the next update.
+ * Each player's progress shows as counts, and "Enter picks" opens their sheet
+ * for picks they sent you. The sheet itself is built on /bowls/admin/sheet.
  */
 export default function BowlAdmin() {
   const router = useRouter()
@@ -33,6 +36,7 @@ export default function BowlAdmin() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [sheet, setSheet] = useState<{ status: string; totalGames: number; players: Progress[] } | null>(null)
 
   useEffect(() => {
     if (loading) return
@@ -48,6 +52,10 @@ export default function BowlAdmin() {
       setSeason({ season: json.season, status: json.status })
       setPlayers(json.players ?? [])
       setListError('')
+      try {
+        const st = await fetch('/api/bowls/status', { headers: { Authorization: `Bearer ${await token()}` } })
+        if (st.ok) setSheet(await st.json())
+      } catch { /* progress is extra */ }
     } catch (err) {
       setListError(err instanceof Error ? err.message : 'Could not load players')
     } finally {
@@ -98,6 +106,9 @@ export default function BowlAdmin() {
   }
 
   if (loading || !isAdmin) return <div className="min-h-screen bg-surface"><BowlHeader /></div>
+
+  const sheetOut = !!sheet && sheet.status !== 'setup' && sheet.totalGames > 0
+  const progressOf = new Map((sheet?.players ?? []).map(p => [p.id, p]))
 
   const input = 'w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40'
 
@@ -154,7 +165,17 @@ export default function BowlAdmin() {
                   <p className="text-[11px] text-slate-500 truncate">
                     {p.email}{!p.signed_in && <span className="text-amber-400"> · hasn&apos;t signed in yet</span>}
                   </p>
+                  {sheetOut && (
+                    <p className={`text-[11px] ${progressOf.get(p.id)?.complete ? 'text-emerald-300' : 'text-slate-400'}`}>
+                      {progressOf.get(p.id)?.complete ? '✓ Sheet complete' : `${progressOf.get(p.id)?.picked ?? 0} of ${sheet!.totalGames} picks`}
+                    </p>
+                  )}
                 </div>
+                {sheetOut && (
+                  <Link href={`/bowls/picks?for=${p.id}`} className="text-xs font-medium text-amber-400 hover:text-amber-300 transition">
+                    Enter picks
+                  </Link>
+                )}
                 {!p.signed_in && (
                   <button onClick={() => act(p, 'resend')} disabled={busy === p.id}
                     className="text-xs font-medium text-amber-400 hover:text-amber-300 disabled:opacity-50 transition">
@@ -170,10 +191,13 @@ export default function BowlAdmin() {
           )}
         </div>
 
-        <p className="text-xs text-slate-600 text-center">
-          The pick sheet builder — pulling bowl games from ESPN, phases and the playoff bracket — comes in the next update.
+        <p className="text-xs text-slate-500 text-center px-4">
+          &ldquo;Enter picks&rdquo; is for picks someone sent you — it shows you their sheet, so use it only when they ask.
         </p>
-        <Link href="/bowls" className="block text-center text-sm text-amber-400 hover:text-amber-300">← Bowl Pick&apos;em home</Link>
+        <div className="flex justify-center gap-5 text-sm">
+          <Link href="/bowls/admin/sheet" className="text-amber-400 hover:text-amber-300">Pick sheet</Link>
+          <Link href="/bowls" className="text-amber-400 hover:text-amber-300">Bowl Pick&apos;em home</Link>
+        </div>
       </main>
     </div>
   )

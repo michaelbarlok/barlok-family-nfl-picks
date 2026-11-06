@@ -1,5 +1,5 @@
 import { fetchBowlSeason, type EspnGame, type Fetcher } from '@/lib/bowls/espn'
-import { loadGames } from '@/lib/bowls/season'
+import { gameRowFitter, loadGames } from '@/lib/bowls/season'
 import { SAMPLE_PREFIX, isSampleTeam, sortGames, teamToRow, type BowlGame, type BowlTeam } from '@/lib/bowls/sheet'
 
 /*
@@ -45,6 +45,7 @@ export async function fillSampleTeams(supabase: Db, season: number, fetcher: Fet
   const named = ordered.filter(g => byName.has(g.name))
   const rest = ordered.filter(g => !byName.has(g.name))
 
+  const fit = await gameRowFitter(supabase)
   let touched = 0, teams = 0
   for (const g of [...named, ...rest]) {
     const open = (['away', 'home'] as const).filter(side => !g[side] && !(side === 'away' ? g.away_from : g.home_from))
@@ -52,7 +53,7 @@ export async function fillSampleTeams(supabase: Db, season: number, fetcher: Fet
     const src = take(g)
     let update: Record<string, unknown> = {}
     for (const side of open) update = { ...update, ...teamToRow(side, sample(src[side]!)) }
-    const { error } = await supabase.from('bowl_games').update(update).eq('id', g.id)
+    const { error } = await supabase.from('bowl_games').update(fit(update)).eq('id', g.id)
     if (error) throw new Error(error.message)
     touched++
     teams += open.length
@@ -63,13 +64,14 @@ export async function fillSampleTeams(supabase: Db, season: number, fetcher: Fet
 /** Take every sample team off, leaving those slots TBD again. */
 export async function clearSampleTeams(supabase: Db, season: number): Promise<{ games: number; teams: number }> {
   const games = await loadGames(supabase, season)
+  const fit = await gameRowFitter(supabase)
   let touched = 0, teams = 0
   for (const g of games) {
     const sides = (['away', 'home'] as const).filter(side => isSampleTeam(g[side]?.id))
     if (!sides.length) continue
     let update: Record<string, unknown> = {}
     for (const side of sides) update = { ...update, ...teamToRow(side, null) }
-    const { error } = await supabase.from('bowl_games').update(update).eq('id', g.id)
+    const { error } = await supabase.from('bowl_games').update(fit(update)).eq('id', g.id)
     if (error) throw new Error(error.message)
     touched++
     teams += sides.length

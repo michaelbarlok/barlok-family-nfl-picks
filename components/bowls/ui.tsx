@@ -30,15 +30,22 @@ export function TeamLogo({ team, size = 28 }: { team: BowlTeam | null; size?: nu
   )
 }
 
-/** "#9 Alabama" */
-export function TeamName({ team, className = '' }: { team: BowlTeam; className?: string }) {
+/**
+ * "#9 Alabama" — or, with `nickname`, "#9 **Alabama** Crimson Tide": the
+ * school in bold, the nickname in regular weight.
+ */
+export function TeamName({ team, className = '', nickname = false }: { team: BowlTeam; className?: string; nickname?: boolean }) {
   return (
     <span className={className}>
       {team.rank && <span className="text-[0.8em] font-semibold text-zinc-400 mr-1">#{team.rank}</span>}
-      {team.name}
+      {nickname ? <span className="font-bold">{team.name}</span> : team.name}
+      {nickname && team.nickname && <span className="font-normal"> {team.nickname}</span>}
     </span>
   )
 }
+
+/** "Tennessee Volunteers", for labels. */
+export const fullTeamName = (team: BowlTeam): string => team.nickname ? `${team.name} ${team.nickname}` : team.name
 
 /** One team in a short line: "#9 Alabama (10-3)", or TBD. */
 export function TeamLine({ team, fallback = 'TBD' }: { team: BowlTeam | null; fallback?: string }) {

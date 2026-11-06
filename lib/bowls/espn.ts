@@ -139,9 +139,13 @@ function team(c: any): BowlTeam | null {
   if (!t || String(t.id ?? c.id).startsWith('-') || t.abbreviation === 'TBD') return null
   const rank = Number(c.curatedRank?.current)
   const overall = (c.records ?? []).find((r: any) => r.name === 'overall' || r.type === 'total') ?? c.records?.[0]
+  const name = t.shortDisplayName || t.location || t.displayName || t.abbreviation
+  // ESPN's `name` is the nickname ("Volunteers"); `location` is the school.
+  const nickname = typeof t.name === 'string' && t.name.trim() && t.name !== name ? t.name.trim() : null
   return {
     id: String(t.id),
-    name: t.shortDisplayName || t.location || t.displayName || t.abbreviation,
+    name,
+    nickname,
     abbr: t.abbreviation ?? null,
     logo: t.logo ?? null,
     rank: Number.isFinite(rank) && rank > 0 && rank < 99 ? rank : null,

@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { isValidOrigin } from '@/lib/validation'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { bowlCaller } from '@/lib/bowls/server'
-import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
+import { gameRowFitter, isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { pullFromEspn, newGameRow } from '@/lib/bowls/sync'
 import { clearSampleTeams, fillSampleTeams } from '@/lib/bowls/sample'
 import { espnFetch, fetchDate } from '@/lib/bowls/espn'
@@ -85,8 +85,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const { error } = await supabase.from('bowl_games').update({ phase, removed: false }).eq('id', already.id)
             if (error) throw new Error(error.message)
           } else {
+            const fit = await gameRowFitter(supabase)
             const { error } = await supabase.from('bowl_games')
-              .insert(newGameRow(state.season, found, new Date().toISOString(), { manual: true, phase }))
+              .insert(fit(newGameRow(state.season, found, new Date().toISOString(), { manual: true, phase })))
             if (error) throw new Error(error.message)
           }
           break

@@ -8,7 +8,7 @@ import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
 import BowlHeader from '@/components/bowls/BowlHeader'
 import BowlRules from '@/components/bowls/BowlRules'
-import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
+import { PHASE_TONE, TeamLogo, TeamName, fullTeamName } from '@/components/bowls/ui'
 
 interface SheetData {
   season: number
@@ -400,16 +400,13 @@ function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
           const wrong = decided && selected && game.winner_team_id !== team.id
           return (
             <button key={side} onClick={() => onPick(team)} disabled={!editable} aria-pressed={selected}
-              aria-label={`Pick ${team.name}`}
+              aria-label={`Pick ${fullTeamName(team)}`}
               className={`press relative flex items-center gap-2 rounded-xl px-2.5 py-2.5 min-h-[52px] text-left border transition disabled:cursor-default ${selected
                 ? right ? 'bg-emerald-500/15 border-emerald-500/50' : wrong ? 'bg-red-500/10 border-red-500/40' : 'bg-yellow-500/15 border-yellow-500/60 ring-1 ring-yellow-500/30'
                 : `bg-white/[0.03] border-white/[0.06] ${editable ? 'hover:bg-white/[0.06]' : 'opacity-60'}`}`}>
               <TeamLogo team={team} size={30} />
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold text-white truncate">
-                  {team.rank && <span className="text-[10px] font-semibold text-zinc-400 mr-1">#{team.rank}</span>}
-                  {team.name}
-                </span>
+                <TeamName team={team} nickname className="block text-[13px] leading-snug text-white line-clamp-2" />
                 {team.record && <span className="block text-[11px] text-zinc-500">{team.record}</span>}
               </span>
               {selected && (

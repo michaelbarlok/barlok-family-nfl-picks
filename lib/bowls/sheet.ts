@@ -9,7 +9,10 @@ export type GameStatus = 'scheduled' | 'in_progress' | 'final' | 'canceled' | 'p
 
 export interface BowlTeam {
   id: string
+  /** The school, as ESPN shortens it: "Tennessee", "SC State". */
   name: string
+  /** "Volunteers" — null when ESPN has none. */
+  nickname?: string | null
   abbr: string | null
   logo: string | null
   rank: number | null
@@ -100,7 +103,7 @@ export function lockTime(games: BowlGame[]): string | null {
 /* ── database rows ─────────────────────────────────────────────────── */
 
 type Side = 'away' | 'home'
-const TEAM_COLS = ['team_id', 'name', 'abbr', 'logo', 'rank', 'record', 'color'] as const
+const TEAM_COLS = ['team_id', 'name', 'nickname', 'abbr', 'logo', 'rank', 'record', 'color'] as const
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type GameRow = Record<string, any>
@@ -111,6 +114,7 @@ function teamFromRow(row: GameRow, side: Side): BowlTeam | null {
   return {
     id: String(id),
     name: row[`${side}_name`] ?? 'TBD',
+    nickname: row[`${side}_nickname`] ?? null,
     abbr: row[`${side}_abbr`] ?? null,
     logo: row[`${side}_logo`] ?? null,
     rank: row[`${side}_rank`] ?? null,
@@ -119,7 +123,6 @@ function teamFromRow(row: GameRow, side: Side): BowlTeam | null {
   }
 }
 
-/** Team columns for one side of a bowl_games row (all null for TBD). */
 /**
  * Sample teams — the admin's "preview with real teams" fills empty slots with
  * last season's matchups. Their ids carry this prefix so they can always be
@@ -130,12 +133,14 @@ export const SAMPLE_PREFIX = 'sample-'
 export const isSampleTeam = (id: string | null | undefined): boolean => !!id && id.startsWith(SAMPLE_PREFIX)
 export const hasSampleTeam = (g: BowlGame): boolean => isSampleTeam(g.away?.id) || isSampleTeam(g.home?.id)
 
+/** Team columns for one side of a bowl_games row (all null for TBD). */
 export function teamToRow(side: Side, t: BowlTeam | null): GameRow {
   const out: GameRow = {}
   for (const c of TEAM_COLS) out[`${side}_${c}`] = null
   if (t) {
     out[`${side}_team_id`] = t.id
     out[`${side}_name`] = t.name
+    out[`${side}_nickname`] = t.nickname ?? null
     out[`${side}_abbr`] = t.abbr
     out[`${side}_logo`] = t.logo
     out[`${side}_rank`] = t.rank

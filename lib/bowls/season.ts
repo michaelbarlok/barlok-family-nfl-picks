@@ -37,6 +37,23 @@ export function effectiveStatus(raw: SeasonStatus, lockAt: string | null, now = 
   return raw
 }
 
+/*
+ * Migration 23 adds the team nickname columns. Until it's run, games are saved
+ * without them, so merging first never breaks a pull. Checked once per server
+ * instance after it's there; while it isn't, every save asks again, so running
+ * the migration takes effect straight away.
+ */
+let nicknameColumns = false
+const NICKNAME_COLS = ['away_nickname', 'home_nickname']
+export async function gameRowFitter(supabase: Db): Promise<(row: GameRow) => GameRow> {
+  if (!nicknameColumns) {
+    const { error } = await supabase.from('bowl_games').select('away_nickname').limit(1)
+    nicknameColumns = !error
+  }
+  if (nicknameColumns) return row => row
+  return row => Object.fromEntries(Object.entries(row).filter(([k]) => !NICKNAME_COLS.includes(k)))
+}
+
 export async function loadGames(supabase: Db, season: number): Promise<BowlGame[]> {
   const { data, error } = await supabase.from('bowl_games').select('*').eq('season', season)
   if (error) throw new Error(error.message)

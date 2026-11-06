@@ -5,7 +5,7 @@ import { PHASE_BY_KEY, pickSections, type BowlGame, type BowlTeam, type Phase } 
 import { eliminated, isDecided, pickState, teamDirectory, type PickState } from '@/lib/bowls/scoring'
 import { kickoffText } from '@/lib/bowls/format'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
-import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
+import { PHASE_TONE, TeamLogo, TeamName } from '@/components/bowls/ui'
 import {
   Chips, HiddenUntilLock, PHASE_FILTERS, PlayerChip, ResultsLine, Segmented, UpdateResults,
   firstName, pts, useBoard, type Board, type BoardPlayer,
@@ -150,9 +150,7 @@ function ByGame({ board, games, me }: { board: Board; games: BowlGame[]; me?: st
                     <div className={`flex items-center gap-2 min-w-0 ${lost ? 'opacity-60' : ''}`}>
                       <TeamLogo team={t} size={26} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold text-white truncate">
-                          {t.rank && <span className="text-[10px] text-zinc-400 mr-1">#{t.rank}</span>}{t.name}
-                        </p>
+                        <TeamName team={t} nickname className="block text-[13px] leading-snug text-white line-clamp-2" />
                         <p className="text-[11px] text-zinc-500">{list.length} {list.length === 1 ? 'pick' : 'picks'}{counted ? ` · ${Math.round((list.length / counted) * 100)}%` : ''}</p>
                       </div>
                       {sides.length === 2 && score !== null && <span className={`text-lg font-extrabold tabular-nums ${won ? 'text-emerald-300' : 'text-zinc-400'}`}>{score}</span>}
@@ -324,8 +322,8 @@ function ByPlayer({ board, me, selected, onSelect }: { board: Board; me?: string
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-zinc-400 truncate">{star && <span className="text-yellow-400 mr-1">★</span>}{g.name}</p>
                           {team ? (
-                            <p className={`flex items-center gap-1.5 text-sm font-semibold text-white min-w-0 ${st === 'dead' || st === 'lost' ? 'opacity-70' : ''}`}>
-                              <TeamLogo team={team} size={18} /><span className={`truncate ${st === 'dead' ? 'line-through' : ''}`}>{team.name}</span>
+                            <p className={`flex items-center gap-1.5 text-sm text-white min-w-0 ${st === 'dead' || st === 'lost' ? 'opacity-70' : ''}`}>
+                              <TeamLogo team={team} size={18} /><TeamName team={team} nickname className={`truncate ${st === 'dead' ? 'line-through' : ''}`} />
                             </p>
                           ) : <p className="text-sm text-zinc-600">No pick</p>}
                         </div>

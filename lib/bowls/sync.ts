@@ -1,5 +1,6 @@
 import { easternDate, fetchBowlSeason, fetchDate, type EspnGame, type Fetcher } from '@/lib/bowls/espn'
 import { isSampleTeam, phaseForRound, teamToRow, type GameRow } from '@/lib/bowls/sheet'
+import { gameRowFitter } from '@/lib/bowls/season'
 
 /*
  * "Pull from ESPN" — the only way bowl games, times and results come in.
@@ -79,10 +80,11 @@ export async function pullFromEspn(supabase: Db, season: number, fetcher: Fetche
   const existing = new Map<string, GameRow>(((rows ?? []) as GameRow[]).map(r => [r.espn_id, r]))
 
   const summary: PullSummary = { added: 0, updated: 0, finals: [], removed: [], notFound: [], pulledAt: now }
+  const fit = await gameRowFitter(supabase)
 
   const apply = async (g: EspnGame, row: GameRow) => {
     const cols = espnColumns(g, row, now)
-    const { error: e } = await supabase.from('bowl_games').update(cols).eq('id', row.id)
+    const { error: e } = await supabase.from('bowl_games').update(fit(cols)).eq('id', row.id)
     if (e) throw new Error(`Saving ${row.name} failed: ${e.message}`)
     summary.updated++
     if (g.status === 'final' && row.status !== 'final') summary.finals.push(row.name)
@@ -96,7 +98,7 @@ export async function pullFromEspn(supabase: Db, season: number, fetcher: Fetche
     else fresh.push(newGameRow(season, g, now))
   }
   if (fresh.length) {
-    const { error: e } = await supabase.from('bowl_games').insert(fresh)
+    const { error: e } = await supabase.from('bowl_games').insert(fresh.map(fit))
     if (e) throw new Error(`Adding games failed: ${e.message}`)
     summary.added = fresh.length
   }

@@ -133,6 +133,15 @@ export const SAMPLE_PREFIX = 'sample-'
 export const isSampleTeam = (id: string | null | undefined): boolean => !!id && id.startsWith(SAMPLE_PREFIX)
 export const hasSampleTeam = (g: BowlGame): boolean => isSampleTeam(g.away?.id) || isSampleTeam(g.home?.id)
 
+/**
+ * Sample teams are on while the sheet is still being set up: everyone in the
+ * season can open My Picks and try the preview. Nothing in it is saved —
+ * picks can't be saved before they open, and they can't open until the
+ * sample teams come off.
+ */
+export const samplePreview = (status: string, games: BowlGame[]): boolean =>
+  status === 'setup' && games.some(g => onSheet(g) && hasSampleTeam(g))
+
 /** Team columns for one side of a bowl_games row (all null for TBD). */
 export function teamToRow(side: Side, t: BowlTeam | null): GameRow {
   const out: GameRow = {}

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASE_BY_KEY, pickSections, type BowlGame, type BowlTeam, type Phase } from '@/lib/bowls/sheet'
-import { eliminated, isDecided, pickState, teamDirectory, type PickState } from '@/lib/bowls/scoring'
+import { PHASE_BY_KEY, pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
+import { eliminated, isDecided, pickState, teamDirectory, type PickState, type Standing } from '@/lib/bowls/scoring'
 import { kickoffText } from '@/lib/bowls/format'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo, TeamName } from '@/components/bowls/ui'
 import {
-  Chips, HiddenUntilLock, PHASE_FILTERS, PlayerChip, ResultsLine, Segmented, UpdateResults,
+  Chips, HiddenUntilLock, PlayerChip, ResultsLine, Segmented, UpdateResults,
   firstName, pts, useBoard, type Board, type BoardPlayer,
 } from '@/components/bowls/board'
 import { GameCast, LiveTag, PlayFlash } from '@/components/bowls/live'
@@ -16,7 +16,18 @@ import { useBowlLive, useBowlPlays, type PlayEvent } from '@/lib/bowls/useBowlLi
 
 type View = 'game' | 'grid' | 'player'
 type Show = 'all' | 'live' | 'upcoming' | 'final'
+type Tab = SectionKey | 'all'
 type LiveMap = Map<string, BowlLive>
+/** A run of games under one heading: a playoff round, a phase, or "Live now". */
+interface Group { key: string; label: string; games: BowlGame[] }
+const VIEW_KEY = 'bowls-allpicks-view'
+const isView = (v: unknown): v is View => v === 'game' || v === 'grid' || v === 'player'
+const isTab = (v: unknown): v is Tab => v === 'all' || v === 'little' || v === 'between' || v === 'big' || v === 'playoff'
+
+/** A player's points in one phase of the pick'em (the playoff counts its semis and title game). */
+export function sectionPoints(s: Standing, key: SectionKey): number {
+  return key === 'playoff' ? s.byPhase.playoff + s.byPhase.semi + s.byPhase.title : s.byPhase[key]
+}
 
 const STATE_CELL: Record<PickState, string> = {
   won: 'bg-emerald-500/20 border-emerald-500/40',
@@ -27,7 +38,10 @@ const STATE_CELL: Record<PickState, string> = {
 
 /**
  * All Picks — everyone's pick for every game, once picks lock at the first
- * kickoff. By game, as a grid, or one player at a time.
+ * kickoff. By game, as a grid, or one player at a time, a phase at a time:
+ * tabs for Phase 1, 2, 3 and the Playoff (or All), opening on the phase being
+ * played. The grid puts you first and keeps each player's points for the
+ * phase, their total and their Best 5 record pinned along the bottom.
  *
  * While games are on, each card carries the live game cast (score, clock,
  * where the ball is, the last play, a flash for every score) and the live
@@ -38,9 +52,18 @@ export default function AllPicks() {
   const router = useRouter()
   const { loading, account, player } = useBowlAuth()
   const { board, error, reload } = useBoard()
-  const view = (['game', 'grid', 'player'].includes(String(router.query.view)) ? router.query.view : 'game') as View
-  const [phase, setPhase] = useState<'all' | Phase>('all')
   const [show, setShow] = useState<Show>('all')
+
+  // By game, Grid or By player: a link can ask for one (?view=); otherwise
+  // your last choice; otherwise cards on a phone and the grid on a wide screen.
+  const [view, setView] = useState<View>('game')
+  useEffect(() => {
+    if (!router.isReady) return
+    if (isView(router.query.view)) { setView(router.query.view); return }
+    let saved: string | null = null
+    try { saved = window.localStorage.getItem(VIEW_KEY) } catch { /* private mode */ }
+    setView(isView(saved) ? saved : window.innerWidth >= 1024 ? 'grid' : 'game')
+  }, [router.isReady, router.query.view])
 
   useEffect(() => { if (!loading && !account) router.replace('/bowls/login') }, [loading, account, router])
 
@@ -51,14 +74,53 @@ export default function AllPicks() {
   const isOn = (id: string) => live.byGameId.get(id)?.state === 'in'
   const liveCount = (board?.games ?? []).filter(g => isOn(g.id)).length
 
-  const games = useMemo(() => {
-    const list = (board?.games ?? []).filter(g =>
-      (phase === 'all' || g.phase === phase)
-      && (show === 'all' || (show === 'live' ? live.byGameId.get(g.id)?.state === 'in' : show === 'final' ? isDecided(g) : !isDecided(g))))
-    // What's on now comes first; everything else stays in kickoff order.
-    const on = (g: BowlGame) => (live.byGameId.get(g.id)?.state === 'in' ? 0 : 1)
-    return view === 'game' ? list.map((g, i) => ({ g, i })).sort((a, b) => on(a.g) - on(b.g) || a.i - b.i).map(x => x.g) : list
-  }, [board, phase, show, live.byGameId, view])
+  // A phase at a time. Opens on the phase being played: the one with the
+  // earliest game still waiting on a result (or the playoff, once it's all done).
+  const sections = useMemo(() => pickSections(board?.games ?? []), [board])
+  const sectionOf = useMemo(() => {
+    const m = new Map<string, SectionKey>()
+    for (const sec of sections) for (const g of sec.games) m.set(g.id, sec.key)
+    return m
+  }, [sections])
+  const [tab, setTabState] = useState<Tab | null>(null)
+  useEffect(() => {
+    if (tab !== null || !board || board.hidden || !sections.length) return
+    if (isTab(router.query.phase) && (router.query.phase === 'all' || sections.some(sec => sec.key === router.query.phase))) { setTabState(router.query.phase); return }
+    const next = [...(board.games ?? [])].filter(g => !isDecided(g) && g.kickoff_time).sort((a, b) => a.kickoff_time!.localeCompare(b.kickoff_time!))[0]
+    setTabState((next && sectionOf.get(next.id)) ?? sections[sections.length - 1].key)
+  }, [tab, board, sections, sectionOf, router.query.phase])
+  const current: Tab = tab ?? 'all'
+
+  const games = useMemo(() => (board?.games ?? []).filter(g =>
+    (current === 'all' || sectionOf.get(g.id) === current)
+    && (show === 'all' || (show === 'live' ? live.byGameId.get(g.id)?.state === 'in' : show === 'final' ? isDecided(g) : !isDecided(g)))),
+  [board, current, sectionOf, show, live.byGameId])
+
+  // Headings: a phase's rounds (the playoff), or each phase on "All" — and on
+  // the cards, whatever's on now comes first under its own heading.
+  const groups = useMemo((): Group[] => {
+    const keep = new Set(games.map(g => g.id))
+    const onNow = view === 'game' ? games.filter(g => live.byGameId.get(g.id)?.state === 'in') : []
+    const pinned = new Set(onNow.map(g => g.id))
+    const out: Group[] = onNow.length ? [{ key: 'live', label: 'Live now', games: onNow }] : []
+    for (const sec of sections) {
+      if (current !== 'all' && sec.key !== current) continue
+      for (const r of sec.rounds) {
+        const list = r.games.filter(g => keep.has(g.id) && !pinned.has(g.id))
+        if (!list.length) continue
+        const label = current === 'all' ? (r.label ? `${sec.short} · ${r.label}` : sec.title) : r.label
+        out.push({ key: `${sec.key}-${r.key}`, label, games: list })
+      }
+    }
+    return out
+  }, [games, sections, current, view, live.byGameId])
+
+  const chooseView = (v: View) => {
+    setView(v)
+    try { window.localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ }
+    setQuery({ view: v })
+  }
+  const chooseTab = (t: Tab) => { setTabState(t); setQuery({ phase: t }) }
 
   // Arriving from Today's Games (…#game-<id>): open at that game's card — and
   // stay on it when the live scores arrive and move the games that are on to
@@ -73,10 +135,14 @@ export default function AllPicks() {
   }, [])
   useEffect(() => {
     const id = jumpTo.current
-    if (!id || !board || board.hidden) return
+    if (!id || !board || board.hidden || tab === null) return
+    // The game may be in another phase than the one the page opened on.
+    const sec = sectionOf.get(id.slice('game-'.length))
+    if (sec && tab !== 'all' && tab !== sec) { setTabState(sec); return }
+    if (view !== 'game') { setView('game'); return }
     requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }))
     if (live.updatedAt) jumpTo.current = null
-  }, [board, games, live.updatedAt])
+  }, [board, games, live.updatedAt, tab, sectionOf, view])
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">
@@ -95,31 +161,62 @@ export default function AllPicks() {
           : board.hidden ? <HiddenUntilLock board={board} what="Everyone's picks" />
           : (
             <>
-              <Segmented label="View" value={view} onChange={v => setQuery({ view: v })}
+              <Segmented label="View" value={view} onChange={chooseView}
                 options={[{ key: 'game', label: 'By game' }, { key: 'grid', label: 'Grid' }, { key: 'player', label: 'By player' }]} />
-              {view !== 'player' && (
-                <>
-                  <Chips label="Phase" value={phase} onChange={setPhase}
-                    options={PHASE_FILTERS.filter(f => f.key === 'all' || board.games!.some(g => g.phase === f.key))} />
+              <PhaseTabs sections={sections} tab={current} onChange={chooseTab} live={live.byGameId} />
+              {view !== 'player' && (() => {
+                const inTab = (board.games ?? []).filter(g => current === 'all' || sectionOf.get(g.id) === current)
+                const onInTab = inTab.filter(g => isOn(g.id)).length
+                return (
                   <Chips label="Show" value={show} onChange={setShow}
                     options={[
-                      { key: 'all', label: 'All games' },
-                      ...(liveCount || show === 'live' ? [{ key: 'live' as const, label: '🔴 Live', count: liveCount }] : []),
-                      { key: 'upcoming', label: 'Still to play', count: board.games!.filter(g => !isDecided(g)).length },
-                      { key: 'final', label: 'Final', count: board.decided },
+                      { key: 'all', label: 'All games', count: inTab.length },
+                      ...(liveCount || show === 'live' ? [{ key: 'live' as const, label: '🔴 Live', count: onInTab }] : []),
+                      { key: 'upcoming', label: 'Still to play', count: inTab.filter(g => !isDecided(g)).length },
+                      { key: 'final', label: 'Final', count: inTab.filter(g => isDecided(g)).length },
                     ]} />
-                </>
-              )}
+                )
+              })()}
               {view === 'game' && (show === 'live' && !games.length
                 ? <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games are on right now.</p>
-                : <ByGame board={board} games={games} me={player?.id} live={live.byGameId} plays={plays} />)}
-              {view === 'grid' && <Grid board={board} games={games} me={player?.id} live={live.byGameId} />}
-              {view === 'player' && <ByPlayer board={board} me={player?.id} live={live.byGameId} selected={typeof router.query.player === 'string' ? router.query.player : undefined} onSelect={id => setQuery({ player: id })} />}
+                : <ByGame board={board} groups={groups} me={player?.id} live={live.byGameId} plays={plays} />)}
+              {view === 'grid' && <Grid board={board} groups={groups} me={player?.id} live={live.byGameId} tab={current} sections={sections} />}
+              {view === 'player' && <ByPlayer board={board} me={player?.id} live={live.byGameId} tab={current} sections={sections} selected={typeof router.query.player === 'string' ? router.query.player : undefined} onSelect={id => setQuery({ player: id })} />}
             </>
           )}
       </main>
     </div>
   )
+}
+
+/** Phase 1 · Phase 2 · Phase 3 · Playoff · All — each with how many of its games are final. */
+function PhaseTabs({ sections, tab, onChange, live }: { sections: PickSection[]; tab: Tab; onChange: (t: Tab) => void; live: LiveMap }) {
+  if (sections.length < 2) return null
+  const pill = (on: boolean) => `shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${on
+    ? 'bg-yellow-500/15 border-yellow-500/50 text-yellow-100'
+    : 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:text-white'}`
+  return (
+    <div role="tablist" aria-label="Phase" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4">
+      {sections.map(sec => {
+        const done = sec.games.filter(isDecided).length
+        const on = sec.games.some(g => live.get(g.id)?.state === 'in')
+        return (
+          <button key={sec.key} type="button" role="tab" aria-selected={tab === sec.key} onClick={() => onChange(sec.key)} className={pill(tab === sec.key)}>
+            <span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[sec.key].dot}`} />
+            {sec.short}
+            <span className="tabular-nums text-zinc-400 font-medium">{done}/{sec.games.length}</span>
+            {on && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" aria-label="live now" />}
+          </button>
+        )
+      })}
+      <button type="button" role="tab" aria-selected={tab === 'all'} onClick={() => onChange('all')} className={pill(tab === 'all')}>All</button>
+    </div>
+  )
+}
+
+function GroupHeading({ label }: { label: string }) {
+  if (!label) return null
+  return <p className={`text-[11px] font-semibold uppercase tracking-wider px-1 pt-1 ${label === 'Live now' ? 'text-red-400' : 'text-zinc-500'}`}>{label}</p>
 }
 
 function ordinal(n: number): string {
@@ -152,9 +249,22 @@ function GameMeta({ g, live }: { g: BowlGame; live?: BowlLive }) {
 
 /* ── By game ──────────────────────────────────────────────────────── */
 
-function ByGame({ board, games, me, live, plays }: { board: Board; games: BowlGame[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent> }) {
-  const { teams, out, players } = useLookups(board)
-  if (!games.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
+function ByGame({ board, groups, me, live, plays }: { board: Board; groups: Group[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent> }) {
+  if (!groups.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
+  return (
+    <div className="space-y-4">
+      {groups.map(gr => (
+        <section key={gr.key} aria-label={gr.label || undefined} className="space-y-2">
+          <GroupHeading label={gr.label} />
+          <GameCards board={board} games={gr.games} me={me} live={live} plays={plays} />
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function GameCards({ board, games, me, live, plays }: { board: Board; games: BowlGame[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent> }) {
+  const { teams, out } = useLookups(board)
   return (
     <div className="space-y-3">
       {games.map(g => {
@@ -250,82 +360,152 @@ function ByGame({ board, games, me, live, plays }: { board: Board; games: BowlGa
 
 /* ── Grid ─────────────────────────────────────────────────────────── */
 
-function Grid({ board, games, me, live }: { board: Board; games: BowlGame[]; me?: string; live: LiveMap }) {
+const FOOT_ROW = 34 // px — fixed, so the pinned totals can stack along the bottom
+
+/**
+ * Every pick in a phase as one table: a row per game, a column per player —
+ * you first, then by rank — with the header, the game column and the totals
+ * (the phase's points, total points, Best 5 record) all pinned, so 20-odd
+ * players and 15 games still read at a glance.
+ */
+function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups: Group[]; me?: string; live: LiveMap; tab: Tab; sections: PickSection[] }) {
   const { teams, out } = useLookups(board)
   const ranked = board.standings ?? []
-  if (!games.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
+  const mine = ranked.find(s => s.id === me)
+  const cols = mine ? [mine, ...ranked.filter(s => s.id !== me)] : ranked
+  if (!groups.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
+
+  // The totals along the bottom.
+  type Foot = { key: string; label: string; value: (s: Standing) => number | null; show: (s: Standing) => React.ReactNode; best?: 'max' }
+  const phaseRows: Foot[] = sections
+    .filter(sec => tab === 'all' || sec.key === tab)
+    .map(sec => ({ key: sec.key, label: `${sec.short} pts`, value: s => sectionPoints(s, sec.key), show: s => pts(sectionPoints(s, sec.key)), best: 'max' as const }))
+  const foot: Foot[] = [
+    ...phaseRows,
+    { key: 'total', label: 'Total pts', value: s => s.points, show: s => pts(s.points), best: 'max' },
+    { key: 'best5', label: 'Best 5', value: s => s.best5Wins, show: s => `${s.best5Wins}–${s.best5Losses}` },
+    ...(tab === 'playoff' || tab === 'all' ? [{
+      key: 'title', label: 'Title total', value: () => null,
+      show: (s: Standing) => <>{s.titleTotal ?? '—'}{s.titleMiss !== null && <span className="text-[9px] text-zinc-500 ml-1">off {s.titleMiss}</span>}</>,
+    }] : []),
+  ]
+  const topOf = (f: Foot) => (f.best === 'max' ? Math.max(...cols.map(c => f.value(c) ?? -Infinity)) : null)
+  const bottomOf = (i: number) => (foot.length - 1 - i) * FOOT_ROW
+
   return (
-    <div className="glass-card rounded-2xl overflow-auto max-h-[calc(100vh-230px)] -mx-1" role="region" aria-label="Picks grid" tabIndex={0}>
+    // Sized to fit under the page header, so once it's scrolled into view the
+    // names, the games and the totals along the bottom are all on screen.
+    <div className="glass-card rounded-2xl overflow-auto max-h-[calc(100dvh-180px)] -mx-1" role="region" aria-label="Picks grid" tabIndex={0}>
       <table className="border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
-            <th className="sticky top-0 left-0 z-30 bg-zinc-900 min-w-[132px] max-w-[132px] px-3 py-2 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-r border-white/[0.08]">Game</th>
-            {ranked.map(s => (
-              <th key={s.id} scope="col" className={`sticky top-0 z-20 min-w-[64px] px-1.5 py-2 border-b border-white/[0.08] ${s.id === me ? 'bg-zinc-800' : 'bg-zinc-900'}`}>
-                <div className="flex flex-col items-center gap-0.5">
-                  <BowlAvatar name={s.name} url={s.avatar_url} size={26} />
-                  <span className={`text-[11px] font-semibold truncate max-w-[60px] ${s.id === me ? 'text-yellow-300' : 'text-zinc-200'}`}>{firstName(s.name)}</span>
-                  <span className="text-[10px] text-yellow-400 font-bold tabular-nums">{pts(s.points)}</span>
-                </div>
-              </th>
-            ))}
+            <th className="sticky top-0 left-0 z-30 bg-zinc-900 min-w-[124px] max-w-[124px] px-3 py-2 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-r border-white/[0.08]">Game</th>
+            {cols.map(s => {
+              const you = s.id === me
+              return (
+                <th key={s.id} scope="col" className={`sticky top-0 z-20 min-w-[56px] px-1 py-2 border-b border-white/[0.08] ${you ? 'bg-zinc-800' : 'bg-zinc-900'}`}>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] font-semibold text-zinc-500 tabular-nums">{s.tied ? 'T' : ''}{s.rank}</span>
+                    <BowlAvatar name={s.name} url={s.avatar_url} size={24} />
+                    <span className={`text-[10px] font-semibold truncate max-w-[52px] ${you ? 'text-yellow-300' : 'text-zinc-200'}`}>{you ? 'You' : firstName(s.name)}</span>
+                  </div>
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
-          {games.map(g => (
-            <tr key={g.id}>
-              <th scope="row" className="sticky left-0 z-10 bg-zinc-900 min-w-[132px] max-w-[132px] px-3 py-1.5 text-left font-normal border-b border-r border-white/[0.06]">
-                <span className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[g.phase!].dot}`} />
-                  <span className="text-[11px] font-semibold text-zinc-100 truncate">{g.name.replace('CFP ', '')}</span>
-                </span>
-                <span className="block text-[10px] text-zinc-500 truncate pl-3">
-                  {(() => {
-                    const lv = live.get(g.id)
-                    if (!isDecided(g) && lv?.state === 'in') {
-                      const sc = scoreOf(g, lv)
-                      return <span className="text-red-400 font-semibold">● {lv.label ?? 'Live'} · {sc.away ?? 0}–{sc.home ?? 0}</span>
-                    }
-                    return isDecided(g) ? `Final · ${teams.get(g.winner_team_id!)?.abbr ?? ''}` : g.playoff_round === 'first' ? `${g.away?.abbr ?? 'TBD'} v ${g.home?.abbr ?? 'TBD'}` : `${PHASE_BY_KEY[g.phase!].points} pts`
-                  })()}
-                </span>
-              </th>
-              {ranked.map(s => {
-                const t = board.picks?.[s.id]?.[g.id]
-                const team = t ? teams.get(t) : null
-                const st = t ? pickState(g, t, out) : null
-                const star = board.best5?.[s.id]?.includes(g.id)
+          {groups.map(gr => (
+            <GridGroup key={gr.key} label={gr.label} span={cols.length}>
+              {gr.games.map(g => {
+                const lv = live.get(g.id)
                 return (
-                  <td key={s.id} className={`px-1 py-1 border-b border-white/[0.04] ${s.id === me ? 'bg-white/[0.03]' : ''}`}>
-                    {team ? (
-                      <div className={`relative mx-auto w-[56px] rounded-lg border flex flex-col items-center py-1 ${STATE_CELL[st!]}`} title={`${s.name}: ${team.name}`}>
-                        <TeamLogo team={team} size={18} />
-                        <span className={`text-[9px] font-semibold text-zinc-200 ${st === 'dead' ? 'line-through opacity-60' : ''}`}>{team.abbr ?? team.name.slice(0, 4)}</span>
-                        {star && <span className="absolute -top-1 -right-1 text-[10px] text-yellow-400 leading-none">★</span>}
-                      </div>
-                    ) : <div className="text-center text-zinc-700">—</div>}
-                  </td>
+                  <tr key={g.id}>
+                    <th scope="row" className={`sticky left-0 z-10 min-w-[124px] max-w-[124px] px-3 py-1.5 text-left font-normal border-b border-r border-white/[0.06] ${lv?.state === 'in' ? 'bg-zinc-900 shadow-[inset_3px_0_0_rgba(239,68,68,0.8)]' : 'bg-zinc-900'}`}>
+                      <span className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[g.phase!].dot}`} />
+                        <span className="text-[11px] font-semibold text-zinc-100 truncate">{g.name.replace('CFP ', '')}</span>
+                      </span>
+                      <span className="block text-[10px] text-zinc-500 truncate pl-3">
+                        {(() => {
+                          if (!isDecided(g) && lv?.state === 'in') {
+                            const sc = scoreOf(g, lv)
+                            return <span className="text-red-400 font-semibold">● {lv.label ?? 'Live'} · {sc.away ?? 0}–{sc.home ?? 0}</span>
+                          }
+                          return isDecided(g) ? `Final · ${teams.get(g.winner_team_id!)?.abbr ?? ''}` : g.playoff_round === 'first' ? `${g.away?.abbr ?? 'TBD'} v ${g.home?.abbr ?? 'TBD'}` : `${PHASE_BY_KEY[g.phase!].points} pts`
+                        })()}
+                      </span>
+                    </th>
+                    {cols.map(s => {
+                      const t = board.picks?.[s.id]?.[g.id]
+                      const team = t ? teams.get(t) : null
+                      const st = t ? pickState(g, t, out) : null
+                      const star = board.best5?.[s.id]?.includes(g.id)
+                      return (
+                        <td key={s.id} className={`px-1 py-1 border-b border-white/[0.04] ${s.id === me ? 'bg-white/[0.04]' : ''}`}>
+                          {team ? (
+                            <div className={`relative mx-auto w-[50px] rounded-lg border flex flex-col items-center py-1 ${STATE_CELL[st!]}`} title={`${s.name}: ${team.name}`}>
+                              <TeamLogo team={team} size={18} />
+                              <span className={`text-[9px] font-semibold text-zinc-200 ${st === 'dead' ? 'line-through opacity-60' : ''}`}>{team.abbr ?? team.name.slice(0, 4)}</span>
+                              {star && <span className="absolute -top-1 -right-1 text-[10px] text-yellow-400 leading-none">★</span>}
+                            </div>
+                          ) : <div className="text-center text-zinc-700">—</div>}
+                        </td>
+                      )
+                    })}
+                  </tr>
                 )
               })}
-            </tr>
+            </GridGroup>
           ))}
-          <tr>
-            <th scope="row" className="sticky left-0 z-10 bg-zinc-900 px-3 py-2 text-left text-[11px] font-semibold text-zinc-300 border-r border-white/[0.06]">Title total</th>
-            {ranked.map(s => (
-              <td key={s.id} className="px-1 py-2 text-center text-[11px] text-zinc-300 tabular-nums">
-                {s.titleTotal ?? '—'}{s.titleMiss !== null && <span className="block text-[9px] text-zinc-500">off {s.titleMiss}</span>}
-              </td>
-            ))}
-          </tr>
         </tbody>
+        <tfoot>
+          {foot.map((f, i) => {
+            const top = topOf(f)
+            const emphasize = f.key === 'total'
+            return (
+              <tr key={f.key} style={{ height: FOOT_ROW }}>
+                <th scope="row" className={`sticky left-0 z-20 bg-zinc-900 px-3 text-left text-[10px] font-semibold uppercase tracking-wider border-r border-white/[0.08] ${i === 0 ? 'border-t border-t-yellow-600/30' : ''} ${emphasize ? 'text-yellow-300' : 'text-zinc-400'}`}
+                  style={{ bottom: bottomOf(i), height: FOOT_ROW }}>
+                  {f.label}
+                </th>
+                {cols.map(s => {
+                  const v = f.value(s)
+                  const lead = top !== null && v === top && top > 0
+                  return (
+                    <td key={s.id} className={`sticky z-10 px-1 text-center text-[11px] tabular-nums ${s.id === me ? 'bg-zinc-800' : 'bg-zinc-900'} ${i === 0 ? 'border-t border-t-yellow-600/30' : ''} ${emphasize ? 'font-extrabold text-white' : 'font-semibold text-zinc-300'} ${lead ? 'text-yellow-300' : ''}`}
+                      style={{ bottom: bottomOf(i), height: FOOT_ROW }}>
+                      {f.show(s)}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
+        </tfoot>
       </table>
     </div>
   )
 }
 
+/** A playoff round (or phase, on All) heading across the grid, then its games. */
+function GridGroup({ label, span, children }: { label: string; span: number; children: React.ReactNode }) {
+  return (
+    <>
+      {label && (
+        <tr>
+          <th scope="rowgroup" className={`sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider border-b border-white/[0.06] ${label === 'Live now' ? 'text-red-400' : 'text-zinc-500'}`}>{label}</th>
+          <td colSpan={span} className="bg-zinc-950 border-b border-white/[0.06]" />
+        </tr>
+      )}
+      {children}
+    </>
+  )
+}
+
 /* ── By player ────────────────────────────────────────────────────── */
 
-function ByPlayer({ board, me, live, selected, onSelect }: { board: Board; me?: string; live: LiveMap; selected?: string; onSelect: (id: string) => void }) {
+function ByPlayer({ board, me, live, tab, sections, selected, onSelect }: { board: Board; me?: string; live: LiveMap; tab: Tab; sections: PickSection[]; selected?: string; onSelect: (id: string) => void }) {
   const { teams, out } = useLookups(board)
   const standings = board.standings ?? []
   const id = selected && standings.some(s => s.id === selected) ? selected : (me && standings.some(s => s.id === me) ? me : standings[0]?.id)
@@ -364,10 +544,18 @@ function ByPlayer({ board, me, live, selected, onSelect }: { board: Board; me?: 
           </div>
           <div className="rounded-xl bg-white/[0.04] py-2"><p className="text-[10px] text-zinc-500 uppercase tracking-wider">Title total</p><p className="text-sm font-bold text-white tabular-nums">{s.titleTotal ?? '—'}</p></div>
         </div>
+        <div className="mt-2 grid gap-2 text-center" style={{ gridTemplateColumns: `repeat(${sections.length}, minmax(0, 1fr))` }} aria-label="Points by phase">
+          {sections.map(sec => (
+            <div key={sec.key} className={`rounded-xl py-1.5 ${tab === sec.key ? 'bg-yellow-500/10 ring-1 ring-inset ring-yellow-500/30' : 'bg-white/[0.03]'}`}>
+              <p className="text-[10px] text-zinc-500 inline-flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[sec.key].dot}`} />{sec.short}</p>
+              <p className="text-sm font-bold text-white tabular-nums">{pts(sectionPoints(s, sec.key))}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {pickSections(board.games ?? []).map(sec => {
-        const secPts = sec.key === 'playoff' ? s.byPhase.playoff + s.byPhase.semi + s.byPhase.title : s.byPhase[sec.key]
+      {sections.filter(sec => tab === 'all' || sec.key === tab).map(sec => {
+        const secPts = sectionPoints(s, sec.key)
         return (
           <section key={sec.key} aria-label={sec.title}>
             <div className="flex items-baseline gap-2 px-1 mb-1.5">

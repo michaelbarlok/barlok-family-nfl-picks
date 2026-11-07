@@ -13,11 +13,14 @@ import Nav from '@/components/Nav'
 import WeekNavigator from '@/components/WeekNavigator'
 import SeasonSelector from '@/components/SeasonSelector'
 import GamesView from '@/components/GamesView'
+import PlayerPicksView from '@/components/PlayerPicksView'
 import { useLiveScores } from '@/lib/useLiveScores'
 import { useLiveEvents } from '@/lib/useLiveEvents'
 
-type View = 'games' | 'table'
+type View = 'games' | 'table' | 'player'
+type Show = 'all' | 'live' | 'upcoming' | 'final'
 const VIEW_KEY = 'allpicks-view'
+const isView = (v: unknown): v is View => v === 'games' || v === 'table' || v === 'player'
 
 interface Game {
   id: string
@@ -88,19 +91,22 @@ export default function AllPicksPage() {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
 
-  // Games (a card per game, who's on each side) or the full table. A link can
-  // ask for one (?view=games); otherwise your last choice; otherwise cards on
-  // a phone, where the table is a squeeze, and the table on a wide screen.
+  // Games (a card per game, who's on each side), the full table, or one
+  // player's week. A link can ask for one (?view=games); otherwise your last
+  // choice; otherwise cards on a phone, where the table is a squeeze, and the
+  // table on a wide screen.
   const [view, setView] = useState<View | null>(null)
   useEffect(() => {
     if (!router.isReady) return
     const asked = router.query.view
-    if (asked === 'games' || asked === 'table') { setView(asked); return }
+    if (isView(asked)) { setView(asked); return }
     let saved: string | null = null
     try { saved = window.localStorage.getItem(VIEW_KEY) } catch { /* private mode */ }
-    if (saved === 'games' || saved === 'table') { setView(saved); return }
+    if (isView(saved)) { setView(saved); return }
     setView(window.innerWidth < 1024 ? 'games' : 'table')
   }, [router.isReady, router.query.view])
+  // All games, the ones on now, still to play, or final — for Games and Table.
+  const [show, setShow] = useState<Show>('all')
   const chooseView = (v: View) => {
     setView(v)
     try { window.localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ }
@@ -276,6 +282,11 @@ export default function AllPicksPage() {
       })
     : null
 
+  const isOn = (g: Game) => !g.winning_team && live.byGameId.get(g.id)?.state === 'in'
+  const liveCount = games.filter(isOn).length
+  const shownGames = games.filter(g =>
+    show === 'all' ? true : show === 'live' ? isOn(g) : show === 'final' ? !!g.winning_team : !g.winning_team)
+
   const computeRecordsForRow = (userId: string) => {
     const empty = { priorW: 0, priorL: 0, priorT: 0, weekW: 0, weekL: 0, weekT: 0, totalW: 0, totalL: 0, totalT: 0, priorB3W: 0, priorB3L: 0, priorB3T: 0, weekB3W: 0, weekB3L: 0, weekB3T: 0, totalB3W: 0, totalB3L: 0, totalB3T: 0 }
     if (!recordsWithBest3 || !selectedWeek) return empty
@@ -315,25 +326,40 @@ export default function AllPicksPage() {
           availableWeeks={availableWeeks}
         />
 
-        {/* Games / Table — only once picks are revealed */}
+        {/* Games / Table / By player — only once picks are revealed */}
         {isLocked && !picksLoading && allPicksData && allPicksData.users.length > 0 && view && (
-          <div className="flex justify-center mb-4">
-            <div className="inline-flex p-1 rounded-full bg-white/[0.04] border border-white/[0.06]" role="tablist" aria-label="View">
-              {([['games', '🃏 Games'], ['table', '📊 Table']] as const).map(([v, label]) => (
+          <div className="mb-4 space-y-2.5">
+            <div className="flex p-1 rounded-full bg-white/[0.04] border border-white/[0.06]" role="tablist" aria-label="View">
+              {([['games', 'Games'], ['table', 'Table'], ['player', 'By player']] as const).map(([v, label]) => (
                 <button
                   key={v}
                   type="button"
                   role="tab"
                   aria-selected={view === v}
                   onClick={() => chooseView(v)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${
-                    view === v ? 'bg-white/[0.12] text-white' : 'text-slate-400 hover:text-slate-200'
+                  className={`flex-1 px-3 py-1.5 rounded-full text-[13px] font-semibold whitespace-nowrap transition ${
+                    view === v ? 'bg-gradient-to-b from-blue-500 to-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {label}
                 </button>
               ))}
             </div>
+            {view !== 'player' && (
+              <div role="group" aria-label="Show" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-3 px-3">
+                {([
+                  ['all', 'All games', games.length],
+                  ...(liveCount || show === 'live' ? [['live', '🔴 Live', liveCount] as const] : []),
+                  ['upcoming', 'Still to play', games.filter(g => !g.winning_team).length],
+                  ['final', 'Final', games.filter(g => !!g.winning_team).length],
+                ] as const).map(([k, label, count]) => (
+                  <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k as Show)}
+                    className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium border transition ${show === k ? 'bg-white/[0.12] border-white/[0.2] text-white' : 'border-white/[0.06] text-slate-400 hover:text-slate-200'}`}>
+                    {label}<span className="text-slate-500 ml-1">{count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -415,9 +441,23 @@ export default function AllPicksPage() {
               </div>
             )}
           </div>
-        ) : allPicksData && allPicksData.users.length > 0 && view === 'games' ? (
-          <GamesView
+        ) : allPicksData && allPicksData.users.length > 0 && view === 'player' ? (
+          <PlayerPicksView
+            users={allPicksData.users}
             games={games}
+            pickOf={(uid, gid) => picksLookup.get(`${uid}-${gid}`)}
+            bestOf={uid => threeBestLookup.get(uid)}
+            meId={user.id}
+            live={live.byGameId}
+            week={selectedWeek ?? 0}
+            recordOf={computeRecordsForRow}
+            formatKickoff={formatKickoff}
+          />
+        ) : allPicksData && allPicksData.users.length > 0 && view === 'games' ? (
+          shownGames.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-8">{show === 'live' ? 'No games are on right now.' : 'No games match.'}</p>
+          ) : <GamesView
+            games={shownGames}
             users={allPicksData.users}
             pickOf={(uid, gid) => picksLookup.get(`${uid}-${gid}`)}
             bestOf={uid => threeBestLookup.get(uid)}
@@ -478,7 +518,7 @@ export default function AllPicksPage() {
                 </colgroup>
                 <thead>{headerRow('top')}</thead>
                 <tbody>
-                  {games.map(game => {
+                  {shownGames.map(game => {
                     const hasScore = game.away_score != null && game.home_score != null
                     const awayWon = game.winning_team === game.away_team
                     const homeWon = game.winning_team === game.home_team

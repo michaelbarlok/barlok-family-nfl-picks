@@ -17,6 +17,8 @@ interface SheetData {
   inSeason: boolean
   player?: { id: string; name: string }
   proxy?: boolean
+  /** Sample teams are on — a preview everyone in the season can try. */
+  sample?: boolean
   /** Picking for a managed player you make picks for. */
   managed?: boolean
   /** The admin, who may change someone's picks after the lock. */
@@ -296,9 +298,16 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
               </div>
             )}
             {data.status === 'setup' && (
-              <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-zinc-300">
-                Preview — picks aren&apos;t open yet, and players can&apos;t see these games. Tap around all you like: nothing here is saved.
-              </div>
+              data.sample ? (
+                <div className="rounded-2xl px-4 py-3 bg-sky-500/10 border border-sky-500/20 text-sm text-sky-100">
+                  <strong>Preview with sample teams.</strong> These are last season&apos;s bowl matchups, to show how the pick&apos;em works —
+                  tap around all you like: nothing here is saved. Real picks open once the playoff field is set on Selection Sunday.
+                </div>
+              ) : (
+                <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-zinc-300">
+                  Preview — picks aren&apos;t open yet, and players can&apos;t see these games. Tap around all you like: nothing here is saved.
+                </div>
+              )
             )}
             {(!data.proxy || asManager) && data.status !== 'setup' && (
               lockPassed && !(asManager && data.override) ? (

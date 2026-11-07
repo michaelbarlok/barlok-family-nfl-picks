@@ -3,7 +3,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser } from '@/lib/apiAuth'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { progress } from '@/lib/bowls/bracket'
-import { onSheet } from '@/lib/bowls/sheet'
+import { onSheet, samplePreview } from '@/lib/bowls/sheet'
 
 /**
  * GET /api/bowls/status — where the season stands and how far along each
@@ -56,6 +56,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       totalGames: sheetOut ? sheet.length : 0,
       best5Needed: sheetOut ? Math.min(5, sheet.length) : 0,
       needsTotal: sheetOut && sheet.some(g => g.phase === 'title'),
+      // Sample teams are on: My Picks has a preview anyone can try.
+      preview: samplePreview(state.status, games),
       players: list,
     })
   } catch (err) {

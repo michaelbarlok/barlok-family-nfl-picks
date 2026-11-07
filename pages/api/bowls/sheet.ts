@@ -3,7 +3,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { inSeason, pickTarget, storedPicks } from '@/lib/bowls/entry'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
-import { sheetGames } from '@/lib/bowls/sheet'
+import { samplePreview, sheetGames } from '@/lib/bowls/sheet'
 import { managedBy } from '@/lib/bowls/managed'
 
 /**
@@ -35,8 +35,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ ...base, inSeason: false, games: [] })
     }
 
-    // The sheet comes out when the admin opens picks (the admin can preview it).
-    const showSheet = state.status !== 'setup' || target.isAdmin
+    // The sheet comes out when the admin opens picks. Before that the admin can
+    // preview it — and so can everyone, while sample teams are on.
+    const sample = samplePreview(state.status, games)
+    const showSheet = state.status !== 'setup' || target.isAdmin || sample
     const stored = await storedPicks(supabase, state.season, target.playerId)
     const canEdit = state.status === 'open' || (state.status === 'locked' && target.override)
     return res.status(200).json({
@@ -44,6 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       inSeason: true,
       player: { id: target.playerId, name: entry.name },
       proxy: target.proxy,
+      sample,
       managed: target.manager,
       override: target.override,
       canEdit,

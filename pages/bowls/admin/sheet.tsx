@@ -259,7 +259,7 @@ export default function SheetBuilder() {
                       <p className="text-sm font-semibold text-white">Sample teams are on</p>
                       <p className="text-xs text-zinc-400 mt-0.5">
                         {data.sampleTeams} team slots are filled with last season&apos;s matchups so you can see how it looks.
-                        Only admins see the games until picks open — and picks can&apos;t open until these come off.
+                        Everyone in this season&apos;s pick&apos;em can try it on My Picks — nothing they tap is saved — and picks can&apos;t open until these come off.
                         A pull from ESPN replaces any of them it has the real team for.
                       </p>
                     </div>
@@ -277,7 +277,7 @@ export default function SheetBuilder() {
                       <p className="text-sm font-semibold text-white">Preview with real teams</p>
                       <p className="text-xs text-zinc-400 mt-0.5">
                         Fill every TBD slot with last season&apos;s bowl matchups from ESPN — real names, logos and records — to see
-                        how the pick&apos;em will look. Only admins see it, and one tap takes them all off again.
+                        how the pick&apos;em will look. Everyone in this season&apos;s pick&apos;em can try it on My Picks (nothing is saved), and one tap takes them all off again.
                       </p>
                     </div>
                     <button onClick={fillSamples} disabled={busy === 'sample'}

@@ -19,6 +19,8 @@ interface SeasonStatus {
   lockAt: string | null
   totalGames: number
   players: PlayerProgress[]
+  /** Sample teams are on: My Picks has a preview anyone can try. */
+  preview?: boolean
 }
 
 /**
@@ -169,6 +171,17 @@ export default function BowlHome() {
                     ? `Picks are locked${sheet?.lockAt ? ` — they were due ${lockText(sheet.lockAt)}` : ''}. Games are under way.`
                     : 'This bowl season is complete.'}
             </p>
+            {status === 'setup' && sheet?.preview && (
+              <>
+                <p className="relative text-zinc-300 text-sm mt-2">
+                  Until then, try a preview with last season&apos;s matchups — nothing you tap is saved.
+                </p>
+                <Link href="/bowls/picks"
+                  className="relative press inline-block mt-4 w-full sm:w-auto text-center px-6 py-3 rounded-xl bg-gradient-to-b from-yellow-400 to-yellow-600 text-zinc-950 font-bold text-sm hover:brightness-110 transition">
+                  Try the preview
+                </Link>
+              </>
+            )}
             {status === 'open' && mine && sheet && (
               <p className="text-white text-sm font-semibold mt-2">
                 {mine.complete ? '✓ Your picks are all in.' : `You've made ${mine.picked} of ${sheet.totalGames} picks.`}

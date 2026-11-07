@@ -9,6 +9,9 @@ import { useToast } from '@/components/Toast'
 import BowlHeader from '@/components/bowls/BowlHeader'
 import BowlRules from '@/components/bowls/BowlRules'
 import { PHASE_TONE, TeamLogo, TeamName, fullTeamName } from '@/components/bowls/ui'
+import { LiveTag } from '@/components/bowls/live'
+import { scoreOf, type BowlLive } from '@/lib/bowls/live'
+import { useBowlLive } from '@/lib/bowls/useBowlLive'
 
 interface SheetData {
   season: number
@@ -106,6 +109,8 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
 
   const games = useMemo(() => data?.games ?? [], [data])
   const byId = useMemo(() => indexGames(games), [games])
+  // Once games are being played, each card shows its live score.
+  const live = useBowlLive(data?.status === 'locked' ? games : undefined)
   const lockPassed = !!data?.lockAt && now >= Date.parse(data.lockAt)
   // Before picks open only the admin sees the games: a preview to tap around
   // in, where nothing is saved.
@@ -370,7 +375,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                         </p>
                       )}
                       {r.games.map(g => (
-                        <GameCard key={g.id} game={g} byId={byId} picks={picks}
+                        <GameCard key={g.id} game={g} byId={byId} picks={picks} live={live.byGameId.get(g.id)}
                           starred={best5.includes(g.id)} editable={editable}
                           onPick={t => choose(g, t)} onStar={() => toggleStar(g)} />
                       ))}
@@ -450,8 +455,9 @@ function feederText(feeder: BowlGame | undefined, byId: Map<string, BowlGame>, p
   return `Your ${bowl} winner`
 }
 
-function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
+function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }: {
   game: BowlGame
+  live?: BowlLive
   byId: Map<string, BowlGame>
   picks: PickMap
   starred: boolean
@@ -468,8 +474,13 @@ function GameCard({ game, byId, picks, starred, editable, onPick, onStar }: {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white truncate">{game.name}</p>
           <p className="text-[11px] text-zinc-500 truncate">
-            {kickoffText(game.kickoff_time, game.time_tbd)}{game.tv ? ` · ${game.tv}` : ''}
-            {game.status === 'final' && game.away_score !== null && ` · Final ${game.away_score}–${game.home_score}`}
+            {game.status !== 'final' && live && live.state !== 'pre' ? (() => {
+              const sc = scoreOf(game, live)
+              return <><LiveTag live={live} /> · <span className="font-semibold text-white tabular-nums">{sc.away ?? 0}–{sc.home ?? 0}</span></>
+            })() : <>
+              {kickoffText(game.kickoff_time, game.time_tbd)}{game.tv ? ` · ${game.tv}` : ''}
+              {game.status === 'final' && game.away_score !== null && ` · Final ${game.away_score}–${game.home_score}`}
+            </>}
           </p>
         </div>
         <button onClick={onStar} disabled={(!editable || !picks[game.id]) && !starred} aria-pressed={starred}

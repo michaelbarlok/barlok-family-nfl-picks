@@ -128,7 +128,9 @@ export function BowlAuthProvider({ children }: { children: React.ReactNode }) {
   // Stable, so pages can depend on it without refetching on every render.
   const token = useCallback(async () => (await supabase.auth.getSession()).data.session?.access_token ?? '', [])
 
-  const isAdmin = !!account && (account.email.toLowerCase() === ADMIN_EMAIL || player?.is_admin === true)
+  // The bowl admin is one person, by email — nobody else, whatever the
+  // database's is_admin column says (the server checks the same way).
+  const isAdmin = !!account && account.email.trim().toLowerCase() === ADMIN_EMAIL
 
   return (
     <BowlAuthContext.Provider value={{ loading, account, player, nflProfile, isAdmin, setupMissing, signIn, signOut, refresh: load, token }}>

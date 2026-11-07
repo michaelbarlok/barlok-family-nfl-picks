@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { isValidOrigin } from '@/lib/validation'
 import { getAdminClient } from '@/lib/supabaseAdmin'
-import { bowlCaller, isMissingBowlTables, MIGRATION_HINT, originOf } from '@/lib/bowls/server'
+import { bowlCaller, isBowlAdminEmail, isMissingBowlTables, MIGRATION_HINT, originOf } from '@/lib/bowls/server'
 import { addOrInvitePlayer } from '@/lib/bowls/invite'
 import { copyPhotoForBowls } from '@/lib/bowls/photo'
 import {
@@ -62,6 +62,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const list = players.map(p => ({
         ...p,
+        // The "admin" tag shows who actually runs it: only you.
+        is_admin: isBowlAdminEmail(p.email),
         joined_at: joined.get(p.id) ?? null,
         signed_in: !!lastSignIn.get(p.id),
         managers: p.is_managed ? (managers.get(p.id) ?? []).map(id => ({ id, name: names.get(id) ?? 'Player' })) : [],

@@ -11,7 +11,8 @@ import { sheetGames } from '@/lib/bowls/sheet'
  *
  * Only once picks lock at the first kickoff. Before that it says so and
  * nothing more — no picks, Best 5 or totals for anyone, the admin included.
- * Results are as of the admin's last "Pull from ESPN".
+ * Results are as of the last pull from ESPN — the results job's, every 10
+ * minutes while games are on, or the admin's "Update results".
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })

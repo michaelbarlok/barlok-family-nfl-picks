@@ -19,6 +19,10 @@
     {
       "path": "/api/bowls/cron-reminders",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/bowls/cron-results",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

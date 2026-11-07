@@ -63,7 +63,7 @@ export function ResultsLine({ board }: { board: Board }) {
   )
 }
 
-/** For the bowl admin: bring in the latest scores. Results only change when someone taps this. */
+/** For the bowl admin: bring in the latest scores now. (The results job also does it every 10 minutes while games are on.) */
 export function UpdateResults({ onDone }: { onDone: () => void }) {
   const { isAdmin, token } = useBowlAuth()
   const toast = useToast()

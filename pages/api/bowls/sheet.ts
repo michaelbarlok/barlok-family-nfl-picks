@@ -4,13 +4,17 @@ import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bo
 import { inSeason, pickTarget, storedPicks } from '@/lib/bowls/entry'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
 import { sheetGames } from '@/lib/bowls/sheet'
+import { managedBy } from '@/lib/bowls/managed'
 
 /**
  * GET /api/bowls/sheet[?for=playerId]
  *
- * The pick sheet and your own picks, Best 5 and title-game total — or, for
- * the bowl admin, the picks of the player named in `for`. Never anyone else's:
- * until the sheet locks, other players are counts only (/api/bowls/status).
+ * The pick sheet and your own picks, Best 5 and title-game total — or those
+ * of the player named in `for`: a managed player you pick for, or (for the
+ * bowl admin) anyone. Never anyone else's: until the sheet locks, other
+ * players are counts only (/api/bowls/status).
+ *
+ * `managing` lists the managed players you pick for, for My Picks' tabs.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
@@ -22,7 +26,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const loaded = await loadSeason(supabase)
     if (!loaded) return res.status(400).json({ error: 'There is no current bowl season.' })
     const { state, games } = loaded
-    const base = { season: state.season, status: state.status, lockAt: state.lockAt }
+    const managing = await managedBy(supabase, target.callerId, state.season)
+    const base = { season: state.season, status: state.status, lockAt: state.lockAt, managing }
 
     const entry = await inSeason(supabase, state.season, target.playerId)
     if (!entry) {
@@ -33,12 +38,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // The sheet comes out when the admin opens picks (the admin can preview it).
     const showSheet = state.status !== 'setup' || target.isAdmin
     const stored = await storedPicks(supabase, state.season, target.playerId)
-    const canEdit = state.status === 'open' || (state.status === 'locked' && target.proxy)
+    const canEdit = state.status === 'open' || (state.status === 'locked' && target.override)
     return res.status(200).json({
       ...base,
       inSeason: true,
       player: { id: target.playerId, name: entry.name },
       proxy: target.proxy,
+      managed: target.manager,
+      override: target.override,
       canEdit,
       games: showSheet ? sheetGames(games) : [],
       picks: cleanPicks(games, stored.picks).picks,

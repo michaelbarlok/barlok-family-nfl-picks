@@ -1,9 +1,12 @@
 import type { NextApiRequest } from 'next'
+import { getAdminClient } from '@/lib/supabaseAdmin'
 import { bowlCaller } from '@/lib/bowls/server'
+import { isManagerOf } from '@/lib/bowls/managed'
 
 /*
- * Whose picks a request is about: the caller's own, or — for the bowl admin
- * entering picks someone sent them — that player's (`for`).
+ * Whose picks a request is about (`for`): the caller's own; a managed
+ * player's, for one of the people who pick for them; or anyone's, for the
+ * bowl admin entering picks someone sent in.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -13,8 +16,12 @@ export interface PickTarget {
   callerId: string
   isAdmin: boolean
   playerId: string
-  /** The admin acting for someone else. */
+  /** Someone else's picks. */
   proxy: boolean
+  /** Picking for a managed player the caller picks for. Same deadline as their own. */
+  manager: boolean
+  /** May change picks after the lock: only the bowl admin, for someone else. */
+  override: boolean
 }
 
 export async function pickTarget(req: NextApiRequest, forId: unknown): Promise<PickTarget | { error: string; code: number }> {
@@ -22,8 +29,11 @@ export async function pickTarget(req: NextApiRequest, forId: unknown): Promise<P
   if (!caller) return { error: 'Sign in first', code: 401 }
   const playerId = typeof forId === 'string' && forId ? forId : caller.user.id
   const proxy = playerId !== caller.user.id
-  if (proxy && !caller.isAdmin) return { error: "Only the bowl admin can enter someone else's picks", code: 403 }
-  return { callerId: caller.user.id, isAdmin: caller.isAdmin, playerId, proxy }
+  const manager = proxy && await isManagerOf(getAdminClient(), caller.user.id, playerId)
+  if (proxy && !manager && !caller.isAdmin) {
+    return { error: "Only the bowl admin can enter someone else's picks", code: 403 }
+  }
+  return { callerId: caller.user.id, isAdmin: caller.isAdmin, playerId, proxy, manager, override: proxy && caller.isAdmin }
 }
 
 export async function inSeason(supabase: Db, season: number, playerId: string): Promise<{ name: string } | null> {

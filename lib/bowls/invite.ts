@@ -3,6 +3,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { BOWL_NAME, bowlSeasonLabel } from '@/lib/bowls/constants'
 import { bowlPasswordLink, emailButton, findAuthUserByEmail, sendBowlEmail } from '@/lib/bowls/server'
 import { copyPhotoForBowls } from '@/lib/bowls/photo'
+import { carryOverManagers } from '@/lib/bowls/managed'
 
 export type InviteOutcome = 'invited' | 'added' | 'resent'
 
@@ -65,6 +66,7 @@ export async function addOrInvitePlayer(opts: {
     const { error: entryErr } = await supabase.from('bowl_entries')
       .upsert({ season: opts.season, player_id: playerId }, { onConflict: 'season,player_id', ignoreDuplicates: true })
     if (entryErr) throw entryErr
+    if (!created) await carryOverManagers(supabase, playerId)
 
     const displayName = bowlRow?.name ?? name
     const season = bowlSeasonLabel(opts.season)

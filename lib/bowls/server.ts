@@ -9,9 +9,10 @@ import { BOWL_NAME } from '@/lib/bowls/constants'
 /*
  * Server helpers for the Bowl Pick'em's API routes (/api/bowls/*).
  *
- * Admin here means the bowl admin: you, by email, or a bowl player marked
- * is_admin. It deliberately doesn't look at the NFL's admin flag — the two
- * apps are run separately.
+ * Admin here means the bowl admin, and that's you alone, by email
+ * (ADMIN_EMAIL). Nobody else is, whatever the database says: the
+ * bowl_players.is_admin column is not used, and neither is the NFL's admin
+ * flag — the two apps are run separately.
  */
 
 // Minimal shape so these work with the service-role client.
@@ -23,13 +24,16 @@ export async function currentBowlSeason(supabase: Db): Promise<{ season: number;
   return (data as { season: number; status: string } | null) ?? null
 }
 
-/** The signed-in account, and whether it runs the Bowl Pick'em. */
+/** Is this the bowl admin's address? Only one is. */
+export function isBowlAdminEmail(email: string | null | undefined): boolean {
+  return (email ?? '').trim().toLowerCase() === ADMIN_EMAIL
+}
+
+/** The signed-in account, and whether it runs the Bowl Pick'em (only you do). */
 export async function bowlCaller(req: NextApiRequest): Promise<{ user: User; isAdmin: boolean } | null> {
   const user = await getAuthUser(req)
   if (!user) return null
-  if ((user.email ?? '').toLowerCase() === ADMIN_EMAIL) return { user, isAdmin: true }
-  const { data } = await getAdminClient().from('bowl_players').select('is_admin').eq('id', user.id).maybeSingle()
-  return { user, isAdmin: data?.is_admin === true }
+  return { user, isAdmin: isBowlAdminEmail(user.email) }
 }
 
 /** Where links in bowl emails point: the app's own address, never the one a request came in on. */

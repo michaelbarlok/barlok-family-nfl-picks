@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { APP_URL } from '@/lib/constants'
 import { randomBytes } from 'crypto'
 import nodemailer from 'nodemailer'
 import { isValidEmail, isValidOrigin } from '@/lib/validation'
@@ -87,9 +88,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     resending = true
   }
 
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  const origin = `${protocol}://${host}`
+  // Links point at the app's own address, whichever one this came in on.
+  const origin = APP_URL
   const redirectTo = `${origin}/reset-password?invite=1`
 
   let newUserId: string | null = existing?.id ?? null

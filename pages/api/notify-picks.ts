@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import nodemailer from 'nodemailer'
-import { MAX_BEST_PICKS } from '@/lib/constants'
+import { APP_URL, MAX_BEST_PICKS } from '@/lib/constants'
 import { computeLockTime } from '@/lib/lockTime'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getCurrentSeason } from '@/lib/season'
@@ -9,7 +9,6 @@ import { isValidOrigin } from '@/lib/validation'
 import { sendPush, pushConfigured } from '@/lib/push'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'
 
 /**
  * Admin nudge: tell the people who still owe picks for a week.

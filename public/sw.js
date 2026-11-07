@@ -91,7 +91,18 @@ self.addEventListener('push', (event) => {
 // app that's usually My Picks, the page it starts on. Now each step is checked
 // and there's a fallback: navigate if it can, otherwise ask the page to route
 // itself, and open a new window only when there's nothing to reuse.
+//
+// An app installed from an older address (the vercel.app one) still gets
+// notifications; tapping one opens the page at the app's address instead,
+// barlokfootballpicks.app.
+const APP_HOME = 'https://barlokfootballpicks.app'
+const isAppHome = (host) => /(^|\.)barlokfootballpicks\.app$/.test(host) || host === 'localhost' || host === '127.0.0.1'
+
 async function openFromNotification(path) {
+  if (!isAppHome(self.location.hostname)) {
+    const moved = new URL(path, APP_HOME)
+    return self.clients.openWindow(moved.origin + moved.pathname + moved.search + moved.hash)
+  }
   const target = new URL(path, self.location.origin)
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
   const ours = windows.filter((c) => new URL(c.url).origin === target.origin)

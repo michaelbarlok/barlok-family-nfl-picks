@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { APP_URL } from '@/lib/constants'
 import nodemailer from 'nodemailer'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getCurrentSeason } from '@/lib/season'
@@ -9,7 +10,6 @@ import { buildDigest, nameList as names, seasonLeadText, weeksToGo, BEST3_SWEEP_
 import { sendPush, pushConfigured } from '@/lib/push'
 
 const LEAGUE_NAME = 'Barlok Family NFL Picks'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'
 
 /**
  * The weekly recap.

@@ -9,6 +9,8 @@ import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import BowlRules from '@/components/bowls/BowlRules'
 import { countdown, lockText } from '@/lib/bowls/format'
 import { LeaderboardCard } from '@/components/bowls/LeaderboardCard'
+import TodaysGames from '@/components/bowls/TodaysGames'
+import { useBowlLive } from '@/lib/bowls/useBowlLive'
 import { useBoard } from '@/components/bowls/board'
 
 interface Season { season: number; status: 'setup' | 'open' | 'locked' | 'complete' }
@@ -42,7 +44,9 @@ export default function BowlHome() {
   // Where the sheet stands and everyone's progress — counts only. Missing until
   // the sheet tables exist, and the page works without it.
   const [sheet, setSheet] = useState<SeasonStatus | null>(null)
-  const { board } = useBoard()
+  const { board, reload: reloadBoard } = useBoard()
+  // Today's games, live: polls only while one of them could be on.
+  const live = useBowlLive(board && !board.hidden ? board.games : undefined, reloadBoard)
 
   useEffect(() => {
     if (!loading && !account) router.replace('/bowls/login')
@@ -207,6 +211,8 @@ export default function BowlHome() {
             )}
           </div>
         )}
+
+        {leaders && <TodaysGames board={leaders} live={live.byGameId} me={player?.id} />}
 
         {leaders && <LeaderboardCard board={leaders} me={player?.id} />}
 

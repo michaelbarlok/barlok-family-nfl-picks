@@ -3,8 +3,9 @@ import type { BowlTeam, GameStatus, PlayoffRound } from '@/lib/bowls/sheet'
 /*
  * Reading college football games from ESPN for the Bowl Pick'em.
  *
- * Only ever called when the bowl admin taps "Pull from ESPN" (or looks up a
- * date to add a game) — nothing here runs on a schedule.
+ * Called when the bowl admin taps "Pull from ESPN" (or looks up a date to add
+ * a game), by the results job while games are on (/api/bowls/cron-results),
+ * and for the live scores (/api/bowls/live).
  */
 
 const SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard'
@@ -226,20 +227,32 @@ function isOtherPlayoff(title: string): boolean {
   return /^(FCS Championship|NCAA Division I{2,3}|Division I{2,3}|NAIA)/i.test(title)
 }
 
-/** The whole bowl season on ESPN: every bowl, the Celebration Bowl and the playoff. */
-export async function fetchBowlSeason(season: number, fetcher: Fetcher): Promise<EspnGame[]> {
+/** ESPN's raw events for the bowl season (postseason): every bowl, the Celebration Bowl and the playoff. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchSeasonEvents(season: number, fetcher: Fetcher): Promise<any[]> {
   const data = await getJson(fetcher, `${SCOREBOARD}?seasontype=3&dates=${season}&limit=500`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data?.events ?? []) as any[]).map(parseEvent).filter(g => !isOtherPlayoff(g.espn_name))
+  return (data?.events ?? []) as any[]
+}
+
+/** ESPN's raw events for every FBS and FCS game on a date (YYYYMMDD, Eastern). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchDateEvents(yyyymmdd: string, fetcher: Fetcher): Promise<any[]> {
+  const [fbs, fcs] = await Promise.all([80, 81].map(group =>
+    getJson(fetcher, `${SCOREBOARD}?dates=${yyyymmdd}&groups=${group}&limit=300`)))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return [...(fbs?.events ?? []), ...(fcs?.events ?? [])] as any[]
+}
+
+/** The whole bowl season on ESPN: every bowl, the Celebration Bowl and the playoff. */
+export async function fetchBowlSeason(season: number, fetcher: Fetcher): Promise<EspnGame[]> {
+  return (await fetchSeasonEvents(season, fetcher)).map(parseEvent).filter(g => !isOtherPlayoff(g.espn_name))
 }
 
 /** Every FBS and FCS game ESPN has on a date (YYYYMMDD, Eastern). */
 export async function fetchDate(yyyymmdd: string, fetcher: Fetcher): Promise<EspnGame[]> {
-  const [fbs, fcs] = await Promise.all([80, 81].map(group =>
-    getJson(fetcher, `${SCOREBOARD}?dates=${yyyymmdd}&groups=${group}&limit=300`)))
   const seen = new Map<string, EspnGame>()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const e of [...(fbs?.events ?? []), ...(fcs?.events ?? [])] as any[]) {
+  for (const e of await fetchDateEvents(yyyymmdd, fetcher)) {
     const g = parseEvent(e)
     if (!seen.has(g.espn_id)) seen.set(g.espn_id, g)
   }

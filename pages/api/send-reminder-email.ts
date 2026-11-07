@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import nodemailer from 'nodemailer'
-import { MAX_BEST_PICKS } from '@/lib/constants'
+import { APP_URL, MAX_BEST_PICKS } from '@/lib/constants'
 import { detectUpcomingWeek } from '@/lib/lockTime'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getCurrentSeason } from '@/lib/season'
@@ -153,7 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             <h2 style="color: #dc2626;">${minutes <= 15 ? '🚨' : '⏰'} Picks Lock in ${timeLabel}!</h2>
             ${bodyHtml}
             <p style="margin: 20px 0;">
-              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'}/picks"
+              <a href="${APP_URL}/picks"
                  style="display: inline-block; background-color: #1d4ed8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
                 Submit Your Picks
               </a>
@@ -198,7 +198,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           <p>You still need to submit <strong>${missingStr}</strong> for Week ${week}.</p>
           <p>Picks lock at <strong>${lockTimeStr}</strong>.</p>
           <p style="margin: 20px 0;">
-            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://barlok-family-nfl-picks.vercel.app'}/picks"
+            <a href="${APP_URL}/picks"
                style="display: inline-block; background-color: #1d4ed8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
               Submit Your Picks
             </a>

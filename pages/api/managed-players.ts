@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { ADMIN_EMAIL } from '@/lib/constants'
+import { ADMIN_EMAIL, APP_URL } from '@/lib/constants'
 import { isValidOrigin } from '@/lib/validation'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser } from '@/lib/apiAuth'
@@ -320,10 +320,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (action === 'send_reset_email') {
         const { email } = req.body
         if (!email) return res.status(400).json({ error: 'email is required' })
-        const protocol = req.headers['x-forwarded-proto'] || 'https'
-        const host = req.headers['x-forwarded-host'] || req.headers.host
         try {
-          await sendPasswordResetEmail(`${protocol}://${host}`, email)
+          await sendPasswordResetEmail(APP_URL, email)
         } catch (err) {
           // An admin acting on a known player should see the real reason.
           return res.status(500).json({

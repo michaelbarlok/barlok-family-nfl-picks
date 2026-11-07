@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { isValidEmail, isValidOrigin } from '@/lib/validation'
 import { sendPasswordResetEmail } from '@/lib/passwordReset'
+import { APP_URL } from '@/lib/constants'
 
 /**
  * Password reset requested from the sign-in screen.
@@ -61,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    await sendPasswordResetEmail(getOrigin(req), cleanEmail)
+    await sendPasswordResetEmail(APP_URL, cleanEmail)
   } catch (err) {
     // Unknown address, unconfirmed address, mail failure — all look the same
     // from outside. Logged so the cause is still recoverable from the server.
@@ -69,10 +70,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   return res.status(200).json(NEUTRAL_RESPONSE)
-}
-
-function getOrigin(req: NextApiRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  return `${protocol}://${host}`
 }

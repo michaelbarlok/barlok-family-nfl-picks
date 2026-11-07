@@ -60,10 +60,9 @@ export function etText(iso: string): string {
   return `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET`
 }
 
+/** Where reminder links point: the app's own address. */
 export function siteOrigin(req?: NextApiRequest): string {
-  if (req) return originOf(req)
-  const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL
-  return prod ? `https://${prod}` : 'https://barlok-family-nfl-picks.vercel.app'
+  return originOf(req)
 }
 
 function wording(kind: ReminderKind, due: string): { subject: string; title: string; lead: string } {

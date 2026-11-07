@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { getAuthUser } from '@/lib/apiAuth'
-import { ADMIN_EMAIL } from '@/lib/constants'
+import { ADMIN_EMAIL, APP_URL } from '@/lib/constants'
 import { BOWL_NAME } from '@/lib/bowls/constants'
 
 /*
@@ -32,10 +32,9 @@ export async function bowlCaller(req: NextApiRequest): Promise<{ user: User; isA
   return { user, isAdmin: data?.is_admin === true }
 }
 
-export function originOf(req: NextApiRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  return `${protocol}://${host}`
+/** Where links in bowl emails point: the app's own address, never the one a request came in on. */
+export function originOf(_req?: NextApiRequest): string {
+  return APP_URL
 }
 
 /** The table-missing error Postgres/PostgREST gives before migration 20 is run. */

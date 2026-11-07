@@ -5,6 +5,7 @@ import { getAuthUser } from '@/lib/apiAuth'
 import { currentBowlSeason, isMissingBowlTables, MIGRATION_HINT } from '@/lib/bowls/server'
 import { copyPhotoForBowls } from '@/lib/bowls/photo'
 import { loadSeason } from '@/lib/bowls/season'
+import { carryOverManagers } from '@/lib/bowls/managed'
 
 /**
  * Join this year's Bowl Pick'em with one tap.
@@ -12,7 +13,8 @@ import { loadSeason } from '@/lib/bowls/season'
  * For a signed-in NFL player: makes their bowl profile from their NFL name
  * and photo (read, never changed) and enters them in this season. For someone
  * who played a past bowl season: enters them again. Anyone else needs an
- * invite from the bowl admin.
+ * invite from the bowl admin. Someone who makes picks for an NFL managed
+ * player who's in the Bowl Pick'em makes their bowl picks too.
  *
  * Closed once the season's picks lock.
  */
@@ -58,6 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { error: entryErr } = await supabase.from('bowl_entries')
       .upsert({ season: current.season, player_id: user.id }, { onConflict: 'season,player_id', ignoreDuplicates: true })
     if (entryErr) throw entryErr
+    await carryOverManagers(supabase, user.id)
 
     return res.status(200).json({ success: true, season: current.season })
   } catch (err) {

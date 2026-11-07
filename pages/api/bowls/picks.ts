@@ -10,9 +10,10 @@ import { onSheet } from '@/lib/bowls/sheet'
  * POST /api/bowls/picks
  *   { for?, picks?: { [gameId]: teamId | null }, best5?: gameId[], titleTotal?: number | null }
  *
- * Saves picks while the sheet is open. All picks are due at the first kickoff;
- * after that only the bowl admin can change them, for someone who sent theirs
- * in on time (like the NFL override).
+ * Saves picks while the sheet is open — your own, or a managed player's you
+ * pick for. All picks are due at the first kickoff; after that only the bowl
+ * admin can change them, for someone who sent theirs in on time (like the NFL
+ * override).
  *
  * The playoff is the player's own bracket: a later-round pick must be a team
  * they picked to get there. Changing an earlier pick clears the later picks it
@@ -32,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { state, games } = loaded
     if (state.status === 'setup') return res.status(400).json({ error: "Picks aren't open yet." })
     if (state.status === 'complete') return res.status(400).json({ error: 'This bowl season is over.' })
-    if (state.status === 'locked' && !target.proxy) {
+    if (state.status === 'locked' && !target.override) {
       return res.status(400).json({ error: 'Picks are locked — they were due at the first kickoff.' })
     }
     if (!(await inSeason(supabase, state.season, target.playerId))) {

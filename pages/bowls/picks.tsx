@@ -17,13 +17,20 @@ interface SheetData {
   inSeason: boolean
   player?: { id: string; name: string }
   proxy?: boolean
+  /** Picking for a managed player you make picks for. */
+  managed?: boolean
+  /** The admin, who may change someone's picks after the lock. */
+  override?: boolean
   canEdit?: boolean
+  managing?: Managed[]
   games: BowlGame[]
   picks?: PickMap
   best5?: string[]
   titleTotal?: number | null
   enteredByAdmin?: number
 }
+
+interface Managed { id: string; name: string; avatar_url: string | null }
 
 interface Pending { picks: Record<string, string | null>; best5?: string[]; titleTotal?: number | null }
 const emptyPending = (): Pending => ({ picks: {} })
@@ -36,12 +43,23 @@ const emptyPending = (): Pending => ({ picks: {} })
  * against whoever you picked in the first round, and so on to the champion.
  * Everything saves as you go and locks at the first kickoff.
  *
- * The bowl admin can open someone's picks (?for=) to enter picks they sent in.
+ * Someone who makes a managed player's picks (a kid without a phone) gets a
+ * tab for each, like the NFL side: My Picks | 👤 Dani. The bowl admin can open
+ * anyone's picks (?for=) to enter picks they sent in.
+ *
+ * Each player's picks get their own instance of the page (keyed on ?for=), so
+ * a save still on its way when you switch tabs goes to the player it was for.
  */
 export default function BowlPicks() {
   const router = useRouter()
-  const forId = typeof router.query.for === 'string' ? router.query.for : undefined
-  const { loading, account, isAdmin, token } = useBowlAuth()
+  const forId = typeof router.query.for === 'string' && router.query.for ? router.query.for : undefined
+  const [managing, setManaging] = useState<Managed[]>([])
+  return <PicksFor key={forId ?? 'me'} forId={forId} managing={managing} onManaging={setManaging} />
+}
+
+function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: Managed[]; onManaging: (m: Managed[]) => void }) {
+  const router = useRouter()
+  const { loading, account, token } = useBowlAuth()
   const toast = useToast()
 
   const [data, setData] = useState<SheetData | null>(null)
@@ -71,6 +89,7 @@ export default function BowlPicks() {
       const res = await fetch(`/api/bowls/sheet${forId ? `?for=${encodeURIComponent(forId)}` : ''}`, { headers: { Authorization: `Bearer ${await token()}` } })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Could not load your picks')
+      onManaging(json.managing ?? [])
       setData(json)
       setPicks(json.picks ?? {})
       setBest5(json.best5 ?? [])
@@ -79,7 +98,7 @@ export default function BowlPicks() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load your picks')
     }
-  }, [forId, token])
+  }, [forId, token, onManaging])
 
   useEffect(() => { if (account && router.isReady) load() }, [account, router.isReady, load])
 
@@ -91,7 +110,7 @@ export default function BowlPicks() {
   const preview = data?.status === 'setup'
   const previewRef = useRef(false)
   previewRef.current = preview
-  const editable = preview || (!!data?.canEdit && (!lockPassed || !!data?.proxy))
+  const editable = preview || (!!data?.canEdit && (!lockPassed || !!data?.override))
 
   // One save at a time; taps made meanwhile go in the next one.
   const flush = useCallback(async () => {
@@ -204,6 +223,7 @@ export default function BowlPicks() {
       <div className="min-h-screen bg-zinc-950">
         <BowlHeader subtitle="My Picks" />
         <main className="max-w-3xl mx-auto px-4 py-6 space-y-3">
+          <PlayerTabs managing={managing} forId={forId} />
           <div className="skeleton h-14 rounded-2xl" />
           {[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-28 rounded-2xl" />)}
         </main>
@@ -216,6 +236,8 @@ export default function BowlPicks() {
   const prog = progress(games, picks, best5, total === '' ? null : Number(total))
   const left = data?.lockAt ? countdown(data.lockAt, now) : null
   const firstName = data?.player?.name.split(' ')[0] ?? ''
+  // A managed player's page reads like your own, in their name.
+  const asManager = !!data?.managed
 
   const message = (icon: string, title: string, body?: React.ReactNode) => (
     <div className="glass-card rounded-2xl p-6 text-center">
@@ -251,13 +273,20 @@ export default function BowlPicks() {
       </BowlHeader>
 
       <main className="max-w-3xl mx-auto px-4 py-4 space-y-3 animate-fade-in">
+        <PlayerTabs managing={managing} forId={forId} />
         {error ? message('⚠️', error) : !data ? null : !data.inSeason ? (
           message('🏆', "You're not in this year's Bowl Pick'em yet", <Link href="/bowls" className="text-yellow-400 hover:text-yellow-300">Go to the Bowl Pick&apos;em home to join</Link>)
         ) : games.length === 0 ? (
           message('🗓️', "Picks aren't open yet", 'They open once the College Football Playoff field is set on Selection Sunday. All picks are due at the first kickoff.')
         ) : (
           <>
-            {data.proxy && (
+            {asManager && (
+              <div className="rounded-2xl px-4 py-2.5 bg-sky-500/10 border border-sky-500/20 flex items-center gap-2 text-sm text-sky-200">
+                <span aria-hidden>👤</span>
+                <span>Picking for <strong>{data.player?.name}</strong></span>
+              </div>
+            )}
+            {data.proxy && !asManager && (
               <div className="rounded-2xl px-4 py-3 bg-yellow-500/10 border border-yellow-500/25 flex items-center gap-3">
                 <p className="flex-1 text-sm text-yellow-100">
                   Entering picks for <strong>{data.player?.name}</strong>
@@ -271,14 +300,20 @@ export default function BowlPicks() {
                 Preview — picks aren&apos;t open yet, and players can&apos;t see these games. Tap around all you like: nothing here is saved.
               </div>
             )}
-            {!data.proxy && data.status !== 'setup' && (
-              lockPassed ? (
+            {(!data.proxy || asManager) && data.status !== 'setup' && (
+              lockPassed && !(asManager && data.override) ? (
                 <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-sm text-zinc-300">
-                  🔒 Picks locked {data.lockAt ? lockText(data.lockAt) : ''}. Here are yours — <Link href="/bowls/all-picks" className="font-semibold text-yellow-500 hover:text-yellow-400">see everyone&apos;s in All Picks</Link>.
+                  🔒 Picks locked {data.lockAt ? lockText(data.lockAt) : ''}. Here are {asManager ? `${firstName}'s` : 'yours'} — <Link href="/bowls/all-picks" className="font-semibold text-yellow-500 hover:text-yellow-400">see everyone&apos;s in All Picks</Link>.
+                </div>
+              ) : lockPassed ? (
+                <div className="rounded-2xl px-4 py-3 bg-yellow-500/10 border border-yellow-500/25 text-sm text-yellow-100">
+                  Picks are locked — you&apos;re changing {firstName}&apos;s after the deadline.
                 </div>
               ) : prog.complete ? (
                 <div className="rounded-2xl px-4 py-3 bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-200">
-                  ✓ Your picks are all in, {firstName}. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.
+                  {asManager
+                    ? <>✓ {firstName}&apos;s picks are all in. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.</>
+                    : <>✓ Your picks are all in, {firstName}. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.</>}
                 </div>
               ) : (
                 <div className="rounded-2xl px-4 py-3 bg-gradient-to-br from-yellow-500/[0.10] to-transparent border border-yellow-500/25 text-sm text-zinc-200">
@@ -291,7 +326,7 @@ export default function BowlPicks() {
               <p className="text-xs text-zinc-500 px-1">The bowl admin entered {data.enteredByAdmin} of these picks for you.</p>
             )}
 
-            <Best5Summary games={games} best5={best5} />
+            <Best5Summary games={games} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} />
 
             {sections.length > 1 && (
               <nav aria-label="Phases" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pt-1">
@@ -355,16 +390,42 @@ export default function BowlPicks() {
   )
 }
 
-function Best5Summary({ games, best5 }: { games: BowlGame[]; best5: string[] }) {
+function Best5Summary({ games, best5, whose }: { games: BowlGame[]; best5: string[]; whose: string }) {
   const names = best5.map(id => games.find(g => g.id === id)).filter(Boolean) as BowlGame[]
   return (
     <div className="glass-card rounded-2xl px-4 py-3">
-      <p className="text-sm font-semibold text-white">★ Your Best 5 <span className="text-zinc-500 font-normal">· {names.length} of 5</span></p>
+      <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {names.length} of 5</span></p>
       <p className="text-xs text-zinc-400 mt-1">
         {names.length
           ? names.map(g => g.playoff_round === 'first' ? `${g.away?.name ?? 'TBD'}–${g.home?.name ?? 'TBD'}` : g.name).join(' · ')
           : 'Pick a game, then tap its star — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.'}
       </p>
+    </div>
+  )
+}
+
+/**
+ * My Picks | 👤 Dani | 👤 Maddie — for someone who makes a managed player's
+ * picks. Hidden while the admin has someone else's picks open.
+ */
+function PlayerTabs({ managing, forId }: { managing: Managed[]; forId?: string }) {
+  const router = useRouter()
+  if (!managing.length || (forId && !managing.some(m => m.id === forId))) return null
+  const go = (id?: string) => {
+    if (id === forId) return
+    router.replace({ pathname: '/bowls/picks', query: id ? { for: id } : {} }, undefined, { shallow: true })
+  }
+  const tab = (on: boolean, managed: boolean) => `press shrink-0 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition whitespace-nowrap ${on
+    ? managed ? 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-500/30' : 'bg-white/[0.10] text-white'
+    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'}`
+  return (
+    <div role="tablist" aria-label="Whose picks" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4">
+      <button type="button" role="tab" aria-selected={!forId} onClick={() => go()} className={tab(!forId, false)}>My Picks</button>
+      {managing.map(m => (
+        <button key={m.id} type="button" role="tab" aria-selected={forId === m.id} onClick={() => go(m.id)} className={tab(forId === m.id, true)}>
+          <span aria-hidden className="text-xs">👤</span>{m.name}
+        </button>
+      ))}
     </div>
   )
 }

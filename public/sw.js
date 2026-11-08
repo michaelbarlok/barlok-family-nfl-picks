@@ -52,6 +52,12 @@ self.addEventListener('fetch', (event) => {
 })
 
 
+// The app's address. Installs from anywhere else (the old vercel.app address)
+// are retired — see the push handler — and their notification taps open the
+// page here instead.
+const APP_HOME = 'https://barlokfootballpicks.app'
+const isAppHome = (host) => /(^|\.)barlokfootballpicks\.app$/.test(host) || host === 'localhost' || host === '127.0.0.1'
+
 // ── Push ────────────────────────────────────────────────────────────────────
 // Two senders, told apart by the payload's tag and url:
 //   tag 'talk'  → a 💩 Talk message, opt-in per device
@@ -64,6 +70,31 @@ self.addEventListener('push', (event) => {
     payload = event.data ? event.data.json() : {}
   } catch {
     payload = {}
+  }
+
+  // An install from the app's old address (the vercel.app one). Its
+  // notifications carry that address — Android even flags them as possible
+  // spam — and on Android the subscription outlives the app, living on in
+  // Chrome after the icon is removed. So it's retired: one last notification
+  // saying where the app lives now (a tap opens barlokfootballpicks.app), then
+  // this subscription is turned off. The server drops it on its next send
+  // (the push service answers 410 Gone). An install from barlokfootballpicks.app
+  // has its own subscription and carries on as normal.
+  if (!isAppHome(self.location.hostname)) {
+    event.waitUntil((async () => {
+      await self.registration.showNotification('Football Picks has moved', {
+        body: 'Tap to open barlokfootballpicks.app — add it to your Home Screen and turn notifications on there. This old version won\'t send any more.',
+        icon: '/icons/app-192.png',
+        badge: '/icons/icon-192.svg',
+        tag: 'moved',
+        data: { url: '/' },
+      })
+      try {
+        const sub = await self.registration.pushManager.getSubscription()
+        if (sub) await sub.unsubscribe()
+      } catch (e) { /* nothing more to do */ }
+    })())
+    return
   }
 
   event.waitUntil(
@@ -95,8 +126,6 @@ self.addEventListener('push', (event) => {
 // An app installed from an older address (the vercel.app one) still gets
 // notifications; tapping one opens the page at the app's address instead,
 // barlokfootballpicks.app.
-const APP_HOME = 'https://barlokfootballpicks.app'
-const isAppHome = (host) => /(^|\.)barlokfootballpicks\.app$/.test(host) || host === 'localhost' || host === '127.0.0.1'
 
 async function openFromNotification(path) {
   if (!isAppHome(self.location.hostname)) {

@@ -239,6 +239,9 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
     }
     if (!has && best5.length >= 5) {
       toast.show('You have your Best 5 — unstar one to swap it out.', 'info')
+      document.getElementById('best5-bar')?.animate?.(
+        [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(-4px)' }, { transform: 'translateX(0)' }],
+        { duration: 380 })
       return
     }
     const next = has ? best5.filter(id => id !== game.id) : [...best5, game.id]
@@ -328,10 +331,6 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
             <span className={`font-semibold px-2 py-1 rounded-full ${prog.picked === prog.total ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
               {prog.picked}/{prog.total} picks
             </span>
-            <button type="button" onClick={showBest5} aria-label={`Best 5: ${prog.best5} of ${prog.best5Needed}`}
-              className={`press font-semibold px-2 py-1 rounded-full ${prog.best5 === prog.best5Needed ? 'bg-emerald-500/15 text-emerald-300' : finishing ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/60' : 'bg-white/[0.06] text-zinc-200'}`}>
-              ★ {prog.best5}/{prog.best5Needed}
-            </button>
             {prog.needsTotal && (
               <button type="button" onClick={focusTotal} aria-label={prog.hasTotal ? 'Title-game total entered' : 'Title-game total not entered'}
                 className={`press font-semibold px-2 py-1 rounded-full ${prog.hasTotal ? 'bg-emerald-500/15 text-emerald-300' : finishing ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/60' : 'bg-white/[0.06] text-zinc-200'}`}>
@@ -345,6 +344,12 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
           {sections.length > 1 && tab && (
             <div className="max-w-3xl mx-auto px-4 pb-2.5">
               <PhaseTabs sections={sections} current={tab.key} picks={picks} onChange={chooseTab} />
+            </div>
+          )}
+          {prog.best5Needed > 0 && (editable || best5.length > 0) && (
+            <div className="max-w-3xl mx-auto px-4 pb-2.5 -mt-1">
+              <Best5Bar games={games} byId={byId} picks={picks} best5={best5} needed={prog.best5Needed}
+                warn={finishing && prog.best5 < prog.best5Needed} onOpen={openGame} onHelp={showBest5} />
             </div>
           )}
         </div>
@@ -422,7 +427,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
               const nextSec = sections[i + 1]
               const unfinished = sections.filter(sec => sec.key !== tab.key && sec.games.some(g => !picks[g.id]))
               return (
-                <section id="phase-panel" aria-label={tab.title} className="space-y-4 pt-1 scroll-mt-[200px]">
+                <section id="phase-panel" aria-label={tab.title} className="space-y-4 pt-1 scroll-mt-[240px]">
                   {/* The tab above has the count, the fill and the points; here, just the phase's name
                       (the Playoff's rounds have their own headings). */}
                   {tab.key === 'playoff' ? <h2 className="sr-only">{name}</h2> : (
@@ -514,13 +519,68 @@ function best5Context(game: BowlGame, teamId: string, games: BowlGame[]): string
   return name.replace(/^CFP\s+/, '')
 }
 
+/**
+ * The Best 5, pinned under the phase tabs: five slots that fill in gold as
+ * games are starred, each with the team you picked (tap one to go to its
+ * game). Green with a ✓ at five; amber once every game is picked but the
+ * five aren't; after the lock, each shows whether that pick won.
+ */
+function Best5Bar({ games, byId, picks, best5, needed, warn, onOpen, onHelp }: {
+  games: BowlGame[]; byId: Map<string, BowlGame>; picks: PickMap; best5: string[]; needed: number
+  warn: boolean; onOpen: (gameId: string) => void; onHelp: () => void
+}) {
+  const starred = best5.map(id => byId.get(id)).filter(Boolean) as BowlGame[]
+  const done = starred.length >= needed
+  const slots = Array.from({ length: needed }, (_, i) => starred[i] ?? null)
+  return (
+    <div id="best5-bar" role="group" aria-label={`Best 5: ${starred.length} of ${needed}`}
+      className={`flex items-center gap-1.5 rounded-xl border px-1.5 py-1 transition-colors ${done
+        ? 'border-emerald-500/40 bg-emerald-500/[0.06]'
+        : warn ? 'border-amber-400/70 bg-amber-400/[0.10]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
+      <button type="button" onClick={onHelp} title="Your Best 5 — the first tiebreaker"
+        className="press shrink-0 w-10 flex flex-col items-center leading-tight">
+        <span className={`text-[10px] font-bold whitespace-nowrap ${done ? 'text-emerald-300' : warn ? 'text-amber-200' : 'text-yellow-400'}`}>Best 5</span>
+        <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap ${done ? 'text-emerald-200' : 'text-white'}`}>{done ? '✓' : '★'} {starred.length}/{needed}</span>
+      </button>
+      <ol className="flex-1 min-w-0 grid gap-1" style={{ gridTemplateColumns: `repeat(${needed}, minmax(0, 1fr))` }}>
+        {slots.map((g, i) => {
+          if (!g) {
+            return (
+              <li key={`empty-${i}`} aria-label="Empty Best 5 spot"
+                className={`h-7 rounded-lg border border-dashed flex items-center justify-center text-[11px] ${warn ? 'border-amber-300/50 text-amber-200/70' : 'border-white/[0.15] text-zinc-600'}`}>☆</li>
+            )
+          }
+          const team = optionsFor(g, byId, picks).find(t => t && t.id === picks[g.id]) ?? null
+          const context = team ? best5Context(g, team.id, games) : null
+          const decided = isDecided(g)
+          const won = decided && team && g.winner_team_id === team.id
+          const label = team ? `${team.name}${context ? ` (${context})` : ''}` : g.name
+          const short = team ? (team.abbr || team.name.split(' ')[0]) : '★'
+          return (
+            <li key={g.id} className="min-w-0">
+              <button type="button" onClick={() => onOpen(g.id)} title={`${label} — ${g.name}`}
+                aria-label={`Best 5: ${label}${decided ? (won ? ', won' : ', lost') : ''}. Go to the game`}
+                className={`press w-full h-7 rounded-lg border flex items-center justify-center gap-[3px] px-0.5 transition-colors ${decided
+                  ? won ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-50' : 'bg-red-500/10 border-red-500/40 text-zinc-400'
+                  : 'bg-yellow-500/20 border-yellow-500/60 text-yellow-50'}`}>
+                {team && <span className="max-[359px]:hidden shrink-0"><TeamLogo team={team} size={13} /></span>}
+                <span className={`truncate text-[10px] font-bold uppercase tracking-tight ${decided && !won ? 'line-through' : ''}`}>{short}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+}
+
 /** "★ Your Best 5" — the team you starred in each, with the game when it's needed. Tap one to go to it. */
 function Best5Summary({ games, byId, picks, best5, whose, editable, onOpen }: {
   games: BowlGame[]; byId: Map<string, BowlGame>; picks: PickMap; best5: string[]; whose: string; editable: boolean; onOpen: (gameId: string) => void
 }) {
   const starred = best5.map(id => byId.get(id)).filter(Boolean) as BowlGame[]
   return (
-    <div id="best5" className="glass-card rounded-2xl px-4 py-3 scroll-mt-[210px]">
+    <div id="best5" className="glass-card rounded-2xl px-4 py-3 scroll-mt-[250px]">
       <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {starred.length} of 5</span></p>
       {starred.length ? (
         <ul aria-label={`${whose} Best 5`} className="flex flex-wrap gap-1.5 mt-2">

@@ -60,7 +60,9 @@ export default function App({ Component, pageProps }: AppProps) {
   // players, head tags and home-screen app. None of the NFL providers or
   // prompts below run there, and nothing below changes for NFL pages.
   if (router.pathname === '/bowls' || router.pathname.startsWith('/bowls/')) {
-    return <BowlApp Component={Component} pageProps={pageProps} routeKey={router.asPath} navState={navState} />
+    // Keyed by page, not by full URL: a tab that only changes ?phase= / ?view=
+    // must not tear the page down and load it all again.
+    return <BowlApp Component={Component} pageProps={pageProps} routeKey={router.pathname} navState={navState} />
   }
 
   return (

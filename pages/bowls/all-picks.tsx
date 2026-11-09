@@ -400,7 +400,7 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
       <table className="border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
-            <th className="sticky top-0 left-0 z-30 bg-zinc-900 min-w-[124px] max-w-[124px] px-3 py-2 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-r border-white/[0.08]">Game</th>
+            <th className="sticky top-0 left-0 z-30 bg-zinc-900 min-w-[136px] max-w-[136px] sm:min-w-[184px] sm:max-w-[184px] px-3 py-2 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-r border-white/[0.08]">Game</th>
             {cols.map(s => {
               const you = s.id === me
               return (
@@ -422,20 +422,8 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
                 const lv = live.get(g.id)
                 return (
                   <tr key={g.id}>
-                    <th scope="row" className={`sticky left-0 z-10 min-w-[124px] max-w-[124px] px-3 py-1.5 text-left font-normal border-b border-r border-white/[0.06] ${lv?.state === 'in' ? 'bg-zinc-900 shadow-[inset_3px_0_0_rgba(239,68,68,0.8)]' : 'bg-zinc-900'}`}>
-                      <span className="flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[g.phase!].dot}`} />
-                        <span className="text-[11px] font-semibold text-zinc-100 truncate">{g.name.replace('CFP ', '')}</span>
-                      </span>
-                      <span className="block text-[10px] text-zinc-500 truncate pl-3">
-                        {(() => {
-                          if (!isDecided(g) && lv?.state === 'in') {
-                            const sc = scoreOf(g, lv)
-                            return <span className="text-red-400 font-semibold">● {lv.label ?? 'Live'} · {sc.away ?? 0}–{sc.home ?? 0}</span>
-                          }
-                          return isDecided(g) ? `Final · ${teams.get(g.winner_team_id!)?.abbr ?? ''}` : g.playoff_round === 'first' ? `${g.away?.abbr ?? 'TBD'} v ${g.home?.abbr ?? 'TBD'}` : `${PHASE_BY_KEY[g.phase!].points} pts`
-                        })()}
-                      </span>
+                    <th scope="row" className={`sticky left-0 z-10 min-w-[136px] max-w-[136px] sm:min-w-[184px] sm:max-w-[184px] px-3 py-1.5 text-left font-normal align-middle border-b border-r border-white/[0.06] ${lv?.state === 'in' ? 'bg-zinc-900 shadow-[inset_3px_0_0_rgba(239,68,68,0.8)]' : 'bg-zinc-900'}`}>
+                      <GameCell game={g} live={lv} />
                     </th>
                     {cols.map(s => {
                       const t = board.picks?.[s.id]?.[g.id]
@@ -490,6 +478,51 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
 }
 
 /** A playoff round (or phase, on All) heading across the grid, then its games. */
+/**
+ * The Grid's Game column: the bowl, then both teams by name with the score —
+ * the winner (or whoever leads, live) in white. Live games show the clock in
+ * red; games still to come show their date. No logos: the picks beside it
+ * already have them.
+ */
+function GameCell({ game: g, live: lv }: { game: BowlGame; live?: BowlLive }) {
+  const on = !isDecided(g) && lv?.state === 'in'
+  const sc = scoreOf(g, lv)
+  const scored = sc.away !== null && sc.home !== null && (isDecided(g) || on || g.status === 'final')
+  const lead = scored ? (sc.away! > sc.home! ? 'away' : sc.home! > sc.away! ? 'home' : null) : null
+  const winner = isDecided(g) ? (g.winner_team_id === g.away?.id ? 'away' : g.winner_team_id === g.home?.id ? 'home' : null) : lead
+  const status = on ? <span className="text-red-400 font-semibold">● {lv!.label ?? 'Live'}</span>
+    // "Final" only where there's room: on a phone the scores already say so.
+    : isDecided(g) || g.status === 'final' ? <span className="hidden sm:inline text-zinc-400 font-semibold">Final</span>
+    : <span className="text-zinc-500">{kickoffText(g.kickoff_time, g.time_tbd).split(' · ')[0].replace(/^\w+, /, '')}</span>
+  const row = (side: 'away' | 'home') => {
+    const t = side === 'away' ? g.away : g.home
+    const n = side === 'away' ? sc.away : sc.home
+    const top = winner === side
+    const faded = scored && winner !== null && !top
+    return (
+      <span className="flex items-baseline gap-1.5 leading-tight">
+        <span className={`min-w-0 flex-1 truncate text-[11px] ${t ? (top ? 'text-white font-semibold' : faded ? 'text-zinc-500' : 'text-zinc-200') : 'text-zinc-600 italic'}`}>
+          {t ? t.name : 'TBD'}
+        </span>
+        {scored && <span className={`shrink-0 tabular-nums text-[11px] ${top ? 'text-white font-bold' : 'text-zinc-500'} ${on ? 'text-red-200' : ''}`}>{n}</span>}
+      </span>
+    )
+  }
+  return (
+    <span className="block" title={`${g.name}${g.away && g.home ? ` · ${g.away.name} vs ${g.home.name}` : ''}`}>
+      <span className="flex items-center gap-1.5 mb-0.5">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[g.phase!].dot}`} />
+        <span className="min-w-0 flex-1 text-[10px] font-semibold text-zinc-300 truncate">{g.name.replace('CFP ', '')}</span>
+        <span className="shrink-0 text-[9px]">{status}</span>
+      </span>
+      <span className="block pl-3">
+        {row('away')}
+        {row('home')}
+      </span>
+    </span>
+  )
+}
+
 function GridGroup({ label, span, children }: { label: string; span: number; children: React.ReactNode }) {
   return (
     <>

@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { pickSections, type BowlGame, type BowlTeam } from '@/lib/bowls/sheet'
+import { pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
+import { isDecided } from '@/lib/bowls/scoring'
 import { cleanPicks, indexGames, optionsFor, progress, type PickMap } from '@/lib/bowls/bracket'
 import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
@@ -111,6 +112,32 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
   const byId = useMemo(() => indexGames(games), [games])
   // Once games are being played, each card shows its live score.
   const live = useBowlLive(data?.status === 'locked' ? games : undefined)
+
+  // One phase at a time, by tab. Opens where you left off — the first phase
+  // with a game still to pick — or, once picks lock, on the phase being
+  // played. A link can ask for one (?phase=).
+  const sections = useMemo(() => pickSections(games), [games])
+  const [phaseTab, setPhaseTab] = useState<SectionKey | null>(null)
+  useEffect(() => {
+    if (phaseTab || !data || !sections.length) return
+    const asked = router.query.phase
+    if (typeof asked === 'string' && sections.some(sec => sec.key === asked)) { setPhaseTab(asked as SectionKey); return }
+    if (data.status === 'setup' || data.status === 'open') {
+      setPhaseTab((sections.find(sec => sec.games.some(g => !picks[g.id])) ?? sections[0]).key)
+      return
+    }
+    const next = [...games].filter(g => !isDecided(g) && g.kickoff_time).sort((a, b) => a.kickoff_time!.localeCompare(b.kickoff_time!))[0]
+    setPhaseTab((next && sections.find(sec => sec.games.some(g => g.id === next.id))?.key) ?? sections[sections.length - 1].key)
+  }, [phaseTab, data, sections, games, picks, router.query.phase])
+  const chooseTab = (key: SectionKey) => {
+    setPhaseTab(key)
+    router.replace({ pathname: router.pathname, query: { ...router.query, phase: key } }, undefined, { shallow: true, scroll: false })
+    // Start the phase from its top, just under the pinned header.
+    requestAnimationFrame(() => {
+      const el = document.getElementById('phase-panel')
+      if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' })
+    })
+  }
   const lockPassed = !!data?.lockAt && now >= Date.parse(data.lockAt)
   // Before picks open only the admin sees the games: a preview to tap around
   // in, where nothing is saved.
@@ -239,7 +266,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
   }
 
   const titleGame = games.find(g => g.phase === 'title')
-  const sections = pickSections(games)
+  const tab = sections.find(sec => sec.key === phaseTab) ?? sections[0]
   const prog = progress(games, picks, best5, total === '' ? null : Number(total))
   const left = data?.lockAt ? countdown(data.lockAt, now) : null
   const firstName = data?.player?.name.split(' ')[0] ?? ''
@@ -275,6 +302,11 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
               {preview ? 'Preview' : saving ? 'Saving…' : saveFailed ? 'Not saved' : editable && left ? `Due in ${left}` : lockPassed ? 'Locked' : ''}
             </span>
           </div>
+          {sections.length > 1 && tab && (
+            <div className="max-w-3xl mx-auto px-4 pb-2.5">
+              <PhaseTabs sections={sections} current={tab.key} picks={picks} onChange={chooseTab} />
+            </div>
+          )}
         </div>
       )}
       </BowlHeader>
@@ -342,37 +374,41 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
 
             <Best5Summary games={games} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} />
 
-            {sections.length > 1 && (
-              <nav aria-label="Phases" className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pt-1">
-                {sections.map(sec => {
-                  const done = sec.games.filter(g => picks[g.id]).length
-                  return (
-                    <a key={sec.key} href={`#phase-${sec.key}`}
-                      className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${done === sec.games.length ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[sec.key].dot}`} />
-                      {sec.short}<span className="tabular-nums text-zinc-400 font-medium">{done}/{sec.games.length}</span>
-                    </a>
-                  )
-                })}
-              </nav>
-            )}
-
-            {sections.map(sec => {
-              const done = sec.games.filter(g => picks[g.id]).length
+            {tab && (() => {
+              const done = tab.games.filter(g => picks[g.id]).length
+              const [tag, name] = tab.title.includes(' · ') ? tab.title.split(' · ') : [tab.short, tab.title]
+              const i = sections.findIndex(sec => sec.key === tab.key)
+              const nextSec = sections[i + 1]
+              const unfinished = sections.filter(sec => sec.key !== tab.key && sec.games.some(g => !picks[g.id]))
               return (
-                <section key={sec.key} id={`phase-${sec.key}`} aria-label={sec.title} className="pt-3 scroll-mt-[150px]">
-                  <div className="flex items-baseline gap-2 mb-2 px-1">
-                    <span className={`w-2 h-2 rounded-full self-center ${PHASE_TONE[sec.key].dot}`} />
-                    <h2 className="text-sm font-bold text-white">{sec.title}</h2>
-                    <span className="text-[11px] text-zinc-500">{sec.points}</span>
-                    <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">{done}/{sec.games.length}</span>
+                <section id="phase-panel" aria-label={tab.title} className="space-y-4 pt-1 scroll-mt-[190px]">
+                  {/* The phase, set apart: its color, its points, how far along you are. */}
+                  <div className={`rounded-2xl border p-4 ${PHASE_TONE[tab.key].panel}`}>
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-[11px] font-bold uppercase tracking-wider ${PHASE_TONE[tab.key].text}`}>{tag}</p>
+                        <h2 className="text-xl font-extrabold text-white leading-tight">{name}</h2>
+                        <p className="text-xs text-zinc-300 mt-0.5">{tab.points}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-2xl font-extrabold text-white tabular-nums leading-none">{done}<span className="text-base text-zinc-500">/{tab.games.length}</span></p>
+                        <p className="text-[10px] text-zinc-400 mt-1">{done === tab.games.length ? '✓ all picked' : 'picked'}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 h-1.5 rounded-full bg-black/30 overflow-hidden" aria-hidden="true">
+                      <div className={`h-full rounded-full ${PHASE_TONE[tab.key].dot} transition-[width] duration-500`} style={{ width: `${(done / Math.max(1, tab.games.length)) * 100}%` }} />
+                    </div>
                   </div>
-                  {sec.rounds.map(r => (
-                    <div key={r.key} className="space-y-2 mb-3">
+
+                  {tab.rounds.map(r => (
+                    <div key={r.key} className="space-y-3">
                       {r.label && (
-                        <p className="flex items-baseline gap-2 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-1 pt-1">
-                          {r.label}<span className="normal-case tracking-normal font-normal text-zinc-600">{r.points}</span>
-                        </p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[r.games[0]?.phase ?? tab.key].dot}`} />
+                          <h3 className="text-xs font-bold text-white uppercase tracking-wider">{r.label}</h3>
+                          <span className="text-[11px] text-zinc-500">{r.points}</span>
+                          <span className="flex-1 h-px bg-white/[0.08]" />
+                        </div>
                       )}
                       {r.games.map(g => (
                         <GameCard key={g.id} game={g} byId={byId} picks={picks} live={live.byGameId.get(g.id)}
@@ -380,21 +416,46 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                           onPick={t => choose(g, t)} onStar={() => toggleStar(g)} />
                       ))}
                       {r.key === 'title' && titleGame && (
-                        <div className="glass-card rounded-2xl p-3 flex items-center gap-3">
+                        <div className="rounded-2xl border border-white/[0.09] border-l-4 border-l-yellow-500 bg-zinc-900 p-3.5 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-white">Total points in the title game</p>
                             <p className="text-[11px] text-zinc-500 mt-0.5">The last tiebreaker: closest guess wins. On an equal miss, the guess under wins.</p>
                           </div>
                           <input value={total} onChange={e => changeTotal(e.target.value)} disabled={!editable}
                             inputMode="numeric" pattern="[0-9]*" placeholder="—" aria-label="Total points in the title game"
-                            className="w-20 shrink-0 text-center text-lg font-bold px-2 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-60" />
+                            className="w-20 shrink-0 text-center text-lg font-bold px-2 py-2 bg-white/[0.06] border border-white/[0.14] rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-60" />
                         </div>
                       )}
                     </div>
                   ))}
+
+                  {/* On to the next phase — or what's still to pick. */}
+                  {nextSec ? (
+                    <button type="button" onClick={() => chooseTab(nextSec.key)}
+                      className={`press w-full rounded-2xl border p-4 flex items-center gap-3 text-left transition hover:brightness-110 ${PHASE_TONE[nextSec.key].panel}`}>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[11px] text-zinc-400">Next</span>
+                        <span className="block text-sm font-bold text-white truncate">{nextSec.title}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-zinc-300 tabular-nums">{nextSec.games.filter(g => picks[g.id]).length}/{nextSec.games.length}</span>
+                      <span className="shrink-0 text-lg text-white" aria-hidden="true">→</span>
+                    </button>
+                  ) : editable && unfinished.length ? (
+                    <div className="rounded-2xl border border-white/[0.09] bg-zinc-900 p-4 space-y-2">
+                      <p className="text-sm font-semibold text-white">Still to pick</p>
+                      <div className="flex flex-wrap gap-2">
+                        {unfinished.map(sec => (
+                          <button key={sec.key} type="button" onClick={() => chooseTab(sec.key)}
+                            className={`press inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold ${PHASE_TONE[sec.key].tab}`}>
+                            {sec.short} · {sec.games.filter(g => !picks[g.id]).length} left →
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
               )
-            })}
+            })()}
 
             <div className="pt-4"><BowlRules /></div>
           </>
@@ -414,6 +475,33 @@ function Best5Summary({ games, best5, whose }: { games: BowlGame[]; best5: strin
           ? names.map(g => g.playoff_round === 'first' ? `${g.away?.name ?? 'TBD'}–${g.home?.name ?? 'TBD'}` : g.name).join(' · ')
           : 'Pick a game, then tap its star — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.'}
       </p>
+    </div>
+  )
+}
+
+/**
+ * Phase 1 · Phase 2 · Phase 3 · Playoff — pinned under the progress bar, all
+ * four always in view (even on a small phone), each with how many are picked.
+ */
+function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSection[]; current: SectionKey; picks: PickMap; onChange: (k: SectionKey) => void }) {
+  return (
+    <div role="tablist" aria-label="Phase" className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${sections.length}, minmax(0, 1fr))` }}>
+      {sections.map(sec => {
+        const done = sec.games.filter(g => picks[g.id]).length
+        const all = done === sec.games.length
+        const on = sec.key === current
+        return (
+          <button key={sec.key} type="button" role="tab" aria-selected={on} onClick={() => onChange(sec.key)}
+            className={`press min-w-0 flex flex-col items-center justify-center rounded-xl border px-1 py-1.5 transition ${on
+              ? PHASE_TONE[sec.key].tab
+              : 'border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-white/[0.06]'}`}>
+            <span className="flex items-center gap-1 text-xs font-semibold whitespace-nowrap">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[sec.key].dot}`} />{sec.short}
+            </span>
+            <span className={`text-[11px] tabular-nums leading-tight ${all ? 'text-emerald-300 font-semibold' : on ? 'text-white/70' : 'text-zinc-500'}`}>{all ? '✓' : `${done}/${sec.games.length}`}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -469,11 +557,12 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
   const picked = picks[game.id]
   const decided = game.status === 'final' && game.winner_team_id
   return (
-    <div className={`glass-card rounded-2xl p-3 ${picked ? '' : 'ring-1 ring-inset ring-white/[0.04]'}`} data-game={game.id}>
-      <div className="flex items-start gap-2 mb-2">
+    <div className={`rounded-2xl border border-l-4 ${game.phase ? PHASE_TONE[game.phase].stripe : 'border-l-zinc-600'} bg-zinc-900 p-3 sm:p-3.5 shadow-lg shadow-black/30 ${picked ? 'border-white/[0.10]' : 'border-white/[0.07]'}`} data-game={game.id}>
+      <div className="flex items-start gap-2 mb-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">{game.name}</p>
-          <p className="text-[11px] text-zinc-500 truncate">
+          <p className="text-[15px] font-bold text-white truncate">{game.name}</p>
+          <p className="text-[11px] text-zinc-400 truncate">
+            {!picked && editable && <span className="font-semibold text-amber-300">Pick one · </span>}
             {game.status !== 'final' && live && live.state !== 'pre' ? (() => {
               const sc = scoreOf(game, live)
               return <><LiveTag live={live} /> · <span className="font-semibold text-white tabular-nums">{sc.away ?? 0}–{sc.home ?? 0}</span></>
@@ -490,13 +579,14 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
           {starred ? '★' : '☆'}
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
+        <span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-zinc-950 border border-white/[0.15] flex items-center justify-center text-[8px] sm:text-[9px] font-bold text-zinc-400">VS</span>
         {(['away', 'home'] as const).map((side, i) => {
           const team = options[i]
           if (!team) {
             const from = side === 'away' ? game.away_from : game.home_from
             return (
-              <div key={side} className="rounded-xl border border-dashed border-white/[0.1] px-2.5 py-2.5 min-h-[52px] flex flex-col justify-center">
+              <div key={side} className="rounded-xl border border-dashed border-white/[0.14] bg-white/[0.02] px-2.5 py-2.5 min-h-[56px] flex flex-col justify-center">
                 <p className="text-xs text-zinc-400 leading-tight">{from ? feederText(byId.get(from), byId, picks) : 'TBD'}</p>
                 {from && <p className="text-[10px] text-zinc-600 mt-0.5">Pick that game first</p>}
               </div>
@@ -508,16 +598,16 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
           return (
             <button key={side} onClick={() => onPick(team)} disabled={!editable} aria-pressed={selected}
               aria-label={`Pick ${fullTeamName(team)}`}
-              className={`press relative flex items-center gap-2 rounded-xl px-2.5 py-2.5 min-h-[52px] text-left border transition disabled:cursor-default ${selected
+              className={`press relative flex items-center gap-1.5 sm:gap-2 rounded-xl px-2 sm:px-2.5 py-2.5 min-h-[56px] text-left border transition disabled:cursor-default ${selected
                 ? right ? 'bg-emerald-500/15 border-emerald-500/50' : wrong ? 'bg-red-500/10 border-red-500/40' : 'bg-yellow-500/15 border-yellow-500/60 ring-1 ring-yellow-500/30'
-                : `bg-white/[0.03] border-white/[0.06] ${editable ? 'hover:bg-white/[0.06]' : 'opacity-60'}`}`}>
+                : `bg-white/[0.06] border-white/[0.14] ${editable ? 'hover:bg-white/[0.10] hover:border-white/[0.24]' : 'opacity-60'}`}`}>
               <TeamLogo team={team} size={30} />
               <span className="min-w-0 flex-1">
-                <TeamName team={team} nickname className="block text-[13px] leading-snug text-white line-clamp-2" />
+                <TeamName team={team} nickname className="block text-[13px] leading-snug text-white line-clamp-2 break-words hyphens-auto" />
                 {team.record && <span className="block text-[11px] text-zinc-500">{team.record}</span>}
               </span>
               {selected && (
-                <span className={`absolute top-1.5 right-1.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center ${right ? 'bg-emerald-500 text-white' : wrong ? 'bg-red-500 text-white' : 'bg-yellow-500 text-zinc-950'}`}>
+                <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full ring-2 ring-zinc-900 text-[10px] font-bold flex items-center justify-center ${right ? 'bg-emerald-500 text-white' : wrong ? 'bg-red-500 text-white' : 'bg-yellow-500 text-zinc-950'}`}>
                   {wrong ? '✗' : '✓'}
                 </span>
               )}

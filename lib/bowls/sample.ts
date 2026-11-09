@@ -7,8 +7,10 @@ import { SAMPLE_PREFIX, isSampleTeam, sortGames, teamToRow, type BowlGame, type 
  * team slot with last season's bowl teams from ESPN (names, logos, ranks and
  * records), so the admin can see how the pick'em will look. Each bowl gets
  * the teams it had last year where it can; anything left over takes the next
- * unused matchup (playoff teams show up in each round they reached, as they
- * did last year).
+ * unused matchup. The playoff goes round by round instead — last year's first
+ * round into this year's first round, quarterfinals into quarterfinals, and so
+ * on, whichever bowls host them (they rotate) — so the preview is last year's
+ * bracket, and My Picks plays it out from your picks (see sampleBracket).
  *
  * Only empty slots are filled, never a real team, and never a playoff slot
  * linked to the game its winner comes from (that one shows the pick). Every
@@ -27,23 +29,33 @@ export async function fillSampleTeams(supabase: Db, season: number, fetcher: Fet
   const lastYear = (await fetchBowlSeason(season - 1, fetcher)).filter(g => g.away && g.home).sort(byKickoff)
   if (!lastYear.length) throw new Error(`ESPN has no ${season - 1} bowl games to borrow teams from.`)
 
-  // Same-named games pair up in kickoff order (the four "CFP First Round" games).
+  // Bowls pair up by name; playoff games by round. Either way in kickoff order.
   const byName = new Map<string, EspnGame[]>()
-  for (const g of lastYear) byName.set(g.name, [...(byName.get(g.name) ?? []), g])
+  const byRound = new Map<string, EspnGame[]>()
+  for (const g of lastYear) {
+    if (g.playoff_round) byRound.set(g.playoff_round, [...(byRound.get(g.playoff_round) ?? []), g])
+    else byName.set(g.name, [...(byName.get(g.name) ?? []), g])
+  }
+  const matches = (g: BowlGame) => (g.playoff_round ? byRound.get(g.playoff_round) : byName.get(g.name)) ?? []
+  const sameName = (g: BowlGame) => matches(g).filter(x => x.name === g.name)
   const used = new Set<string>()
   let reuse = 0
   const take = (g: BowlGame): EspnGame => {
-    const same = (byName.get(g.name) ?? []).find(x => !used.has(x.espn_id))
-    // More games this year than last: start over on last year's list.
-    const pick = same ?? lastYear.find(x => !used.has(x.espn_id)) ?? lastYear[reuse++ % lastYear.length]
+    // A bowl keeps its own teams if it was in the same round last year (the Rose Bowl's quarterfinal).
+    const same = sameName(g).find(x => !used.has(x.espn_id)) ?? matches(g).find(x => !used.has(x.espn_id))
+    // Anything left over takes an unused bowl matchup (a playoff one only if
+    // that's all there is); more games this year than last: start over.
+    const pick = same ?? lastYear.find(x => !used.has(x.espn_id) && !x.playoff_round)
+      ?? lastYear.find(x => !used.has(x.espn_id)) ?? lastYear[reuse++ % lastYear.length]
     used.add(pick.espn_id)
     return pick
   }
 
-  // Named matches first, so a leftover game can't take a bowl's own teams.
+  // Matches first, so a leftover game can't take a bowl's own teams — and
+  // same-named ones first of all, so the rest of a round can't either.
   const ordered = sortGames(games)
-  const named = ordered.filter(g => byName.has(g.name))
-  const rest = ordered.filter(g => !byName.has(g.name))
+  const named = ordered.filter(g => matches(g).length).sort((a, b) => Number(!sameName(a).length) - Number(!sameName(b).length))
+  const rest = ordered.filter(g => !matches(g).length)
 
   const fit = await gameRowFitter(supabase)
   let touched = 0, teams = 0

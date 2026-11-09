@@ -3,7 +3,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { inSeason, pickTarget, storedPicks } from '@/lib/bowls/entry'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
-import { samplePreview, sheetGames } from '@/lib/bowls/sheet'
+import { sampleBracket, samplePreview, sheetGames } from '@/lib/bowls/sheet'
 import { managedBy } from '@/lib/bowls/managed'
 
 /**
@@ -50,7 +50,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       managed: target.manager,
       override: target.override,
       canEdit,
-      games: showSheet ? sheetGames(games) : [],
+      // The preview's playoff follows last year's bracket (see sampleBracket).
+      games: showSheet ? sheetGames(sample ? sampleBracket(games) : games) : [],
       picks: cleanPicks(games, stored.picks).picks,
       best5: cleanBest5(games, stored.best5),
       titleTotal: stored.titleTotal,

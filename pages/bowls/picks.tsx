@@ -267,6 +267,12 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
 
   const titleGame = games.find(g => g.phase === 'title')
   const tab = sections.find(sec => sec.key === phaseTab) ?? sections[0]
+  // From the Best 5 list: open the game's phase and bring the game into view.
+  const openGame = (id: string) => {
+    const sec = sections.find(x => x.games.some(g => g.id === id))
+    if (sec && sec.key !== tab?.key) chooseTab(sec.key)
+    setTimeout(() => document.querySelector(`[data-game="${id}"]`)?.scrollIntoView({ block: 'center' }), 80)
+  }
   const prog = progress(games, picks, best5, total === '' ? null : Number(total))
   const left = data?.lockAt ? countdown(data.lockAt, now) : null
   const firstName = data?.player?.name.split(' ')[0] ?? ''
@@ -372,7 +378,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
               <p className="text-xs text-zinc-500 px-1">The bowl admin entered {data.enteredByAdmin} of these picks for you.</p>
             )}
 
-            <Best5Summary games={games} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} />
+            <Best5Summary games={games} byId={byId} picks={picks} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} onOpen={openGame} />
 
             {tab && (() => {
               const done = tab.games.filter(g => picks[g.id]).length
@@ -465,16 +471,49 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
   )
 }
 
-function Best5Summary({ games, best5, whose }: { games: BowlGame[]; best5: string[]; whose: string }) {
-  const names = best5.map(id => games.find(g => g.id === id)).filter(Boolean) as BowlGame[]
+/**
+ * Which game a Best 5 pick is, when the team alone doesn't say: a playoff
+ * game (a team can win its way through several), or a team that's on the
+ * pick'em more than once (Army or Navy in a bowl as well as Army–Navy).
+ * "CFP Quarterfinal · Rose Bowl" → "Rose Bowl", "CFP First Round" → "First Round".
+ */
+function best5Context(game: BowlGame, teamId: string, games: BowlGame[]): string | null {
+  const again = games.some(g => g.id !== game.id && g.phase && !g.removed && (g.away?.id === teamId || g.home?.id === teamId))
+  if (!game.playoff_round && !again) return null
+  const name = game.name.includes(' · ') ? game.name.split(' · ').pop()! : game.name
+  return name.replace(/^CFP\s+/, '')
+}
+
+/** "★ Your Best 5" — the team you starred in each, with the game when it's needed. Tap one to go to it. */
+function Best5Summary({ games, byId, picks, best5, whose, onOpen }: {
+  games: BowlGame[]; byId: Map<string, BowlGame>; picks: PickMap; best5: string[]; whose: string; onOpen: (gameId: string) => void
+}) {
+  const starred = best5.map(id => byId.get(id)).filter(Boolean) as BowlGame[]
   return (
     <div className="glass-card rounded-2xl px-4 py-3">
-      <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {names.length} of 5</span></p>
-      <p className="text-xs text-zinc-400 mt-1">
-        {names.length
-          ? names.map(g => g.playoff_round === 'first' ? `${g.away?.name ?? 'TBD'}–${g.home?.name ?? 'TBD'}` : g.name).join(' · ')
-          : 'Pick a game, then tap its star — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.'}
-      </p>
+      <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {starred.length} of 5</span></p>
+      {starred.length ? (
+        <ul aria-label={`${whose} Best 5`} className="flex flex-wrap gap-1.5 mt-2">
+          {starred.map(g => {
+            const team = optionsFor(g, byId, picks).find(t => t && t.id === picks[g.id]) ?? null
+            const context = team ? best5Context(g, team.id, games) : null
+            return (
+              <li key={g.id} className="min-w-0 max-w-full">
+                <button type="button" onClick={() => onOpen(g.id)} title={g.name}
+                  className="press max-w-full inline-flex items-center gap-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 pl-1 pr-2.5 py-1 text-xs text-yellow-50 hover:bg-yellow-500/15 transition">
+                  {team ? <TeamLogo team={team} size={18} /> : <span className="w-[18px] text-center text-yellow-400">★</span>}
+                  <span className="truncate">
+                    {team ? <span className="font-semibold">{team.name}</span> : g.name}
+                    {context && <span className="text-yellow-100/60"> ({context})</span>}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <p className="text-xs text-zinc-400 mt-1">Pick a game, then tap its star — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.</p>
+      )}
     </div>
   )
 }
@@ -572,12 +611,17 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
             </>}
           </p>
         </div>
-        <button onClick={onStar} disabled={(!editable || !picks[game.id]) && !starred} aria-pressed={starred}
-          aria-label={starred ? `Remove ${game.name} from your Best 5` : `Add ${game.name} to your Best 5`}
-          title={!starred && !picks[game.id] ? 'Pick a team first' : undefined}
-          className={`shrink-0 w-8 h-8 -mr-1 -mt-1 rounded-full flex items-center justify-center text-lg transition ${starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-zinc-300'} disabled:cursor-default`}>
-          {starred ? '★' : '☆'}
-        </button>
+        {/* "☆ Best 5" — says what the star is for. After the lock, only your starred games show it. */}
+        {(editable || starred) && (
+          <button onClick={onStar} disabled={(!editable || !picks[game.id]) && !starred} aria-pressed={starred}
+            aria-label={starred ? `Remove ${game.name} from your Best 5` : `Add ${game.name} to your Best 5`}
+            title={!starred && !picks[game.id] ? 'Pick a team first' : undefined}
+            className={`press shrink-0 -mr-0.5 inline-flex items-center gap-1 rounded-full border pl-1.5 pr-2 py-1 text-[11px] font-semibold whitespace-nowrap transition disabled:cursor-default ${starred
+              ? 'bg-yellow-500/15 border-yellow-500/50 text-yellow-300'
+              : picks[game.id] ? 'border-white/[0.16] text-zinc-300 hover:text-white hover:border-white/[0.3]' : 'border-white/[0.08] text-zinc-600'}`}>
+            <span className={`text-sm leading-none ${starred ? 'text-yellow-400' : ''}`} aria-hidden="true">{starred ? '★' : '☆'}</span>Best 5
+          </button>
+        )}
       </div>
       <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
         <span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-zinc-950 border border-white/[0.15] flex items-center justify-center text-[8px] sm:text-[9px] font-bold text-zinc-400">VS</span>

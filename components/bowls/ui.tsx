@@ -3,14 +3,41 @@ import type { BowlTeam, Phase } from '@/lib/bowls/sheet'
 
 /* Small pieces shared by the bowl pages. */
 
-/** Each phase's color: a dot, a soft badge and the selected-pick look. */
-export const PHASE_TONE: Record<Phase, { dot: string; badge: string; text: string }> = {
-  little: { dot: 'bg-emerald-400', badge: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20', text: 'text-emerald-300' },
-  between: { dot: 'bg-sky-400', badge: 'bg-sky-400/10 text-sky-300 border-sky-400/20', text: 'text-sky-300' },
-  big: { dot: 'bg-violet-400', badge: 'bg-violet-400/10 text-violet-300 border-violet-400/20', text: 'text-violet-300' },
-  playoff: { dot: 'bg-red-500', badge: 'bg-red-500/10 text-red-300 border-red-500/20', text: 'text-red-300' },
-  semi: { dot: 'bg-rose-400', badge: 'bg-rose-400/10 text-rose-300 border-rose-400/20', text: 'text-rose-300' },
-  title: { dot: 'bg-yellow-500', badge: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20', text: 'text-yellow-300' },
+/**
+ * Each phase's color: a dot, a soft badge, its text color, and — on My Picks —
+ * the phase banner, the stripe down each game card's edge, and the selected tab.
+ */
+export const PHASE_TONE: Record<Phase, { dot: string; badge: string; text: string; panel: string; stripe: string; tab: string }> = {
+  little: {
+    dot: 'bg-emerald-400', badge: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20', text: 'text-emerald-300',
+    panel: 'bg-gradient-to-br from-emerald-500/[0.16] via-emerald-500/[0.05] to-zinc-900 border-emerald-400/30',
+    stripe: 'border-l-emerald-400', tab: 'bg-emerald-400/15 text-emerald-100 border-emerald-400/50',
+  },
+  between: {
+    dot: 'bg-sky-400', badge: 'bg-sky-400/10 text-sky-300 border-sky-400/20', text: 'text-sky-300',
+    panel: 'bg-gradient-to-br from-sky-500/[0.16] via-sky-500/[0.05] to-zinc-900 border-sky-400/30',
+    stripe: 'border-l-sky-400', tab: 'bg-sky-400/15 text-sky-100 border-sky-400/50',
+  },
+  big: {
+    dot: 'bg-violet-400', badge: 'bg-violet-400/10 text-violet-300 border-violet-400/20', text: 'text-violet-300',
+    panel: 'bg-gradient-to-br from-violet-500/[0.18] via-violet-500/[0.05] to-zinc-900 border-violet-400/30',
+    stripe: 'border-l-violet-400', tab: 'bg-violet-400/15 text-violet-100 border-violet-400/50',
+  },
+  playoff: {
+    dot: 'bg-red-500', badge: 'bg-red-500/10 text-red-300 border-red-500/20', text: 'text-red-300',
+    panel: 'bg-gradient-to-br from-red-500/[0.16] via-red-500/[0.05] to-zinc-900 border-red-500/30',
+    stripe: 'border-l-red-500', tab: 'bg-red-500/15 text-red-100 border-red-500/50',
+  },
+  semi: {
+    dot: 'bg-rose-400', badge: 'bg-rose-400/10 text-rose-300 border-rose-400/20', text: 'text-rose-300',
+    panel: 'bg-gradient-to-br from-rose-500/[0.16] via-rose-500/[0.05] to-zinc-900 border-rose-400/30',
+    stripe: 'border-l-rose-400', tab: 'bg-rose-400/15 text-rose-100 border-rose-400/50',
+  },
+  title: {
+    dot: 'bg-yellow-500', badge: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20', text: 'text-yellow-300',
+    panel: 'bg-gradient-to-br from-yellow-500/[0.16] via-yellow-500/[0.05] to-zinc-900 border-yellow-500/30',
+    stripe: 'border-l-yellow-500', tab: 'bg-yellow-500/15 text-yellow-100 border-yellow-500/50',
+  },
 }
 
 // A faint light edge, so dark logos (maroon, navy, black) still read on the

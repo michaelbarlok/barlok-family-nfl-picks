@@ -572,12 +572,17 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
             </>}
           </p>
         </div>
-        <button onClick={onStar} disabled={(!editable || !picks[game.id]) && !starred} aria-pressed={starred}
-          aria-label={starred ? `Remove ${game.name} from your Best 5` : `Add ${game.name} to your Best 5`}
-          title={!starred && !picks[game.id] ? 'Pick a team first' : undefined}
-          className={`shrink-0 w-8 h-8 -mr-1 -mt-1 rounded-full flex items-center justify-center text-lg transition ${starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-zinc-300'} disabled:cursor-default`}>
-          {starred ? '★' : '☆'}
-        </button>
+        {/* "☆ Best 5" — says what the star is for. After the lock, only your starred games show it. */}
+        {(editable || starred) && (
+          <button onClick={onStar} disabled={(!editable || !picks[game.id]) && !starred} aria-pressed={starred}
+            aria-label={starred ? `Remove ${game.name} from your Best 5` : `Add ${game.name} to your Best 5`}
+            title={!starred && !picks[game.id] ? 'Pick a team first' : undefined}
+            className={`press shrink-0 -mr-0.5 inline-flex items-center gap-1 rounded-full border pl-1.5 pr-2 py-1 text-[11px] font-semibold whitespace-nowrap transition disabled:cursor-default ${starred
+              ? 'bg-yellow-500/15 border-yellow-500/50 text-yellow-300'
+              : picks[game.id] ? 'border-white/[0.16] text-zinc-300 hover:text-white hover:border-white/[0.3]' : 'border-white/[0.08] text-zinc-600'}`}>
+            <span className={`text-sm leading-none ${starred ? 'text-yellow-400' : ''}`} aria-hidden="true">{starred ? '★' : '☆'}</span>Best 5
+          </button>
+        )}
       </div>
       <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
         <span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-zinc-950 border border-white/[0.15] flex items-center justify-center text-[8px] sm:text-[9px] font-bold text-zinc-400">VS</span>

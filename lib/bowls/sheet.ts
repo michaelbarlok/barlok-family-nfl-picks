@@ -142,6 +142,42 @@ export const hasSampleTeam = (g: BowlGame): boolean => isSampleTeam(g.away?.id) 
 export const samplePreview = (status: string, games: BowlGame[]): boolean =>
   status === 'setup' && games.some(g => onSheet(g) && hasSampleTeam(g))
 
+/**
+ * The preview's playoff, wired like last season's bracket. Sample teams fill
+ * every round they reached last year, so a quarterfinal would otherwise show
+ * last year's matchup whatever you pick in the first round. Here a sample team
+ * that also played in an earlier round becomes "the winner of that game": pick
+ * Alabama over Oklahoma and the Rose Bowl shows Alabama vs Indiana (the team
+ * with the bye); pick Oklahoma and it's Oklahoma vs Indiana. Same for the
+ * semifinals and the title game.
+ *
+ * Display only, for the preview: the links aren't saved, any the admin has
+ * set are kept, and nothing changes once the sample teams come off.
+ */
+export function sampleBracket(games: BowlGame[]): BowlGame[] {
+  const playoff = games.filter(g => onSheet(g) && g.playoff_round)
+  const round = (g: BowlGame) => ROUND_ORDER[g.playoff_round!]
+  const used = new Set(playoff.flatMap(g => [g.away_from, g.home_from]).filter(Boolean) as string[])
+  const linked = new Map<string, { away_from: string | null; home_from: string | null }>()
+  for (const g of [...playoff].sort((a, b) => round(a) - round(b))) {
+    if (round(g) === 0) continue
+    const feeder = (t: BowlTeam | null): string | null => {
+      if (!t || !isSampleTeam(t.id)) return null
+      // The last earlier game this team played in.
+      const prev = playoff
+        .filter(x => round(x) < round(g) && !used.has(x.id) && (x.away?.id === t.id || x.home?.id === t.id))
+        .sort((a, b) => round(b) - round(a))[0]
+      if (!prev) return null
+      used.add(prev.id)
+      return prev.id
+    }
+    const away_from = g.away_from ?? feeder(g.away)
+    const home_from = g.home_from ?? feeder(g.home)
+    if (away_from !== g.away_from || home_from !== g.home_from) linked.set(g.id, { away_from, home_from })
+  }
+  return linked.size ? games.map(g => (linked.has(g.id) ? { ...g, ...linked.get(g.id)! } : g)) : games
+}
+
 /** Team columns for one side of a bowl_games row (all null for TBD). */
 export function teamToRow(side: Side, t: BowlTeam | null): GameRow {
   const out: GameRow = {}

@@ -7,7 +7,7 @@ import { kickoffText } from '@/lib/bowls/format'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo, TeamName } from '@/components/bowls/ui'
 import {
-  Chips, HiddenUntilLock, PlayerChip, ResultsLine, Segmented, UpdateResults,
+  Chips, DemoNote, HiddenUntilLock, PlayerChip, ResultsLine, Segmented, UpdateResults,
   firstName, pts, useBoard, type Board, type BoardPlayer,
 } from '@/components/bowls/board'
 import { GameCast, LiveTag, PlayFlash } from '@/components/bowls/live'
@@ -153,8 +153,9 @@ export default function AllPicks() {
             <h1 className="text-xl font-bold text-white">All Picks</h1>
             {board && !board.hidden && <ResultsLine board={board} />}
           </div>
-          {board && !board.hidden && <UpdateResults onDone={reload} />}
+          {board && !board.hidden && !board.demo && <UpdateResults onDone={reload} />}
         </div>
+        {board?.demo && <DemoNote />}
 
         {error ? <div className="glass-card rounded-2xl p-4 text-sm text-red-400">{error}</div>
           : !board ? <div className="space-y-2">{[0, 1, 2].map(i => <div key={i} className="skeleton h-40 rounded-2xl" />)}</div>

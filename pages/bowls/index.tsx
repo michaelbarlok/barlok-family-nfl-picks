@@ -46,7 +46,7 @@ export default function BowlHome() {
   const [sheet, setSheet] = useState<SeasonStatus | null>(null)
   const { board, reload: reloadBoard } = useBoard()
   // Today's games, live: polls only while one of them could be on.
-  const live = useBowlLive(board && !board.hidden ? board.games : undefined, reloadBoard)
+  const live = useBowlLive(board && !board.hidden && !board.demo ? board.games : undefined, reloadBoard)
 
   useEffect(() => {
     if (!loading && !account) router.replace('/bowls/login')
@@ -110,7 +110,8 @@ export default function BowlHome() {
   const mine = player ? progressOf.get(player.id) : undefined
   const sheetOut = !!sheet && sheet.status !== 'setup' && sheet.totalGames > 0
   const doneCount = (sheet?.players ?? []).filter(p => p.complete).length
-  const leaders = inSeason && board?.hidden === false && board.standings ? board : null
+  // (Not the admin's made-up preview board: the home page stays as it is.)
+  const leaders = inSeason && board?.hidden === false && !board.demo && board.standings ? board : null
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-12">

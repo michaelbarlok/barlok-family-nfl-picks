@@ -4,7 +4,8 @@ import { bowlCaller } from '@/lib/bowls/server'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
 import { score, type Entry } from '@/lib/bowls/scoring'
-import { sheetGames } from '@/lib/bowls/sheet'
+import { samplePreview, sheetGames } from '@/lib/bowls/sheet'
+import { demoBoard } from '@/lib/bowls/demo'
 
 /**
  * GET /api/bowls/board — everyone's picks and the standings.
@@ -13,6 +14,10 @@ import { sheetGames } from '@/lib/bowls/sheet'
  * nothing more — no picks, Best 5 or totals for anyone, the admin included.
  * Results are as of the last pull from ESPN — the results job's, every 10
  * minutes while games are on, or the admin's "Update results".
+ *
+ * While sample teams are on, the admin gets a made-up board instead (`demo`):
+ * made-up players, picks and results on the sample games, to see Standings
+ * and All Picks full. Built on the fly, never saved, and only for the admin.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
@@ -29,6 +34,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!loaded) return res.status(400).json({ error: 'There is no current bowl season.' })
     const { state, games } = loaded
     const base = { season: state.season, status: state.status, lockAt: state.lockAt, pulledAt: state.pulledAt }
+    if (state.status === 'setup' && caller.isAdmin && samplePreview(state.status, games)) {
+      const { data: me } = await supabase.from('bowl_players').select('name, avatar_url').eq('id', caller.user.id).maybeSingle()
+      const you = { id: caller.user.id, name: (me as { name?: string } | null)?.name ?? 'You', avatar_url: (me as { avatar_url?: string | null } | null)?.avatar_url ?? null }
+      const demo = demoBoard(games, you)
+      const board = score(demo.games, demo.entries)
+      return res.status(200).json({
+        ...base,
+        hidden: false,
+        demo: true,
+        games: sheetGames(demo.games),
+        players: board.standings.map(s => ({ id: s.id, name: s.name, avatar_url: s.avatar_url })),
+        picks: Object.fromEntries(demo.entries.map(e => [e.id, e.picks])),
+        best5: Object.fromEntries(demo.entries.map(e => [e.id, e.best5])),
+        titleTotals: Object.fromEntries(demo.entries.map(e => [e.id, e.titleTotal])),
+        ...board,
+      })
+    }
     if (state.status === 'setup' || state.status === 'open') {
       return res.status(200).json({ ...base, hidden: true })
     }

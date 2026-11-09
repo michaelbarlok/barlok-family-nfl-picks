@@ -6,7 +6,7 @@ import { PHASES } from '@/lib/bowls/sheet'
 import { TIEBREAK_LABEL, type Standing } from '@/lib/bowls/scoring'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
-import { HiddenUntilLock, ResultsLine, UpdateResults, firstName, pts, useBoard } from '@/components/bowls/board'
+import { DemoNote, HiddenUntilLock, ResultsLine, UpdateResults, firstName, pts, useBoard } from '@/components/bowls/board'
 
 const rankText = (s: Standing) => `${s.tied ? 'T' : ''}${s.rank}`
 const MEDAL = ['from-yellow-300 to-yellow-600', 'from-zinc-200 to-zinc-400', 'from-amber-600 to-amber-800']
@@ -37,8 +37,9 @@ export default function BowlStandings() {
             <h1 className="text-xl font-bold text-white">Standings</h1>
             {board && !board.hidden && <ResultsLine board={board} />}
           </div>
-          {board && !board.hidden && <UpdateResults onDone={reload} />}
+          {board && !board.hidden && !board.demo && <UpdateResults onDone={reload} />}
         </div>
+        {board?.demo && <DemoNote />}
 
         {error ? <div className="glass-card rounded-2xl p-4 text-sm text-red-400">{error}</div>
           : !board ? <div className="space-y-2">{[0, 1, 2, 3, 4].map(i => <div key={i} className="skeleton h-16 rounded-2xl" />)}</div>

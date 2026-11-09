@@ -17,6 +17,8 @@ export interface Board {
   lockAt: string | null
   pulledAt: string | null
   hidden: boolean
+  /** The admin's made-up board while sample teams are on (see lib/bowls/demo). */
+  demo?: boolean
   games?: BowlGame[]
   players?: BoardPlayer[]
   picks?: Record<string, PickMap>
@@ -45,6 +47,16 @@ export function useBoard() {
   }, [token])
   useEffect(() => { if (account) load() }, [account, load])
   return { board, error, reload: load }
+}
+
+/** On the made-up board: what it is, and that no one else sees it. */
+export function DemoNote() {
+  return (
+    <div className="rounded-2xl px-4 py-3 bg-sky-500/10 border border-sky-500/20 text-sm text-sky-100">
+      <strong>Preview with made-up players and results.</strong> Only you see this — it uses the sample teams to show
+      how this page looks mid-season. Nothing here is real or saved, and it goes away when the sample teams come off.
+    </div>
+  )
 }
 
 export const pts = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))

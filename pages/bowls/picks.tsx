@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
+import { PHASES, pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
 import { isDecided } from '@/lib/bowls/scoring'
 import { cleanPicks, indexGames, optionsFor, progress, type PickMap, type Progress } from '@/lib/bowls/bracket'
 import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
@@ -417,30 +417,21 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
             <Best5Summary games={games} byId={byId} picks={picks} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} editable={editable} onOpen={openGame} />
 
             {tab && (() => {
-              const done = tab.games.filter(g => picks[g.id]).length
-              const [tag, name] = tab.title.includes(' · ') ? tab.title.split(' · ') : [tab.short, tab.title]
+              const name = tab.title.includes(' · ') ? tab.title.split(' · ').pop()! : tab.title
               const i = sections.findIndex(sec => sec.key === tab.key)
               const nextSec = sections[i + 1]
               const unfinished = sections.filter(sec => sec.key !== tab.key && sec.games.some(g => !picks[g.id]))
               return (
-                <section id="phase-panel" aria-label={tab.title} className="space-y-4 pt-1 scroll-mt-[190px]">
-                  {/* The phase, set apart: its color, its points, how far along you are. */}
-                  <div className={`rounded-2xl border p-4 ${PHASE_TONE[tab.key].panel}`}>
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className={`text-[11px] font-bold uppercase tracking-wider ${PHASE_TONE[tab.key].text}`}>{tag}</p>
-                        <h2 className="text-xl font-extrabold text-white leading-tight">{name}</h2>
-                        <p className="text-xs text-zinc-300 mt-0.5">{tab.points}</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-2xl font-extrabold text-white tabular-nums leading-none">{done}<span className="text-base text-zinc-500">/{tab.games.length}</span></p>
-                        <p className="text-[10px] text-zinc-400 mt-1">{done === tab.games.length ? '✓ all picked' : 'picked'}</p>
-                      </div>
+                <section id="phase-panel" aria-label={tab.title} className="space-y-4 pt-1 scroll-mt-[200px]">
+                  {/* The tab above has the count, the fill and the points; here, just the phase's name
+                      (the Playoff's rounds have their own headings). */}
+                  {tab.key === 'playoff' ? <h2 className="sr-only">{name}</h2> : (
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[tab.key].dot}`} />
+                      <h2 className="text-xs font-bold text-white uppercase tracking-wider">{name}</h2>
+                      <span className="flex-1 h-px bg-white/[0.08]" />
                     </div>
-                    <div className="mt-3 h-1.5 rounded-full bg-black/30 overflow-hidden" aria-hidden="true">
-                      <div className={`h-full rounded-full ${PHASE_TONE[tab.key].dot} transition-[width] duration-500`} style={{ width: `${(done / Math.max(1, tab.games.length)) * 100}%` }} />
-                    </div>
-                  </div>
+                  )}
 
                   {tab.rounds.map(r => (
                     <div key={r.key} className="space-y-3">
@@ -529,7 +520,7 @@ function Best5Summary({ games, byId, picks, best5, whose, editable, onOpen }: {
 }) {
   const starred = best5.map(id => byId.get(id)).filter(Boolean) as BowlGame[]
   return (
-    <div id="best5" className="glass-card rounded-2xl px-4 py-3 scroll-mt-[200px]">
+    <div id="best5" className="glass-card rounded-2xl px-4 py-3 scroll-mt-[210px]">
       <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {starred.length} of 5</span></p>
       {starred.length ? (
         <ul aria-label={`${whose} Best 5`} className="flex flex-wrap gap-1.5 mt-2">
@@ -566,6 +557,12 @@ function Best5Summary({ games, byId, picks, best5, whose, editable, onOpen }: {
  * four always in view (even on a small phone). Each tab fills with its color
  * as you pick, so it doubles as that phase's progress bar; tap one to open it.
  */
+/** "1 pt", "1.5 pts" — a win in that phase (every playoff game is 3). */
+const ptsText = (key: SectionKey) => {
+  const n = PHASES.find(p => p.key === key)?.points ?? 0
+  return `${n} pt${n === 1 ? '' : 's'}`
+}
+
 function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSection[]; current: SectionKey; picks: PickMap; onChange: (k: SectionKey) => void }) {
   return (
     <div role="tablist" aria-label="Phase" className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${sections.length}, minmax(0, 1fr))` }}>
@@ -576,7 +573,7 @@ function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSecti
         const pct = Math.round((done / Math.max(1, sec.games.length)) * 100)
         return (
           <button key={sec.key} type="button" role="tab" aria-selected={on} onClick={() => onChange(sec.key)}
-            title={`${sec.title}: ${done} of ${sec.games.length} picked`}
+            title={`${sec.title}: ${done} of ${sec.games.length} picked · ${sec.points}`}
             className={`press relative overflow-hidden min-w-0 flex flex-col items-center justify-center rounded-xl border px-1 py-1.5 transition bg-white/[0.03] ${on
               ? `${PHASE_TONE[sec.key].on} text-white`
               : 'border-white/[0.10] text-zinc-300 hover:text-white hover:border-white/[0.2]'}`}>
@@ -587,6 +584,10 @@ function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSecti
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[sec.key].dot}`} />{sec.short}
             </span>
             <span className={`relative text-[11px] tabular-nums leading-tight ${all ? 'text-white font-bold' : on ? 'text-white/80' : 'text-zinc-400'}`}>{all ? '✓' : `${done}/${sec.games.length}`}</span>
+            {/* What each win is worth. */}
+            <span className={`relative text-[10px] font-semibold leading-tight whitespace-nowrap ${on || all ? 'text-white/75' : PHASE_TONE[sec.key].text}`}>
+              {ptsText(sec.key)}<span className="hidden sm:inline"> each</span>
+            </span>
           </button>
         )
       })}

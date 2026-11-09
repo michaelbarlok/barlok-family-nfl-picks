@@ -4,7 +4,7 @@ import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
 import { pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
 import { isDecided } from '@/lib/bowls/scoring'
-import { cleanPicks, indexGames, optionsFor, progress, type PickMap } from '@/lib/bowls/bracket'
+import { cleanPicks, indexGames, optionsFor, progress, type PickMap, type Progress } from '@/lib/bowls/bracket'
 import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
 import BowlHeader from '@/components/bowls/BowlHeader'
@@ -146,6 +146,22 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
   previewRef.current = preview
   const editable = preview || (!!data?.canEdit && (!lockPassed || !!data?.override))
 
+  // The moment the last game is picked, say what's still missing.
+  const allPickedRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (!data || !games.length) return
+    const p = progress(games, picks, best5, total === '' ? null : Number(total))
+    const all = p.total > 0 && p.picked === p.total
+    if (allPickedRef.current === false && all && !p.complete && editable) {
+      const need = [
+        p.best5 < p.best5Needed && `star ${p.best5Needed - p.best5} more for your Best 5`,
+        p.needsTotal && !p.hasTotal && 'enter the National Championship total',
+      ].filter(Boolean)
+      toast.show(`All ${p.total} games picked! Now ${need.join(' and ')}.`, 'success')
+    }
+    allPickedRef.current = all
+  }, [data, games, picks, best5, total, editable, toast])
+
   // One save at a time; taps made meanwhile go in the next one.
   const flush = useCallback(async () => {
     if (inFlight.current) return
@@ -274,6 +290,22 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
     setTimeout(() => document.querySelector(`[data-game="${id}"]`)?.scrollIntoView({ block: 'center' }), 80)
   }
   const prog = progress(games, picks, best5, total === '' ? null : Number(total))
+  // Every game picked, but the Best 5 or the title-game total still to do.
+  const finishing = editable && prog.total > 0 && prog.picked === prog.total && !prog.complete
+  const showBest5 = () => {
+    const el = document.getElementById('best5')
+    el?.scrollIntoView({ block: 'center' })
+    el?.animate?.([{ boxShadow: '0 0 0 0 rgba(234,179,8,0)' }, { boxShadow: '0 0 0 3px rgba(234,179,8,0.7)' }, { boxShadow: '0 0 0 0 rgba(234,179,8,0)' }], { duration: 1400 })
+  }
+  const focusTotal = () => {
+    const sec = sections.find(x => x.games.some(g => g.phase === 'title'))
+    if (sec && sec.key !== tab?.key) chooseTab(sec.key)
+    setTimeout(() => {
+      const el = document.querySelector<HTMLInputElement>('input[aria-label="Total points in the title game"]')
+      el?.scrollIntoView({ block: 'center' })
+      el?.focus({ preventScroll: true })
+    }, 80)
+  }
   const left = data?.lockAt ? countdown(data.lockAt, now) : null
   const firstName = data?.player?.name.split(' ')[0] ?? ''
   // A managed player's page reads like your own, in their name.
@@ -296,13 +328,15 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
             <span className={`font-semibold px-2 py-1 rounded-full ${prog.picked === prog.total ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
               {prog.picked}/{prog.total} picks
             </span>
-            <span className={`font-semibold px-2 py-1 rounded-full ${prog.best5 === prog.best5Needed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
+            <button type="button" onClick={showBest5} aria-label={`Best 5: ${prog.best5} of ${prog.best5Needed}`}
+              className={`press font-semibold px-2 py-1 rounded-full ${prog.best5 === prog.best5Needed ? 'bg-emerald-500/15 text-emerald-300' : finishing ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/60' : 'bg-white/[0.06] text-zinc-200'}`}>
               ★ {prog.best5}/{prog.best5Needed}
-            </span>
+            </button>
             {prog.needsTotal && (
-              <span className={`font-semibold px-2 py-1 rounded-full ${prog.hasTotal ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-200'}`}>
+              <button type="button" onClick={focusTotal} aria-label={prog.hasTotal ? 'Title-game total entered' : 'Title-game total not entered'}
+                className={`press font-semibold px-2 py-1 rounded-full ${prog.hasTotal ? 'bg-emerald-500/15 text-emerald-300' : finishing ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/60' : 'bg-white/[0.06] text-zinc-200'}`}>
                 Total {prog.hasTotal ? '✓' : '—'}
-              </span>
+              </button>
             )}
             <span className="ml-auto text-zinc-500 truncate" aria-live="polite">
               {preview ? 'Preview' : saving ? 'Saving…' : saveFailed ? 'Not saved' : editable && left ? `Due in ${left}` : lockPassed ? 'Locked' : ''}
@@ -361,6 +395,8 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                 <div className="rounded-2xl px-4 py-3 bg-yellow-500/10 border border-yellow-500/25 text-sm text-yellow-100">
                   Picks are locked — you&apos;re changing {firstName}&apos;s after the deadline.
                 </div>
+              ) : finishing ? (
+                <FinishUp prog={prog} onBest5={showBest5} onTotal={focusTotal} whose={asManager ? `${firstName}'s` : 'Your'} />
               ) : prog.complete ? (
                 <div className="rounded-2xl px-4 py-3 bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-200">
                   {asManager
@@ -378,7 +414,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
               <p className="text-xs text-zinc-500 px-1">The bowl admin entered {data.enteredByAdmin} of these picks for you.</p>
             )}
 
-            <Best5Summary games={games} byId={byId} picks={picks} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} onOpen={openGame} />
+            <Best5Summary games={games} byId={byId} picks={picks} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} editable={editable} onOpen={openGame} />
 
             {tab && (() => {
               const done = tab.games.filter(g => picks[g.id]).length
@@ -424,7 +460,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                       {r.key === 'title' && titleGame && (
                         <div className="rounded-2xl border border-white/[0.09] border-l-4 border-l-yellow-500 bg-zinc-900 p-3.5 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-white">Total points in the title game</p>
+                            <p className="text-sm font-semibold text-white">Total points in the National Championship</p>
                             <p className="text-[11px] text-zinc-500 mt-0.5">The last tiebreaker: closest guess wins. On an equal miss, the guess under wins.</p>
                           </div>
                           <input value={total} onChange={e => changeTotal(e.target.value)} disabled={!editable}
@@ -435,6 +471,9 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                     </div>
                   ))}
 
+                  {finishing && (!data.proxy || asManager) && (
+                    <FinishUp prog={prog} onBest5={showBest5} onTotal={focusTotal} whose={asManager ? `${firstName}'s` : 'Your'} />
+                  )}
                   {/* On to the next phase — or what's still to pick. */}
                   {nextSec ? (
                     <button type="button" onClick={() => chooseTab(nextSec.key)}
@@ -485,12 +524,12 @@ function best5Context(game: BowlGame, teamId: string, games: BowlGame[]): string
 }
 
 /** "★ Your Best 5" — the team you starred in each, with the game when it's needed. Tap one to go to it. */
-function Best5Summary({ games, byId, picks, best5, whose, onOpen }: {
-  games: BowlGame[]; byId: Map<string, BowlGame>; picks: PickMap; best5: string[]; whose: string; onOpen: (gameId: string) => void
+function Best5Summary({ games, byId, picks, best5, whose, editable, onOpen }: {
+  games: BowlGame[]; byId: Map<string, BowlGame>; picks: PickMap; best5: string[]; whose: string; editable: boolean; onOpen: (gameId: string) => void
 }) {
   const starred = best5.map(id => byId.get(id)).filter(Boolean) as BowlGame[]
   return (
-    <div className="glass-card rounded-2xl px-4 py-3">
+    <div id="best5" className="glass-card rounded-2xl px-4 py-3 scroll-mt-[200px]">
       <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {starred.length} of 5</span></p>
       {starred.length ? (
         <ul aria-label={`${whose} Best 5`} className="flex flex-wrap gap-1.5 mt-2">
@@ -511,8 +550,12 @@ function Best5Summary({ games, byId, picks, best5, whose, onOpen }: {
             )
           })}
         </ul>
-      ) : (
-        <p className="text-xs text-zinc-400 mt-1">Pick a game, then tap its star — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.</p>
+      ) : null}
+      {editable && starred.length > 0 && starred.length < 5 && (
+        <p className="text-[11px] text-zinc-500 mt-2">+ {5 - starred.length} more — tap ☆ Best 5 on a game</p>
+      )}
+      {starred.length ? null : (
+        <p className="text-xs text-zinc-400 mt-1">Pick a game, then tap its ☆ Best 5 — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.</p>
       )}
     </div>
   )
@@ -520,7 +563,8 @@ function Best5Summary({ games, byId, picks, best5, whose, onOpen }: {
 
 /**
  * Phase 1 · Phase 2 · Phase 3 · Playoff — pinned under the progress bar, all
- * four always in view (even on a small phone), each with how many are picked.
+ * four always in view (even on a small phone). Each tab fills with its color
+ * as you pick, so it doubles as that phase's progress bar; tap one to open it.
  */
 function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSection[]; current: SectionKey; picks: PickMap; onChange: (k: SectionKey) => void }) {
   return (
@@ -529,18 +573,58 @@ function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSecti
         const done = sec.games.filter(g => picks[g.id]).length
         const all = done === sec.games.length
         const on = sec.key === current
+        const pct = Math.round((done / Math.max(1, sec.games.length)) * 100)
         return (
           <button key={sec.key} type="button" role="tab" aria-selected={on} onClick={() => onChange(sec.key)}
-            className={`press min-w-0 flex flex-col items-center justify-center rounded-xl border px-1 py-1.5 transition ${on
-              ? PHASE_TONE[sec.key].tab
-              : 'border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-white/[0.06]'}`}>
-            <span className="flex items-center gap-1 text-xs font-semibold whitespace-nowrap">
+            title={`${sec.title}: ${done} of ${sec.games.length} picked`}
+            className={`press relative overflow-hidden min-w-0 flex flex-col items-center justify-center rounded-xl border px-1 py-1.5 transition bg-white/[0.03] ${on
+              ? `${PHASE_TONE[sec.key].on} text-white`
+              : 'border-white/[0.10] text-zinc-300 hover:text-white hover:border-white/[0.2]'}`}>
+            {/* The fill: how much of this phase is picked. */}
+            <span aria-hidden="true" data-fill={pct}
+              className={`absolute inset-y-0 left-0 ${PHASE_TONE[sec.key].fill} transition-[width] duration-500 ease-out`} style={{ width: `${pct}%` }} />
+            <span className="relative flex items-center gap-1 text-xs font-semibold whitespace-nowrap">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[sec.key].dot}`} />{sec.short}
             </span>
-            <span className={`text-[11px] tabular-nums leading-tight ${all ? 'text-emerald-300 font-semibold' : on ? 'text-white/70' : 'text-zinc-500'}`}>{all ? '✓' : `${done}/${sec.games.length}`}</span>
+            <span className={`relative text-[11px] tabular-nums leading-tight ${all ? 'text-white font-bold' : on ? 'text-white/80' : 'text-zinc-400'}`}>{all ? '✓' : `${done}/${sec.games.length}`}</span>
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Every game picked but the Best 5 or the title-game total still missing:
+ * what's left, each with a way straight to it.
+ */
+function FinishUp({ prog, onBest5, onTotal, whose }: { prog: Progress; onBest5: () => void; onTotal: () => void; whose: string }) {
+  const starsLeft = prog.best5Needed - prog.best5
+  const needTotal = prog.needsTotal && !prog.hasTotal
+  const left = (starsLeft > 0 ? 1 : 0) + (needTotal ? 1 : 0)
+  const row = (done: boolean, title: string, note: string, action: string, onClick: () => void) => (
+    <li className="flex items-center gap-3">
+      <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${done ? 'bg-emerald-500 text-zinc-950' : 'border-2 border-amber-300/70 text-amber-200'}`}>{done ? '✓' : ''}</span>
+      <span className="min-w-0 flex-1">
+        <span className={`block text-sm font-semibold ${done ? 'text-zinc-400 line-through decoration-zinc-600' : 'text-white'}`}>{title}</span>
+        <span className="block text-[11px] text-zinc-400">{note}</span>
+      </span>
+      {!done && (
+        <button type="button" onClick={onClick}
+          className="press shrink-0 rounded-full bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-bold px-3 py-1.5">{action}</button>
+      )}
+    </li>
+  )
+  return (
+    <div role="status" aria-label="Finish your picks" className="rounded-2xl border border-amber-400/50 bg-gradient-to-br from-amber-500/[0.18] via-amber-500/[0.06] to-zinc-900 p-4 shadow-lg shadow-amber-500/5">
+      <p className="text-sm font-bold text-white">🏁 All {prog.total} games picked — {left === 1 ? 'one last thing' : 'two last things'}</p>
+      <p className="text-[11px] text-zinc-400 mt-0.5">{whose} picks aren&apos;t complete without these.</p>
+      <ul className="mt-3 space-y-3">
+        {row(starsLeft <= 0, `Star ${whose === 'Your' ? 'your' : whose} Best 5`,
+          starsLeft > 0 ? `${prog.best5} of ${prog.best5Needed} — tap ☆ Best 5 on ${starsLeft === 1 ? 'one more game' : `${starsLeft} more games`}` : `${prog.best5Needed} of ${prog.best5Needed}`,
+          'Show me', onBest5)}
+        {prog.needsTotal && row(!needTotal, 'Total points in the National Championship', 'The tiebreaker — your guess at both teams\' points combined', 'Enter it', onTotal)}
+      </ul>
     </div>
   )
 }

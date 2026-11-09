@@ -42,6 +42,8 @@ export default function BowlApp({ Component, pageProps, routeKey, navState }: {
             <div className="h-full bg-gradient-to-r from-yellow-600 via-yellow-400 to-yellow-600" />
           </div>
 
+          {/* A new page mounts fresh; the same page with a new ?query (a phase or
+              view tab) keeps its state — it reads the query itself. */}
           <Component key={routeKey} {...pageProps} />
           {/* Once, on iPhones with the app installed before the new icon. */}
           <ReinstallPrompt tone="bowls" />

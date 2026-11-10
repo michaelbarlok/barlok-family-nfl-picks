@@ -471,51 +471,6 @@ export default function StandingsPage() {
             </div>
           )}
 
-          {/* ── PERFECT WEEKS TROPHY CASE ── */}
-          {(() => {
-            const trophies = standings
-              .map(s => ({
-                user: s.user,
-                weeks: s.weekRecords.filter(wr => isPerfectWeek(wr)),
-              }))
-              .filter(t => t.weeks.length > 0)
-              .sort((a, b) => b.weeks.length - a.weeks.length)
-            if (trophies.length === 0) return null
-            return (
-              <div className="mb-6 animate-slide-up">
-                <div className="flex items-center gap-2 mb-3">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Trophy Case</p>
-                  <span className="text-[10px] text-slate-600">{trophies.reduce((sum, t) => sum + t.weeks.length, 0)} perfect week{trophies.reduce((s, t) => s + t.weeks.length, 0) === 1 ? '' : 's'} this season</span>
-                </div>
-                <div className="glass-card rounded-2xl p-4">
-                  <div className="flex flex-wrap gap-2">
-                    {trophies.map(t => (
-                      <div
-                        key={t.user.id}
-                        className={`inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-full border ${
-                          t.user.id === user.id
-                            ? 'bg-amber-500/15 border-amber-500/40'
-                            : 'bg-amber-500/10 border-amber-500/20'
-                        }`}
-                        title={`Perfect weeks: ${t.weeks.map(w => `Week ${w.week}`).join(', ')}`}
-                      >
-                        {t.user.avatar_url ? (
-                          <img src={t.user.avatar_url} alt="" loading="lazy" decoding="async" className="w-6 h-6 rounded-full object-cover border border-white/[0.08]" />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-[10px] font-bold text-white border border-white/[0.08]">
-                            {t.user.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <span className="text-xs font-semibold text-amber-200">{shortName(t.user.name)}</span>
-                        <span className="text-xs font-bold text-amber-400">🏆{t.weeks.length}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-
           <div className="glass-card rounded-2xl overflow-hidden">
             {/* Table header */}
             <div className="grid grid-cols-12 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -607,10 +562,10 @@ export default function StandingsPage() {
                               if (perfectCount === 0) return null
                               return (
                                 <span
-                                  className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full leading-none shrink-0"
-                                  title={`${perfectCount} perfect week${perfectCount === 1 ? '' : 's'}`}
+                                  className="text-[9px] font-semibold text-emerald-300/90 border border-emerald-500/30 px-1 py-px rounded leading-none shrink-0 whitespace-nowrap"
+                                  title={`${perfectCount} perfect week${perfectCount === 1 ? '' : 's'} — every game right`}
                                 >
-                                  🏆{perfectCount}
+                                  {perfectCount === 1 ? 'Perfect' : `Perfect ×${perfectCount}`}
                                 </span>
                               )
                             })()}
@@ -682,9 +637,9 @@ export default function StandingsPage() {
                       {s.weekRecords.map(wr => {
                         const isPerfect = isPerfectWeek(wr)
                         return (
-                        <div key={wr.week} className={`px-4 py-2 grid grid-cols-12 items-center text-xs hover:bg-white/[0.02] transition-colors ${isPerfect ? 'bg-amber-500/5' : ''}`}>
-                          <div className="col-span-1 text-center">{isPerfect ? '🏆' : ''}</div>
-                          <div className={`col-span-5 font-medium ${isPerfect ? 'text-amber-300' : 'text-slate-400'}`}>Week {wr.week}{isPerfect ? ' — Perfect!' : ''}</div>
+                        <div key={wr.week} className={`px-4 py-2 grid grid-cols-12 items-center text-xs hover:bg-white/[0.02] transition-colors ${isPerfect ? 'bg-emerald-500/[0.04]' : ''}`}>
+                          <div className="col-span-1 text-center">{isPerfect ? <span className="text-emerald-400" aria-hidden="true">✓</span> : ''}</div>
+                          <div className="col-span-5 font-medium text-slate-400">Week {wr.week}{isPerfect && <span className="ml-1.5 text-[10px] font-semibold text-emerald-300/90">Perfect</span>}</div>
                           <div className="col-span-3 text-center">
                             <span className="text-emerald-400">{wr.wins}</span>
                             <span className="text-slate-600 mx-0.5">-</span>
@@ -712,6 +667,33 @@ export default function StandingsPage() {
               )
             })}
           </div>
+
+          {/* Perfect weeks: a quiet line per week under the table — a nice
+              note, not a title, so it doesn't compete with the standings. */}
+          {(() => {
+            const byWeek = new Map<number, string[]>()
+            for (const s of standings) {
+              for (const wr of s.weekRecords) {
+                if (isPerfectWeek(wr)) byWeek.set(wr.week, [...(byWeek.get(wr.week) ?? []), shortName(s.user.name)])
+              }
+            }
+            if (!byWeek.size) return null
+            return (
+              <section aria-label="Perfect weeks" className="mt-4 px-1">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                  Perfect weeks <span className="normal-case font-normal tracking-normal text-slate-600">· every game right</span>
+                </p>
+                <ul className="space-y-0.5">
+                  {[...byWeek.entries()].sort((x, y) => x[0] - y[0]).map(([week, names]) => (
+                    <li key={week} className="text-xs text-slate-400">
+                      <span className="text-emerald-400/80 mr-1" aria-hidden="true">✓</span>
+                      <span className="text-slate-500">Week {week}</span> · {names.join(', ')}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
+          })()}
           </>
         )}
 

@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import type { BowlGame, Phase } from '@/lib/bowls/sheet'
+import { onSheet, type BowlGame, type Phase, type SectionKey } from '@/lib/bowls/sheet'
 import type { PickMap } from '@/lib/bowls/bracket'
-import type { Standing } from '@/lib/bowls/scoring'
+import { isDecided, type Standing } from '@/lib/bowls/scoring'
 import { countdown, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
 import { BowlAvatar } from '@/components/bowls/BowlHeader'
@@ -56,6 +56,36 @@ export function DemoNote() {
       <strong>Preview with made-up players and results.</strong> Only you see this — it uses the sample teams to show
       how this page looks mid-season. Nothing here is real or saved, and it goes away when the sample teams come off.
     </div>
+  )
+}
+
+/** A player's points in one phase as the tabs group them (the Playoff takes in the semifinals and title game). */
+export function sectionPoints(s: Standing, key: SectionKey): number {
+  return key === 'playoff' ? s.byPhase.playoff + s.byPhase.semi + s.byPhase.title : s.byPhase[key]
+}
+
+/**
+ * How many picks in a row someone has got right, counting back from the most
+ * recent game with a result. A wrong pick — or none — ends it.
+ */
+export function winStreak(games: BowlGame[], picks: PickMap | undefined): number {
+  const done = games.filter(g => onSheet(g) && isDecided(g) && g.kickoff_time)
+    .sort((a, b) => b.kickoff_time!.localeCompare(a.kickoff_time!) || b.id.localeCompare(a.id))
+  let n = 0
+  for (const g of done) {
+    if (picks?.[g.id] && picks[g.id] === g.winner_team_id) n++
+    else break
+  }
+  return n
+}
+
+/** 🔥5 — four or more right in a row. */
+export function StreakBadge({ n }: { n: number }) {
+  if (n < 4) return null
+  return (
+    <span className="shrink-0 text-[10px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-full leading-none tabular-nums" title={`${n} right in a row`}>
+      🔥{n}
+    </span>
   )
 }
 

@@ -30,8 +30,16 @@ export function BowlAvatar({ name, url, size = 32 }: { name: string; url?: strin
  * switch for people in both, an account menu and the page tabs. A page can
  * pin a bar of its own underneath (`children`) — My Picks keeps its progress
  * there.
+ *
+ * `collapsible`: scrolling down slides the name and tabs up out of sight,
+ * leaving just the page's own bar pinned; scrolling back up (or reaching the
+ * top) brings them back. It moves the header rather than resizing it, so the
+ * page never jumps under your finger. `onCollapse` tells the page, which can
+ * tighten its bar too.
  */
-export default function BowlHeader({ subtitle, children }: { subtitle?: string; children?: React.ReactNode }) {
+export default function BowlHeader({ subtitle, children, collapsible = false, onCollapse }: {
+  subtitle?: string; children?: React.ReactNode; collapsible?: boolean; onCollapse?: (collapsed: boolean) => void
+}) {
   const router = useRouter()
   const { player, account, nflProfile, isAdmin, signOut, token } = useBowlAuth()
   const [unread, setUnread] = useState(0)
@@ -70,6 +78,41 @@ export default function BowlHeader({ subtitle, children }: { subtitle?: string; 
     return () => document.removeEventListener('mousedown', close)
   }, [open])
 
+  const topRef = useRef<HTMLDivElement>(null)
+  const [collapsed, setCollapsed] = useState(false)
+  const [topHeight, setTopHeight] = useState(0)
+  const collapsedRef = useRef(false)
+  const onCollapseRef = useRef(onCollapse)
+  onCollapseRef.current = onCollapse
+  useEffect(() => {
+    if (!collapsible) return
+    let last = window.scrollY
+    let travel = 0            // how far in the current direction
+    let quietUntil = 0        // a moment's pause after each change
+    const set = (c: boolean) => {
+      if (c === collapsedRef.current) return
+      collapsedRef.current = c
+      setTopHeight(topRef.current?.offsetHeight ?? 0)
+      setCollapsed(c)
+      onCollapseRef.current?.(c)
+      quietUntil = performance.now() + 350
+      travel = 0
+    }
+    const onScroll = () => {
+      const y = window.scrollY
+      const d = y - last
+      last = y
+      if (performance.now() < quietUntil) return
+      const top = topRef.current?.offsetHeight ?? 100
+      if (y <= top) { set(false); travel = 0; return }
+      travel = Math.sign(d) === Math.sign(travel) ? travel + d : d
+      if (travel > 24) set(true)
+      else if (travel < -48) set(false)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [collapsible])
+
   const name = player?.name ?? nflProfile?.name ?? account?.email ?? ''
   const tabs = [
     { href: '/bowls', label: 'Home' },
@@ -82,8 +125,14 @@ export default function BowlHeader({ subtitle, children }: { subtitle?: string; 
   const active = (href: string) => href === '/bowls/admin' ? router.pathname.startsWith('/bowls/admin') : router.pathname === href
 
   return (
-    <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-zinc-950/80 backdrop-blur-xl safe-top">
-      <div className="max-w-3xl mx-auto px-4">
+    <>
+    {/* Under the phone's status bar: always covered, so a collapsed header's
+        edge never shows through there. */}
+    {collapsible && <div aria-hidden="true" className="fixed inset-x-0 top-0 z-40 bg-zinc-950" style={{ height: 'env(safe-area-inset-top)' }} />}
+    <header data-collapsed={collapsible ? String(collapsed) : undefined}
+      className={`sticky top-0 z-30 border-b border-white/[0.06] bg-zinc-950/80 backdrop-blur-xl safe-top ${collapsible ? 'transition-transform duration-200 ease-out' : ''}`}
+      style={collapsible && collapsed ? { transform: `translateY(-${topHeight}px)` } : undefined}>
+      <div ref={topRef} className="max-w-3xl mx-auto px-4">
         <div className="flex items-center justify-between gap-2 py-3">
           <Link href="/bowls" className="flex items-center gap-2.5 min-w-0">
             <img src="/logos/cfp-trophy.svg" alt="" className="w-7 h-8 object-contain shrink-0" />
@@ -150,5 +199,6 @@ export default function BowlHeader({ subtitle, children }: { subtitle?: string; 
       </div>
       {children}
     </header>
+    </>
   )
 }

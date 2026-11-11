@@ -2,11 +2,11 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASES } from '@/lib/bowls/sheet'
+import { PHASES, pickSections } from '@/lib/bowls/sheet'
 import { TIEBREAK_LABEL, type Standing } from '@/lib/bowls/scoring'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
-import { DemoNote, HiddenUntilLock, ResultsLine, UpdateResults, firstName, pts, useBoard } from '@/components/bowls/board'
+import { DemoNote, HiddenUntilLock, ResultsLine, StreakBadge, UpdateResults, firstName, pts, sectionPoints, useBoard, winStreak } from '@/components/bowls/board'
 
 const rankText = (s: Standing) => `${s.tied ? 'T' : ''}${s.rank}`
 const MEDAL = ['from-yellow-300 to-yellow-600', 'from-zinc-200 to-zinc-400', 'from-amber-600 to-amber-800']
@@ -26,6 +26,7 @@ export default function BowlStandings() {
 
   const rows = board?.standings ?? []
   const anyFinal = (board?.decided ?? 0) > 0
+  const sections = pickSections(board?.games ?? [])
   const podium = anyFinal && rows.length >= 3 ? rows.slice(0, 3) : []
 
   return (
@@ -83,6 +84,7 @@ export default function BowlStandings() {
                             <span className="flex items-center gap-1.5">
                               <span className={`text-sm font-semibold truncate ${me ? 'text-yellow-300' : 'text-white'}`}>{s.name}</span>
                               {me && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-yellow-400/90">You</span>}
+                              <StreakBadge n={winStreak(board.games ?? [], board.picks?.[s.id])} />
                             </span>
                             <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 min-w-0">
                               <span className="sm:hidden tabular-nums">{s.wins}–{s.losses} ·</span>
@@ -92,6 +94,14 @@ export default function BowlStandings() {
                                   · <TeamLogo team={s.champion} size={14} /><span className="truncate">{s.champion.name}</span>
                                 </span>
                               )}
+                            </span>
+                            {/* Points by phase, in the phases' colors. */}
+                            <span className="flex items-center gap-2.5 mt-0.5 text-[10px] text-zinc-400 tabular-nums" aria-label={sections.map(sec => `${sec.short} ${pts(sectionPoints(s, sec.key))}`).join(', ')}>
+                              {sections.map(sec => (
+                                <span key={sec.key} className="inline-flex items-center gap-1" title={`${sec.title}: ${pts(sectionPoints(s, sec.key))} points`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${PHASE_TONE[sec.key].dot}`} aria-hidden="true" />{pts(sectionPoints(s, sec.key))}
+                                </span>
+                              ))}
                             </span>
                             {s.aheadOn && <span className="block text-[10px] text-yellow-500/80">Ahead on {TIEBREAK_LABEL[s.aheadOn]}</span>}
                           </span>

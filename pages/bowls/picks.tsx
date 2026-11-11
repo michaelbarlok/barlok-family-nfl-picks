@@ -9,7 +9,7 @@ import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
 import { useToast } from '@/components/Toast'
 import BowlHeader from '@/components/bowls/BowlHeader'
 import BowlRules from '@/components/bowls/BowlRules'
-import { PHASE_TONE, TeamLogo, TeamName, fullTeamName } from '@/components/bowls/ui'
+import { PHASE_TONE, TeamLogo, fullTeamName } from '@/components/bowls/ui'
 import { LiveTag } from '@/components/bowls/live'
 import { scoreOf, type BowlLive } from '@/lib/bowls/live'
 import { useBowlLive } from '@/lib/bowls/useBowlLive'
@@ -148,6 +148,9 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
 
   // The moment the last game is picked, say what's still missing.
   const allPickedRef = useRef<boolean | null>(null)
+  // Scrolled down: the header's name and tabs slide away, and the phase tabs
+  // drop their points line, so more of the games show.
+  const [compact, setCompact] = useState(false)
   useEffect(() => {
     if (!data || !games.length) return
     const p = progress(games, picks, best5, total === '' ? null : Number(total))
@@ -295,10 +298,14 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
   const prog = progress(games, picks, best5, total === '' ? null : Number(total))
   // Every game picked, but the Best 5 or the title-game total still to do.
   const finishing = editable && prog.total > 0 && prog.picked === prog.total && !prog.complete
+  // "Show me" / the tracker's label: the tracker is pinned, so flash it and say how.
   const showBest5 = () => {
-    const el = document.getElementById('best5')
-    el?.scrollIntoView({ block: 'center' })
-    el?.animate?.([{ boxShadow: '0 0 0 0 rgba(234,179,8,0)' }, { boxShadow: '0 0 0 3px rgba(234,179,8,0.7)' }, { boxShadow: '0 0 0 0 rgba(234,179,8,0)' }], { duration: 1400 })
+    document.getElementById('best5-bar')?.animate?.(
+      [{ boxShadow: '0 0 0 0 rgba(234,179,8,0)' }, { boxShadow: '0 0 0 3px rgba(234,179,8,0.75)' }, { boxShadow: '0 0 0 0 rgba(234,179,8,0)' }], { duration: 1400 })
+    const left = prog.best5Needed - prog.best5
+    toast.show(left > 0
+      ? `Tap ☆ Best 5 on ${left === 1 ? 'one more game' : `${left} more games`} you've picked — your Best 5 record is the first tiebreaker.`
+      : 'Your Best 5 is set — tap a star again to swap one out.', 'info')
   }
   const focusTotal = () => {
     const sec = sections.find(x => x.games.some(g => g.phase === 'title'))
@@ -324,7 +331,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">
-      <BowlHeader subtitle={data?.proxy ? `Picks for ${data.player?.name}` : 'My Picks'}>
+      <BowlHeader subtitle={data?.proxy ? `Picks for ${data.player?.name}` : 'My Picks'} collapsible onCollapse={setCompact}>
       {data && data.inSeason && games.length > 0 && (
         <div className="border-t border-white/[0.06]">
           <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2 text-[11px]">
@@ -343,7 +350,7 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
           </div>
           {sections.length > 1 && tab && (
             <div className="max-w-3xl mx-auto px-4 pb-2.5">
-              <PhaseTabs sections={sections} current={tab.key} picks={picks} onChange={chooseTab} />
+              <PhaseTabs sections={sections} current={tab.key} picks={picks} onChange={chooseTab} compact={compact} />
             </div>
           )}
           {prog.best5Needed > 0 && (editable || best5.length > 0) && (
@@ -408,18 +415,23 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                     ? <>✓ {firstName}&apos;s picks are all in. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.</>
                     : <>✓ Your picks are all in, {firstName}. You can change anything until {data.lockAt ? lockText(data.lockAt) : 'the first kickoff'}.</>}
                 </div>
-              ) : (
-                <div className="rounded-2xl px-4 py-3 bg-gradient-to-br from-yellow-500/[0.10] to-transparent border border-yellow-500/25 text-sm text-zinc-200">
-                  Pick every game, star your <strong>Best 5</strong> and guess the title game&apos;s total. All picks are due{' '}
-                  <strong>{data.lockAt ? lockText(data.lockAt) : 'at the first kickoff'}</strong>.
+              ) : prog.picked === 0 ? (
+                // How it works — until the first pick. After that the tabs, the
+                // Best 5 tracker and the countdown up top say it all.
+                <div className="rounded-2xl px-4 py-3 bg-gradient-to-br from-yellow-500/[0.10] to-transparent border border-yellow-500/25 text-sm text-zinc-200 space-y-1">
+                  <p>
+                    Pick every game, star your <strong>Best 5</strong> and guess the title game&apos;s total. All picks are due{' '}
+                    <strong>{data.lockAt ? lockText(data.lockAt) : 'at the first kickoff'}</strong>.
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    Best 5: pick a game, then tap its ☆ Best 5 — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.
+                  </p>
                 </div>
-              )
+              ) : null
             )}
             {!!data.enteredByAdmin && !data.proxy && (
               <p className="text-xs text-zinc-500 px-1">The bowl admin entered {data.enteredByAdmin} of these picks for you.</p>
             )}
-
-            <Best5Summary games={games} byId={byId} picks={picks} best5={best5} whose={data.proxy ? `${firstName}'s` : 'Your'} editable={editable} onOpen={openGame} />
 
             {tab && (() => {
               const name = tab.title.includes(' · ') ? tab.title.split(' · ').pop()! : tab.title
@@ -448,10 +460,22 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                           <span className="flex-1 h-px bg-white/[0.08]" />
                         </div>
                       )}
-                      {r.games.map(g => (
-                        <GameCard key={g.id} game={g} byId={byId} picks={picks} live={live.byGameId.get(g.id)}
-                          starred={best5.includes(g.id)} editable={editable}
-                          onPick={t => choose(g, t)} onStar={() => toggleStar(g)} />
+                      {/* Phases 1–3 run over days: a heading for each day (the Playoff goes by round). */}
+                      {(r.label ? [{ day: '', games: r.games }] : byDay(r.games)).map(d => (
+                        <div key={d.day || 'all'} className="space-y-3">
+                          {d.day && (
+                            <div className="flex items-center gap-2 pt-1">
+                              <h3 className="text-[11px] font-semibold text-zinc-300">{d.day}</h3>
+                              <span className="text-[11px] text-zinc-500">{d.games.length} {d.games.length === 1 ? 'game' : 'games'}</span>
+                              <span className="flex-1 h-px bg-white/[0.06]" />
+                            </div>
+                          )}
+                          {d.games.map(g => (
+                            <GameCard key={g.id} game={g} byId={byId} picks={picks} live={live.byGameId.get(g.id)}
+                              starred={best5.includes(g.id)} editable={editable}
+                              onPick={t => choose(g, t)} onStar={() => toggleStar(g)} />
+                          ))}
+                        </div>
                       ))}
                       {r.key === 'title' && titleGame && (
                         <div className="rounded-2xl border border-white/[0.09] border-l-4 border-l-yellow-500 bg-zinc-900 p-3.5 flex items-center gap-3">
@@ -512,6 +536,19 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
  * pick'em more than once (Army or Navy in a bowl as well as Army–Navy).
  * "CFP Quarterfinal · Rose Bowl" → "Rose Bowl", "CFP First Round" → "First Round".
  */
+/** A phase's games by day, in your own time zone: "Sat, Dec 20". Undated games last. */
+function byDay(games: BowlGame[]): { day: string; games: BowlGame[] }[] {
+  const out: { day: string; games: BowlGame[] }[] = []
+  const sorted = [...games].sort((a, b) => (a.kickoff_time ?? '9').localeCompare(b.kickoff_time ?? '9'))
+  for (const g of sorted) {
+    const day = g.kickoff_time ? new Date(g.kickoff_time).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date to come'
+    const last = out[out.length - 1]
+    if (last && last.day === day) last.games.push(g)
+    else out.push({ day, games: [g] })
+  }
+  return out
+}
+
 function best5Context(game: BowlGame, teamId: string, games: BowlGame[]): string | null {
   const again = games.some(g => g.id !== game.id && g.phase && !g.removed && (g.away?.id === teamId || g.home?.id === teamId))
   if (!game.playoff_round && !again) return null
@@ -574,44 +611,6 @@ function Best5Bar({ games, byId, picks, best5, needed, warn, onOpen, onHelp }: {
   )
 }
 
-/** "★ Your Best 5" — the team you starred in each, with the game when it's needed. Tap one to go to it. */
-function Best5Summary({ games, byId, picks, best5, whose, editable, onOpen }: {
-  games: BowlGame[]; byId: Map<string, BowlGame>; picks: PickMap; best5: string[]; whose: string; editable: boolean; onOpen: (gameId: string) => void
-}) {
-  const starred = best5.map(id => byId.get(id)).filter(Boolean) as BowlGame[]
-  return (
-    <div id="best5" className="glass-card rounded-2xl px-4 py-3 scroll-mt-[250px]">
-      <p className="text-sm font-semibold text-white">★ {whose} Best 5 <span className="text-zinc-500 font-normal">· {starred.length} of 5</span></p>
-      {starred.length ? (
-        <ul aria-label={`${whose} Best 5`} className="flex flex-wrap gap-1.5 mt-2">
-          {starred.map(g => {
-            const team = optionsFor(g, byId, picks).find(t => t && t.id === picks[g.id]) ?? null
-            const context = team ? best5Context(g, team.id, games) : null
-            return (
-              <li key={g.id} className="min-w-0 max-w-full">
-                <button type="button" onClick={() => onOpen(g.id)} title={g.name}
-                  className="press max-w-full inline-flex items-center gap-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 pl-1 pr-2.5 py-1 text-xs text-yellow-50 hover:bg-yellow-500/15 transition">
-                  {team ? <TeamLogo team={team} size={18} /> : <span className="w-[18px] text-center text-yellow-400">★</span>}
-                  <span className="truncate">
-                    {team ? <span className="font-semibold">{team.name}</span> : g.name}
-                    {context && <span className="text-yellow-100/60"> ({context})</span>}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      ) : null}
-      {editable && starred.length > 0 && starred.length < 5 && (
-        <p className="text-[11px] text-zinc-500 mt-2">+ {5 - starred.length} more — tap ☆ Best 5 on a game</p>
-      )}
-      {starred.length ? null : (
-        <p className="text-xs text-zinc-400 mt-1">Pick a game, then tap its ☆ Best 5 — any five games. Your Best 5 record is the first tiebreaker, and empty spots count as losses.</p>
-      )}
-    </div>
-  )
-}
-
 /**
  * Phase 1 · Phase 2 · Phase 3 · Playoff — pinned under the progress bar, all
  * four always in view (even on a small phone). Each tab fills with its color
@@ -623,7 +622,7 @@ const ptsText = (key: SectionKey) => {
   return `${n} pt${n === 1 ? '' : 's'}`
 }
 
-function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSection[]; current: SectionKey; picks: PickMap; onChange: (k: SectionKey) => void }) {
+function PhaseTabs({ sections, current, picks, onChange, compact = false }: { sections: PickSection[]; current: SectionKey; picks: PickMap; onChange: (k: SectionKey) => void; compact?: boolean }) {
   return (
     <div role="tablist" aria-label="Phase" className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${sections.length}, minmax(0, 1fr))` }}>
       {sections.map(sec => {
@@ -634,7 +633,7 @@ function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSecti
         return (
           <button key={sec.key} type="button" role="tab" aria-selected={on} onClick={() => onChange(sec.key)}
             title={`${sec.title}: ${done} of ${sec.games.length} picked · ${sec.points}`}
-            className={`press relative overflow-hidden min-w-0 flex flex-col items-center justify-center rounded-xl border px-1 py-1.5 transition bg-white/[0.03] ${on
+            className={`press relative overflow-hidden min-w-0 flex flex-col items-center justify-center rounded-xl border px-1 ${compact ? 'py-1' : 'py-1.5'} transition bg-white/[0.03] ${on
               ? `${PHASE_TONE[sec.key].on} text-white`
               : 'border-white/[0.10] text-zinc-300 hover:text-white hover:border-white/[0.2]'}`}>
             {/* The fill: how much of this phase is picked. */}
@@ -644,8 +643,8 @@ function PhaseTabs({ sections, current, picks, onChange }: { sections: PickSecti
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PHASE_TONE[sec.key].dot}`} />{sec.short}
             </span>
             <span className={`relative text-[11px] tabular-nums leading-tight ${all ? 'text-white font-bold' : on ? 'text-white/80' : 'text-zinc-400'}`}>{all ? '✓' : `${done}/${sec.games.length}`}</span>
-            {/* What each win is worth. */}
-            <span className={`relative text-[10px] font-semibold leading-tight whitespace-nowrap ${on || all ? 'text-white/75' : PHASE_TONE[sec.key].text}`}>
+            {/* What each win is worth (not while scrolled down: the tabs keep to two lines). */}
+            <span className={`relative text-[10px] font-semibold leading-tight whitespace-nowrap ${compact ? 'hidden' : ''} ${on || all ? 'text-white/75' : PHASE_TONE[sec.key].text}`}>
               {ptsText(sec.key)}<span className="hidden sm:inline"> each</span>
             </span>
           </button>
@@ -775,7 +774,7 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
           if (!team) {
             const from = side === 'away' ? game.away_from : game.home_from
             return (
-              <div key={side} className="rounded-xl border border-dashed border-white/[0.14] bg-white/[0.02] px-2.5 py-2.5 min-h-[56px] flex flex-col justify-center">
+              <div key={side} className="rounded-xl border border-dashed border-white/[0.14] bg-white/[0.02] px-2.5 h-14 flex flex-col justify-center">
                 <p className="text-xs text-zinc-400 leading-tight">{from ? feederText(byId.get(from), byId, picks) : 'TBD'}</p>
                 {from && <p className="text-[10px] text-zinc-600 mt-0.5">Pick that game first</p>}
               </div>
@@ -787,13 +786,19 @@ function GameCard({ game, byId, picks, live, starred, editable, onPick, onStar }
           return (
             <button key={side} onClick={() => onPick(team)} disabled={!editable} aria-pressed={selected}
               aria-label={`Pick ${fullTeamName(team)}`}
-              className={`press relative flex items-center gap-1.5 sm:gap-2 rounded-xl px-2 sm:px-2.5 py-2.5 min-h-[56px] text-left border transition disabled:cursor-default ${selected
+              className={`press relative flex items-center gap-1.5 sm:gap-2 rounded-xl px-2 sm:px-2.5 h-14 text-left border transition disabled:cursor-default ${selected
                 ? right ? 'bg-emerald-500/15 border-emerald-500/50' : wrong ? 'bg-red-500/10 border-red-500/40' : 'bg-yellow-500/15 border-yellow-500/60 ring-1 ring-yellow-500/30'
                 : `bg-white/[0.06] border-white/[0.14] ${editable ? 'hover:bg-white/[0.10] hover:border-white/[0.24]' : 'opacity-60'}`}`}>
-              <TeamLogo team={team} size={30} />
-              <span className="min-w-0 flex-1">
-                <TeamName team={team} nickname className="block text-[13px] leading-snug text-white line-clamp-2 break-words hyphens-auto" />
-                {team.record && <span className="block text-[11px] text-zinc-500">{team.record}</span>}
+              {/* The logo steps aside on the narrowest phones, so the school's name fits. */}
+              <span className="max-[359px]:hidden shrink-0"><TeamLogo team={team} size={28} /></span>
+              {/* Two lines on every team, so every game is the same height:
+                  the school bold, then its rank, nickname and record small. */}
+              <span className="min-w-0 flex-1" title={`${team.rank ? `#${team.rank} ` : ''}${fullTeamName(team)}${team.record ? ` (${team.record})` : ''}`}>
+                <span className="block text-[13px] font-bold leading-[17px] text-white truncate tracking-tight">{team.name}</span>
+                <span className="block text-[11px] leading-[14px] text-zinc-400 truncate">
+                  {team.rank && <span className="font-semibold text-zinc-300">#{team.rank} </span>}
+                  {[team.nickname, team.record].filter(Boolean).join(' · ') || (team.rank ? '' : '\u00a0')}
+                </span>
               </span>
               {selected && (
                 <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full ring-2 ring-zinc-900 text-[10px] font-bold flex items-center justify-center ${right ? 'bg-emerald-500 text-white' : wrong ? 'bg-red-500 text-white' : 'bg-yellow-500 text-zinc-950'}`}>

@@ -8,7 +8,7 @@ import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo, TeamName } from '@/components/bowls/ui'
 import {
   Chips, DemoNote, HiddenUntilLock, PlayerChip, ResultsLine, Segmented, UpdateResults,
-  firstName, pts, useBoard, type Board, type BoardPlayer,
+  firstName, pts, sectionPoints, useBoard, type Board, type BoardPlayer,
 } from '@/components/bowls/board'
 import { GameCast, LiveTag, PlayFlash } from '@/components/bowls/live'
 import { ourSide, scoreOf, type BowlLive } from '@/lib/bowls/live'
@@ -25,9 +25,6 @@ const isView = (v: unknown): v is View => v === 'game' || v === 'grid' || v === 
 const isTab = (v: unknown): v is Tab => v === 'all' || v === 'little' || v === 'between' || v === 'big' || v === 'playoff'
 
 /** A player's points in one phase of the pick'em (the playoff counts its semis and title game). */
-export function sectionPoints(s: Standing, key: SectionKey): number {
-  return key === 'playoff' ? s.byPhase.playoff + s.byPhase.semi + s.byPhase.title : s.byPhase[key]
-}
 
 const STATE_CELL: Record<PickState, string> = {
   won: 'bg-emerald-500/20 border-emerald-500/40',
@@ -390,6 +387,18 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
       show: (s: Standing) => <>{s.titleTotal ?? '—'}{s.titleMiss !== null && <span className="text-[9px] text-zinc-500 ml-1">off {s.titleMiss}</span>}</>,
     }] : []),
   ]
+  // How the group split: the share of everyone who picked this game that took each team.
+  const splitOf = (g: BowlGame) => {
+    let n = 0, away = 0, home = 0
+    for (const c of cols) {
+      const t = board.picks?.[c.id]?.[g.id]
+      if (!t) continue
+      n++
+      if (t === g.away?.id) away++
+      else if (t === g.home?.id) home++
+    }
+    return n ? { away: Math.round((away / n) * 100), home: Math.round((home / n) * 100) } : null
+  }
   const topOf = (f: Foot) => (f.best === 'max' ? Math.max(...cols.map(c => f.value(c) ?? -Infinity)) : null)
   const bottomOf = (i: number) => (foot.length - 1 - i) * FOOT_ROW
 
@@ -400,7 +409,7 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
       <table className="border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
-            <th className="sticky top-0 left-0 z-30 bg-zinc-900 min-w-[136px] max-w-[136px] sm:min-w-[184px] sm:max-w-[184px] px-3 py-2 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-r border-white/[0.08]">Game</th>
+            <th className="sticky top-0 left-0 z-30 bg-zinc-900 min-w-[148px] max-w-[148px] sm:min-w-[196px] sm:max-w-[196px] px-2.5 sm:px-3 py-2 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-r border-white/[0.08]">Game</th>
             {cols.map(s => {
               const you = s.id === me
               return (
@@ -422,8 +431,8 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
                 const lv = live.get(g.id)
                 return (
                   <tr key={g.id}>
-                    <th scope="row" className={`sticky left-0 z-10 min-w-[136px] max-w-[136px] sm:min-w-[184px] sm:max-w-[184px] px-3 py-1.5 text-left font-normal align-middle border-b border-r border-white/[0.06] ${lv?.state === 'in' ? 'bg-zinc-900 shadow-[inset_3px_0_0_rgba(239,68,68,0.8)]' : 'bg-zinc-900'}`}>
-                      <GameCell game={g} live={lv} />
+                    <th scope="row" className={`sticky left-0 z-10 min-w-[148px] max-w-[148px] sm:min-w-[196px] sm:max-w-[196px] px-2.5 sm:px-3 py-1.5 text-left font-normal align-middle border-b border-r border-white/[0.06] ${lv?.state === 'in' ? 'bg-zinc-900 shadow-[inset_3px_0_0_rgba(239,68,68,0.8)]' : 'bg-zinc-900'}`}>
+                      <GameCell game={g} live={lv} split={splitOf(g)} />
                     </th>
                     {cols.map(s => {
                       const t = board.picks?.[s.id]?.[g.id]
@@ -484,7 +493,7 @@ function Grid({ board, groups, me, live, tab, sections }: { board: Board; groups
  * red; games still to come show their date. No logos: the picks beside it
  * already have them.
  */
-function GameCell({ game: g, live: lv }: { game: BowlGame; live?: BowlLive }) {
+function GameCell({ game: g, live: lv, split }: { game: BowlGame; live?: BowlLive; split?: { away: number; home: number } | null }) {
   const on = !isDecided(g) && lv?.state === 'in'
   const sc = scoreOf(g, lv)
   const scored = sc.away !== null && sc.home !== null && (isDecided(g) || on || g.status === 'final')
@@ -500,11 +509,12 @@ function GameCell({ game: g, live: lv }: { game: BowlGame; live?: BowlLive }) {
     const top = winner === side
     const faded = scored && winner !== null && !top
     return (
-      <span className="flex items-baseline gap-1.5 leading-tight">
+      <span className="flex items-baseline gap-1 sm:gap-1.5 leading-tight">
         <span className={`min-w-0 flex-1 truncate text-[11px] ${t ? (top ? 'text-white font-semibold' : faded ? 'text-zinc-500' : 'text-zinc-200') : 'text-zinc-600 italic'}`}>
           {t ? t.name : 'TBD'}
         </span>
-        {scored && <span className={`shrink-0 tabular-nums text-[11px] ${top ? 'text-white font-bold' : 'text-zinc-500'} ${on ? 'text-red-200' : ''}`}>{n}</span>}
+        {t && split && <span className="shrink-0 w-[19px] sm:w-7 text-right tabular-nums text-[9px] text-zinc-500" title={`${split[side]}% of the group picked ${t.name}`}>{split[side]}%</span>}
+        {scored && <span className={`shrink-0 w-[15px] sm:w-5 text-right tabular-nums text-[11px] ${top ? 'text-white font-bold' : 'text-zinc-500'} ${on ? 'text-red-200' : ''}`}>{n}</span>}
       </span>
     )
   }
@@ -515,7 +525,7 @@ function GameCell({ game: g, live: lv }: { game: BowlGame; live?: BowlLive }) {
         <span className="min-w-0 flex-1 text-[10px] font-semibold text-zinc-300 truncate">{g.name.replace('CFP ', '')}</span>
         <span className="shrink-0 text-[9px]">{status}</span>
       </span>
-      <span className="block pl-3">
+      <span className="block sm:pl-3">
         {row('away')}
         {row('home')}
       </span>

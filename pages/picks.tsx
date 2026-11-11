@@ -519,30 +519,32 @@ export default function PicksPage() {
           type="button"
           onClick={() => handlePickChange(game.id, team)}
           disabled={isLocked}
-          className={`press relative min-w-0 flex items-center gap-2 sm:gap-3 py-3 pl-2.5 pr-3 sm:px-4 rounded-xl border-2 transition-all text-left ${teamBtnClass(team)}`}
+          className={`press relative min-w-0 flex items-center gap-2 sm:gap-3 py-2 pl-2.5 pr-3 sm:px-4 rounded-xl border-2 transition-all text-left ${teamBtnClass(team)}`}
         >
           <img
             src={t.logo} alt={team}
             loading="lazy" decoding="async"
-            className={`logo-edge max-[379px]:hidden w-7 h-7 sm:w-10 sm:h-10 object-contain flex-shrink-0 transition-all duration-300 ${
+            className={`logo-edge max-[379px]:hidden w-7 h-7 sm:w-9 sm:h-9 object-contain flex-shrink-0 transition-all duration-300 ${
               pickedTeam === team ? 'scale-110' : ''
             } ${isLocked && pickedTeam !== team && standing === 'upcoming' && !isFinal ? 'opacity-30' : ''}`}
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
-          {/* Three lines, the same on every team, so every game is the same
-              height: the city small on top, the nickname bold below it (the
+          {/* Three tight lines, the same on every team, so every game is the
+              same height: the city small and light, the nickname bold (the
               longest, Commanders and Buccaneers, fit on a phone), then
-              Away/Home — or, once there's one, the score. */}
+              Away/Home — or, once there's one, the score, in a line the same
+              height. Each line is only as tall as its text, so the block sits
+              centered on the logo. */}
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wide leading-tight opacity-70 truncate">
+            <p className="text-[10px] sm:text-[11px] font-medium leading-3 sm:leading-[14px] opacity-60 truncate">
               {t.name ? t.city : '\u00a0'}
-              {hasBall && <span className="ml-1 normal-case" title="Has the ball">🏈</span>}
+              {hasBall && <span className="ml-1" title="Has the ball">🏈</span>}
             </p>
-            <p className="text-[14px] sm:text-base font-bold leading-tight tracking-tight sm:tracking-normal truncate">{t.name || team}</p>
+            <p className="text-[14px] sm:text-[15px] font-bold leading-[18px] tracking-tight sm:tracking-normal truncate">{t.name || team}</p>
             {score !== null ? (
-              <p className={`text-lg font-bold tabular-nums leading-5 h-5 mt-0.5 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
+              <p className={`text-[15px] font-bold tabular-nums leading-4 h-4 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
             ) : (
-              <p className={`text-[11px] leading-5 h-5 mt-0.5 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
+              <p className={`text-[10px] sm:text-[11px] leading-4 h-4 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
             )}
           </div>
           <span className="absolute top-1 right-1.5 leading-none">{resultIcon(team)}</span>

@@ -1,5 +1,6 @@
 import { PHASE_BY_KEY, PHASES, onSheet, sortGames, type BowlGame, type BowlTeam, type Phase } from '@/lib/bowls/sheet'
 import { cleanBest5, cleanPicks, indexGames, optionsFor, type PickMap } from '@/lib/bowls/bracket'
+import type { Elimination } from '@/lib/bowls/elimination'
 
 /*
  * Bowl Pick'em scoring, from the family rules:
@@ -61,6 +62,8 @@ export interface Standing {
   titleMiss: number | null
   titleUnder: boolean | null
   byPhase: Record<Phase, number>
+  /** Mathematically eliminated, and why (see lib/bowls/elimination). Set by the board. */
+  out?: Elimination | null
 }
 
 export interface Scoreboard {

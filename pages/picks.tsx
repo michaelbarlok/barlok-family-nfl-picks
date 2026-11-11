@@ -443,8 +443,9 @@ export default function PicksPage() {
   const windowList = !isLocked && shownGames.length > 1 ? groupByKickoffWindow(shownGames) : []
   const windows = windowList.length > 1 ? windowList : null
 
-  // One game's card (moved here unchanged so the week can show by kickoff window).
-  const renderGame = (game: Game, gameIdx: number) => {
+  // One game's card. Inside a kickoff window (`inWindow`) it leaves out its
+  // date and time — the window's header has them.
+  const renderGame = (game: Game, gameIdx: number, inWindow = false) => {
     const pickedTeam = picks[game.id]
     const isStarred = bestPicks.has(game.id)
     const canStar = !!pickedTeam && !isLocked
@@ -561,7 +562,8 @@ export default function PicksPage() {
         style={{ animationDelay: `${gameIdx * 30}ms` }}
       >
         <PlayFlash event={events.get(game.id)} />
-        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+        {/* Inside a kickoff window, with no status to show, the row is just the Best Pick button: keep it tight. */}
+        <div className={`flex items-center justify-between gap-2 px-4 ${inWindow && !isLive && !isFinal && !(liveG?.label && liveG.state === 'pre') ? 'pt-2.5 pb-1' : 'pt-3 pb-2'}`}>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             {isLive ? (
               <>
@@ -578,6 +580,9 @@ export default function PicksPage() {
                 {liveG?.label === 'Final/OT' ? 'Final/OT' : 'Final'}
                 {finalWinner === 'TIE' && <span className="text-slate-500 ml-1 text-[10px]">TIE</span>}
               </span>
+            ) : inWindow ? (
+              // Postponed or delayed still shows; the date and time are in the window's header.
+              liveG?.label && liveG.state === 'pre' ? <p className="text-xs text-slate-500">{liveG.label}</p> : null
             ) : (
               <p className="text-xs text-slate-500">
                 {liveG?.label && liveG.state === 'pre' ? `${liveG.label} · ` : ''}{formatKickoff(game.kickoff_time)}
@@ -967,7 +972,7 @@ export default function PicksPage() {
                             </span>
                           </header>
                           <div className="grid gap-3 lg:grid-cols-2 px-[7px] pt-2.5 pb-[7px] sm:p-3">
-                            {w.games.map(g => renderGame(g, shownGames.indexOf(g)))}
+                            {w.games.map(g => renderGame(g, shownGames.indexOf(g), true))}
                           </div>
                         </section>
                       )

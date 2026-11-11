@@ -6,7 +6,9 @@ import { isManagerOf } from '@/lib/bowls/managed'
 /*
  * Whose picks a request is about (`for`): the caller's own; a managed
  * player's, for one of the people who pick for them; or anyone's, for the
- * bowl admin entering picks someone sent in.
+ * bowl admin — but only once picks lock (`overrideAllowed`). Like the NFL's
+ * override: before the first kickoff nobody, the admin included, sees or
+ * touches anyone else's picks.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,6 +24,12 @@ export interface PickTarget {
   manager: boolean
   /** May change picks after the lock: only the bowl admin, for someone else. */
   override: boolean
+}
+
+/** The admin's override (someone else's picks, not a managed player's) opens only once picks lock. */
+export const OVERRIDE_BEFORE_LOCK = "Someone else's picks stay private until picks lock at the first kickoff — then you can see and fix them here."
+export function overrideAllowed(target: PickTarget, status: string): boolean {
+  return !target.proxy || target.manager || status === 'locked' || status === 'complete'
 }
 
 export async function pickTarget(req: NextApiRequest, forId: unknown): Promise<PickTarget | { error: string; code: number }> {

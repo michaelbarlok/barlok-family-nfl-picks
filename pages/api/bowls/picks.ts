@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { isValidOrigin } from '@/lib/validation'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
-import { inSeason, pickTarget, storedPicks } from '@/lib/bowls/entry'
+import { inSeason, OVERRIDE_BEFORE_LOCK, overrideAllowed, pickTarget, storedPicks } from '@/lib/bowls/entry'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
 import { onSheet } from '@/lib/bowls/sheet'
 
@@ -13,7 +13,8 @@ import { onSheet } from '@/lib/bowls/sheet'
  * Saves picks while the sheet is open — your own, or a managed player's you
  * pick for. All picks are due at the first kickoff; after that only the bowl
  * admin can change them, for someone who sent theirs in on time (like the NFL
- * override).
+ * override). The admin can't touch anyone else's picks before then: the
+ * override opens at the lock, the same moment everyone's picks come out.
  *
  * The playoff is the player's own bracket: a later-round pick must be a team
  * they picked to get there. Changing an earlier pick clears the later picks it
@@ -31,6 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const loaded = await loadSeason(supabase)
     if (!loaded) return res.status(400).json({ error: 'There is no current bowl season.' })
     const { state, games } = loaded
+    if (!overrideAllowed(target, state.status)) return res.status(403).json({ error: OVERRIDE_BEFORE_LOCK })
     if (state.status === 'setup') return res.status(400).json({ error: "Picks aren't open yet." })
     if (state.status === 'complete') return res.status(400).json({ error: 'This bowl season is over.' })
     if (state.status === 'locked' && !target.override) {

@@ -296,9 +296,16 @@ export default function BowlAdmin() {
         </div>
 
         <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
-            <p className="text-sm font-semibold text-white">This season&apos;s players</p>
-            <span className="text-xs text-zinc-500">{players.length}</span>
+          <div className="px-4 py-3 border-b border-white/[0.06]">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-white">This season&apos;s players</p>
+              <span className="text-xs text-zinc-500">{players.length}</span>
+            </div>
+            {sheet?.status === 'open' && (
+              <p className="text-[11px] text-zinc-500 mt-0.5" data-privacy-note>
+                Everyone&apos;s picks stay private until the first kickoff — even from you. Then you can override anyone&apos;s here.
+              </p>
+            )}
           </div>
           {listLoading ? (
             <div className="p-4"><div className="skeleton h-12 rounded-lg" /></div>
@@ -341,9 +348,10 @@ export default function BowlAdmin() {
                     </p>
                   )}
                 </div>
-                {sheetOut && (
+                {/* Someone else's picks stay private until the lock — then the admin can fix them (like the NFL override). */}
+                {sheet?.status === 'locked' && (
                   <Link href={`/bowls/picks?for=${p.id}`} className="text-xs font-medium text-yellow-400 hover:text-yellow-300 transition">
-                    Enter picks
+                    Override picks
                   </Link>
                 )}
                 {!p.signed_in && !p.is_managed && (

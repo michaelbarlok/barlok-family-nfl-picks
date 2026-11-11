@@ -7,6 +7,7 @@ import { TIEBREAK_LABEL, type Standing } from '@/lib/bowls/scoring'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
 import { DemoNote, HiddenUntilLock, ResultsLine, StreakBadge, UpdateResults, firstName, pts, sectionPoints, useBoard, winStreak } from '@/components/bowls/board'
+import { useBowlLive } from '@/lib/bowls/useBowlLive'
 
 const rankText = (s: Standing) => `${s.tied ? 'T' : ''}${s.rank}`
 const MEDAL = ['from-yellow-300 to-yellow-600', 'from-zinc-200 to-zinc-400', 'from-amber-600 to-amber-800']
@@ -23,6 +24,8 @@ export default function BowlStandings() {
   const [open, setOpen] = useState<string | null>(null)
 
   useEffect(() => { if (!loading && !account) router.replace('/bowls/login') }, [loading, account, router])
+  // While games are on, reload every few minutes: results, standings and who's eliminated stay current.
+  useBowlLive(board && !board.hidden && !board.demo ? board.games : undefined, reload)
 
   const rows = board?.standings ?? []
   const anyFinal = (board?.decided ?? 0) > 0
@@ -104,12 +107,18 @@ export default function BowlStandings() {
                               ))}
                             </span>
                             {s.aheadOn && <span className="block text-[10px] text-yellow-500/80">Ahead on {TIEBREAK_LABEL[s.aheadOn]}</span>}
+                            {s.out && (
+                              <span className="block text-[10px] leading-snug mt-0.5" data-eliminated={s.id}>
+                                <span className="font-semibold text-red-400/90">Eliminated</span>
+                                <span className="text-zinc-500"> · {s.out.text}</span>
+                              </span>
+                            )}
                           </span>
                         </span>
                         <span className="hidden sm:block text-right text-sm text-zinc-300 tabular-nums">{s.wins}–{s.losses}</span>
                         <span className="hidden sm:block text-right text-sm text-zinc-500 tabular-nums">{pts(s.maxPoints)}</span>
                         <span className="text-right">
-                          <span className="block text-lg font-extrabold text-white tabular-nums leading-tight">{pts(s.points)}</span>
+                          <span className={`block text-lg font-extrabold tabular-nums leading-tight ${s.out ? 'text-zinc-400' : 'text-white'}`}>{pts(s.points)}</span>
                           <span className="sm:hidden block text-[10px] text-zinc-500 tabular-nums">max {pts(s.maxPoints)}</span>
                         </span>
                       </button>
@@ -148,6 +157,7 @@ export default function BowlStandings() {
               <p className="text-[11px] text-zinc-500 px-1 leading-relaxed">
                 Ties go to the better Best 5 record, then semifinal picks, then the closest guess at the title game&apos;s total points — on an equal miss, the guess under wins.
                 &ldquo;Max&rdquo; is the most points still possible, counting only picks still alive.
+                Eliminated means no way the games left can go puts that player first — or tied for first going into the title-game total.
               </p>
             </>
           )}

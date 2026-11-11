@@ -4,6 +4,7 @@ import { bowlCaller } from '@/lib/bowls/server'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
 import { score, type Entry } from '@/lib/bowls/scoring'
+import { eliminations } from '@/lib/bowls/elimination'
 import { samplePreview, sheetGames } from '@/lib/bowls/sheet'
 import { demoBoard } from '@/lib/bowls/demo'
 
@@ -14,6 +15,9 @@ import { demoBoard } from '@/lib/bowls/demo'
  * nothing more — no picks, Best 5 or totals for anyone, the admin included.
  * Results are as of the last pull from ESPN — the results job's, every 10
  * minutes while games are on, or the admin's "Update results".
+ *
+ * Each row of the standings says whether that player is mathematically
+ * eliminated, and why — worked out fresh from the latest results.
  *
  * While sample teams are on, the admin gets a made-up board instead (`demo`):
  * made-up players, picks and results on the sample games, to see Standings
@@ -38,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { data: me } = await supabase.from('bowl_players').select('name, avatar_url').eq('id', caller.user.id).maybeSingle()
       const you = { id: caller.user.id, name: (me as { name?: string } | null)?.name ?? 'You', avatar_url: (me as { avatar_url?: string | null } | null)?.avatar_url ?? null }
       const demo = demoBoard(games, you)
-      const board = score(demo.games, demo.entries)
+      const board = withEliminations(demo.games, demo.entries)
       return res.status(200).json({
         ...base,
         hidden: false,
@@ -78,7 +82,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         best5: cleanBest5(games, extras.get(p.id)?.best5),
         titleTotal: extras.get(p.id)?.title_total ?? null,
       }))
-    const board = score(games, entries)
+    const board = withEliminations(games, entries)
 
     return res.status(200).json({
       ...base,
@@ -95,4 +99,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('bowls/board error:', err)
     return res.status(500).json({ error: err instanceof Error ? err.message : 'Something went wrong' })
   }
+}
+
+function withEliminations(games: Parameters<typeof score>[0], entries: Entry[]) {
+  const board = score(games, entries)
+  const { out, unsure } = eliminations(games, entries, board)
+  for (const s of board.standings) s.out = out[s.id] ?? null
+  if (unsure.length) console.warn(`bowls/board: elimination search ran out of time for ${unsure.length} player(s)`)
+  return board
 }

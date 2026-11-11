@@ -21,6 +21,7 @@ type LiveMap = Map<string, BowlLive>
 /** A run of games under one heading: a playoff round, a phase, or "Live now". */
 interface Group { key: string; label: string; games: BowlGame[] }
 const VIEW_KEY = 'bowls-allpicks-view'
+const NAMES_KEY = 'bowls-allpicks-names'
 const isView = (v: unknown): v is View => v === 'game' || v === 'grid' || v === 'player'
 const isTab = (v: unknown): v is Tab => v === 'all' || v === 'little' || v === 'between' || v === 'big' || v === 'playoff'
 
@@ -40,6 +41,10 @@ const STATE_CELL: Record<PickState, string> = {
  * played. The grid puts you first and keeps each player's points for the
  * phase, their total and their Best 5 record pinned along the bottom.
  *
+ * By game, the cards show how the group split — counts and percentages, and
+ * your own pick — with everyone's names behind a "Show names" switch (off
+ * to start, then remembered on this device), so a full family reads cleanly.
+ *
  * While games are on, each card carries the live game cast (score, clock,
  * where the ball is, the last play, a flash for every score) and the live
  * games come first. Results land on their own (the results job), and the
@@ -50,6 +55,15 @@ export default function AllPicks() {
   const { loading, account, player } = useBowlAuth()
   const { board, error, reload } = useBoard()
   const [show, setShow] = useState<Show>('all')
+  // By game: everyone's names on the cards, or just the split. Off to start.
+  const [names, setNames] = useState(false)
+  useEffect(() => {
+    try { setNames(window.localStorage.getItem(NAMES_KEY) === '1') } catch { /* private mode */ }
+  }, [])
+  const chooseNames = (on: boolean) => {
+    setNames(on)
+    try { window.localStorage.setItem(NAMES_KEY, on ? '1' : '0') } catch { /* private mode */ }
+  }
 
   // By game, Grid or By player: a link can ask for one (?view=); otherwise
   // your last choice; otherwise cards on a phone and the grid on a wide screen.
@@ -175,9 +189,10 @@ export default function AllPicks() {
                     ]} />
                 )
               })()}
+              {view === 'game' && <NamesSwitch on={names} onChange={chooseNames} />}
               {view === 'game' && (show === 'live' && !games.length
                 ? <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games are on right now.</p>
-                : <ByGame board={board} groups={groups} me={player?.id} live={live.byGameId} plays={plays} />)}
+                : <ByGame board={board} groups={groups} me={player?.id} live={live.byGameId} plays={plays} names={names} />)}
               {view === 'grid' && <Grid board={board} groups={groups} me={player?.id} live={live.byGameId} tab={current} sections={sections} />}
               {view === 'player' && <ByPlayer board={board} me={player?.id} live={live.byGameId} tab={current} sections={sections} selected={typeof router.query.player === 'string' ? router.query.player : undefined} onSelect={id => setQuery({ player: id })} />}
             </>
@@ -247,21 +262,36 @@ function GameMeta({ g, live }: { g: BowlGame; live?: BowlLive }) {
 
 /* ── By game ──────────────────────────────────────────────────────── */
 
-function ByGame({ board, groups, me, live, plays }: { board: Board; groups: Group[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent> }) {
+/** "Show names": everyone's picks on the By game cards, or just how the group split. */
+function NamesSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className="flex justify-end -mt-1">
+      <button role="switch" aria-checked={on} onClick={() => onChange(!on)}
+        className="press inline-flex items-center gap-2 py-1 text-xs font-medium text-zinc-400 hover:text-zinc-200">
+        Show names
+        <span aria-hidden="true" className={`relative inline-block w-8 h-[18px] rounded-full border transition-colors ${on ? 'bg-yellow-500 border-yellow-400' : 'bg-white/[0.08] border-white/[0.12]'}`}>
+          <span className={`absolute top-[2px] w-3 h-3 rounded-full shadow transition-all ${on ? 'left-[15px] bg-zinc-950' : 'left-[2px] bg-zinc-300'}`} />
+        </span>
+      </button>
+    </div>
+  )
+}
+
+function ByGame({ board, groups, me, live, plays, names }: { board: Board; groups: Group[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent>; names: boolean }) {
   if (!groups.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
   return (
     <div className="space-y-4">
       {groups.map(gr => (
         <section key={gr.key} aria-label={gr.label || undefined} className="space-y-2">
           <GroupHeading label={gr.label} />
-          <GameCards board={board} games={gr.games} me={me} live={live} plays={plays} />
+          <GameCards board={board} games={gr.games} me={me} live={live} plays={plays} names={names} />
         </section>
       ))}
     </div>
   )
 }
 
-function GameCards({ board, games, me, live, plays }: { board: Board; games: BowlGame[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent> }) {
+function GameCards({ board, games, me, live, plays, names }: { board: Board; games: BowlGame[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent>; names: boolean }) {
   const { teams, out } = useLookups(board)
   return (
     <div className="space-y-3">
@@ -289,6 +319,12 @@ function GameCards({ board, games, me, live, plays }: { board: Board; games: Bow
         // While it's on: who's ahead, and who has the ball, on our game's sides.
         const lead = on && sc.away !== null && sc.home !== null && sc.away !== sc.home ? (sc.away > sc.home ? 0 : 1) : null
         const ball = on && lv!.possession ? (ourSide(g, lv!, lv!.possession) === 'away' ? 0 : 1) : null
+        // With names hidden, your own pick is still marked on its team.
+        const mine = me ? board.picks?.[me]?.[g.id] : undefined
+        const myStar = !!me && !!board.best5?.[me]?.includes(g.id)
+        const yours = (id: string) => !names && mine === id
+          ? <span className="block text-[10px] font-semibold text-yellow-300" data-your-pick>✓ Your pick{myStar && <span className="text-yellow-400"> ★</span>}</span>
+          : null
         return (
           <article key={g.id} id={`game-${g.id}`} aria-label={g.name}
             className={`relative overflow-hidden glass-card rounded-2xl p-3.5 scroll-mt-32 ${on ? 'ring-1 ring-inset ring-red-500/30 bg-gradient-to-b from-red-500/[0.06] to-transparent' : ''}`}>
@@ -314,6 +350,7 @@ function GameCards({ board, games, me, live, plays }: { board: Board; games: Bow
                       <div className="min-w-0 flex-1">
                         <TeamName team={t} nickname className="block text-[13px] leading-snug text-white line-clamp-2" />
                         <p className="text-[11px] text-zinc-500">{list.length} {list.length === 1 ? 'pick' : 'picks'}{counted ? ` · ${Math.round((list.length / counted) * 100)}%` : ''}</p>
+                        {yours(t.id)}
                       </div>
                       {sides.length === 2 && score !== null && (
                         <span className="shrink-0 flex flex-col items-end leading-none">
@@ -322,10 +359,12 @@ function GameCards({ board, games, me, live, plays }: { board: Board; games: Bow
                         </span>
                       )}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {list.map(p => <PlayerChip key={p.id} player={p} me={p.id === me} star={board.best5?.[p.id]?.includes(g.id)} />)}
-                      {!list.length && <span className="text-[11px] text-zinc-600">Nobody</span>}
-                    </div>
+                    {names && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {list.map(p => <PlayerChip key={p.id} player={p} me={p.id === me} star={board.best5?.[p.id]?.includes(g.id)} />)}
+                        {!list.length && <span className="text-[11px] text-zinc-600">Nobody</span>}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -339,7 +378,9 @@ function GameCards({ board, games, me, live, plays }: { board: Board; games: Bow
                     <div key={id} className="flex flex-wrap items-center gap-1.5 text-[11px]">
                       <span className={`inline-flex items-center gap-1 text-zinc-400 ${gone ? 'line-through opacity-70' : ''}`}><TeamLogo team={t ?? null} size={14} />{t?.name ?? 'Team'}</span>
                       {gone && <span className="text-red-300/80">out</span>}
-                      {(groups.get(id) ?? []).map(p => <PlayerChip key={p.id} player={p} me={p.id === me} star={board.best5?.[p.id]?.includes(g.id)} />)}
+                      {names
+                        ? (groups.get(id) ?? []).map(p => <PlayerChip key={p.id} player={p} me={p.id === me} star={board.best5?.[p.id]?.includes(g.id)} />)
+                        : <span className="text-zinc-500">{n(id)} {n(id) === 1 ? 'pick' : 'picks'}{mine === id && <span className="font-semibold text-yellow-300"> · ✓ Your pick{myStar && ' ★'}</span>}</span>}
                     </div>
                   )
                 })}
@@ -347,7 +388,7 @@ function GameCards({ board, games, me, live, plays }: { board: Board; games: Bow
             )}
             {lv && <GameCast game={g} live={lv} />}
             {none.length > 0 && (
-              <p className="mt-2 text-[11px] text-zinc-600">No pick: {none.map(p => firstName(p.name)).join(', ')}</p>
+              <p className="mt-2 text-[11px] text-zinc-600">{names ? `No pick: ${none.map(p => firstName(p.name)).join(', ')}` : `${none.length} didn't pick`}</p>
             )}
           </article>
         )

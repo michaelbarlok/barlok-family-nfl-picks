@@ -940,16 +940,33 @@ export default function PicksPage() {
                     </nav>
                     {windows.map(w => {
                       const done = w.games.filter(g => picks[g.id]).length
+                      const all = done === w.games.length
+                      // "Sun, Nov 15 · 1:00 PM" — the window's day and kickoff time(s), in your time zone.
+                      const day = parseUTC(w.games[0].kickoff_time).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                      const times = Array.from(new Set(w.games.map(g => parseUTC(g.kickoff_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }))))
+                      const when = times.length <= 2 ? times.join(' & ') : `${times[0]} – ${times[times.length - 1]}`
+                      // Each window is a panel that holds its games, its name across the top.
+                      // On a phone the panel reaches into the page margin, so the game cards
+                      // inside keep exactly the width they had.
                       return (
-                        <section key={w.key} id={`kick-${w.key}`} aria-label={w.label} className="mb-6"
+                        <section key={w.key} id={`kick-${w.key}`} aria-label={w.label}
+                          className={`-mx-2 sm:mx-0 mb-5 rounded-3xl border overflow-hidden transition-colors ${all ? 'border-emerald-500/25 bg-emerald-500/[0.035]' : 'border-white/[0.08] bg-white/[0.025]'}`}
                           style={{ scrollMarginTop: 'calc(var(--header-h, 0px) + 64px)' }}>
-                          <div className="flex items-baseline gap-2 mb-2.5 px-1">
-                            <span className="w-2 h-2 rounded-full bg-blue-400 self-center" />
-                            <h3 className="text-sm font-bold text-white">{w.label}</h3>
-                            <span className="text-[11px] text-slate-500">{w.games.length} {w.games.length === 1 ? 'game' : 'games'}</span>
-                            <span className={`ml-auto text-[11px] tabular-nums ${done === w.games.length ? 'text-emerald-400' : 'text-slate-400'}`}>{done}/{w.games.length}</span>
-                          </div>
-                          <div className="grid gap-3 lg:grid-cols-2">
+                          <header className="relative flex items-center gap-3 px-4 pt-3.5 pb-3 bg-gradient-to-b from-white/[0.04] to-transparent">
+                            <span aria-hidden="true" className={`w-1 self-stretch rounded-full ${all ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+                            <div className="min-w-0">
+                              <h3 className="text-[15px] font-bold text-white leading-tight">{w.label}</h3>
+                              <p className="text-[11px] text-slate-400 mt-0.5 truncate">{day} · {when} · {w.games.length} {w.games.length === 1 ? 'game' : 'games'}</p>
+                            </div>
+                            <span className={`ml-auto shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold tabular-nums ${all ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-slate-300'}`}>
+                              {all ? '✓ All picked' : `${done}/${w.games.length} picked`}
+                            </span>
+                            {/* Fills in as you pick this window's games. */}
+                            <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-[2px] bg-white/[0.05]">
+                              <span className={`block h-full transition-[width] duration-500 ease-out ${all ? 'bg-emerald-400' : 'bg-blue-400'}`} style={{ width: `${(done / w.games.length) * 100}%` }} />
+                            </span>
+                          </header>
+                          <div className="grid gap-3 lg:grid-cols-2 px-[7px] pt-2.5 pb-[7px] sm:p-3">
                             {w.games.map(g => renderGame(g, shownGames.indexOf(g)))}
                           </div>
                         </section>

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getAdminClient } from '@/lib/supabaseAdmin'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
-import { inSeason, pickTarget, storedPicks } from '@/lib/bowls/entry'
+import { inSeason, OVERRIDE_BEFORE_LOCK, overrideAllowed, pickTarget, storedPicks } from '@/lib/bowls/entry'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
 import { sampleBracket, samplePreview, sheetGames } from '@/lib/bowls/sheet'
 import { managedBy } from '@/lib/bowls/managed'
@@ -10,9 +10,10 @@ import { managedBy } from '@/lib/bowls/managed'
  * GET /api/bowls/sheet[?for=playerId]
  *
  * The pick sheet and your own picks, Best 5 and title-game total — or those
- * of the player named in `for`: a managed player you pick for, or (for the
- * bowl admin) anyone. Never anyone else's: until the sheet locks, other
- * players are counts only (/api/bowls/status).
+ * of the player named in `for`: a managed player you pick for, or — once
+ * picks lock, for the bowl admin's override — anyone. Until the first
+ * kickoff nobody sees anyone else's picks, the admin included: other players
+ * are counts only (/api/bowls/status).
  *
  * `managing` lists the managed players you pick for, for My Picks' tabs.
  */
@@ -26,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const loaded = await loadSeason(supabase)
     if (!loaded) return res.status(400).json({ error: 'There is no current bowl season.' })
     const { state, games } = loaded
+    if (!overrideAllowed(target, state.status)) return res.status(403).json({ error: OVERRIDE_BEFORE_LOCK })
     const managing = await managedBy(supabase, target.callerId, state.season)
     const base = { season: state.season, status: state.status, lockAt: state.lockAt, managing }
 

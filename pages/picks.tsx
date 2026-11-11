@@ -562,8 +562,11 @@ export default function PicksPage() {
         style={{ animationDelay: `${gameIdx * 30}ms` }}
       >
         <PlayFlash event={events.get(game.id)} />
-        {/* Inside a kickoff window, with no status to show, the row is just the Best Pick button: keep it tight. */}
-        <div className={`flex items-center justify-between gap-2 px-4 ${inWindow && !isLive && !isFinal && !(liveG?.label && liveG.state === 'pre') ? 'pt-2.5 pb-1' : 'pt-3 pb-2'}`}>
+        {/* The top row: the game's status (time, live, final) — and, once locked, ⭐ Best Pick.
+            Inside a kickoff window an upcoming game has nothing to say here (the window's
+            header has the time), so the card starts with the teams. */}
+        {(isLocked || !inWindow || isLive || isFinal || (liveG?.label && liveG.state === 'pre')) && (
+        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             {isLive ? (
               <>
@@ -589,33 +592,18 @@ export default function PicksPage() {
               </p>
             )}
           </div>
-          {!isLocked && (
-            <button
-              type="button"
-              onClick={() => toggleBestPick(game.id)}
-              disabled={starDisabled}
-              title={!canStar ? 'Pick a team first' : isStarred ? 'Remove best pick' : bestPicks.size >= MAX_BEST_PICKS ? 'Already selected 3' : 'Mark as best pick'}
-              className={`press shrink-0 whitespace-nowrap flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-all font-medium ${
-                isStarred ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 glow-amber'
-                : starDisabled ? 'border-white/[0.04] text-slate-600 cursor-not-allowed'
-                : 'border-white/[0.08] text-slate-400 hover:border-amber-500/30 hover:text-amber-400'
-              }`}
-            >
-              <span className={isStarred ? 'transition-transform scale-110' : ''}>{isStarred ? '⭐' : '☆'}</span>
-              <span>Best Pick</span>
-            </button>
-          )}
           {isLocked && isStarred && (
             <span className="shrink-0 text-xs text-amber-400 font-medium">⭐ Best Pick</span>
           )}
         </div>
+        )}
 
         {/* minmax(0,1fr), not 1fr: a plain 1fr column won't shrink below
             its content, so a long name ("Commanders") pushed the
             home button out past the card's right edge on a phone.
             Under 380px (iPhone SE) the logos drop out too — at
             that width they left room for about four letters. */}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-0 px-3 pb-3 items-stretch">
+        <div className={`grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-0 px-3 pb-3 items-stretch ${!isLocked && inWindow && !isLive && !isFinal && !(liveG?.label && liveG.state === 'pre') ? 'pt-3' : ''}`}>
           {teamButton(game.away_team, 'Away')}
           <div className="flex items-center justify-center px-1.5">
             <span className="text-[10px] font-bold text-slate-600 uppercase">@</span>
@@ -633,6 +621,30 @@ export default function PicksPage() {
               </p>
             )}
           </div>
+        )}
+
+        {/* Best Pick: a strip along the bottom of the card while picking — pick a team, then star it. */}
+        {!isLocked && (
+          <button
+            type="button"
+            onClick={() => toggleBestPick(game.id)}
+            disabled={starDisabled}
+            aria-pressed={isStarred}
+            title={!canStar ? 'Pick a team first' : isStarred ? 'Remove best pick' : bestPicks.size >= MAX_BEST_PICKS ? 'Already selected 3' : 'Mark as best pick'}
+            className={`press w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold border-t transition-colors ${
+              isStarred ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
+              : starDisabled ? 'border-white/[0.05] text-slate-600 cursor-not-allowed'
+              : 'border-white/[0.06] text-slate-400 hover:bg-amber-500/[0.06] hover:text-amber-400'
+            }`}
+          >
+            <span className={isStarred ? 'transition-transform scale-110' : ''}>{isStarred ? '⭐' : '☆'}</span>
+            <span>Best Pick</span>
+            {(!canStar || isStarred || bestPicks.size >= MAX_BEST_PICKS) && (
+              <span className={`font-medium ${isStarred ? 'text-amber-400/70' : 'text-slate-500'}`}>
+                {!canStar ? '· pick a team first' : isStarred ? `· ${bestPicks.size} of ${MAX_BEST_PICKS} used` : `· all ${MAX_BEST_PICKS} used`}
+              </span>
+            )}
+          </button>
         )}
       </div>
     )

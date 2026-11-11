@@ -529,20 +529,20 @@ export default function PicksPage() {
             } ${isLocked && pickedTeam !== team && standing === 'upcoming' && !isFinal ? 'opacity-30' : ''}`}
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
-          <div className="min-w-0">
-            {/* The whole name, never cut off: city in bold, nickname in regular
-                weight, wrapping to a second line if need be. */}
-            <p className="text-[13px] sm:text-sm leading-snug">
-              <span className="font-bold">{t.city}</span> <span className="font-normal">{t.name}</span>
-              {hasBall && <span className="ml-1 text-xs" title="Has the ball">🏈</span>}
+          {/* Three lines, the same on every team, so every game is the same
+              height: the city small on top, the nickname bold below it (the
+              longest, Commanders and Buccaneers, fit on a phone), then
+              Away/Home — or, once there's one, the score. */}
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wide leading-tight opacity-70 truncate">
+              {t.name ? t.city : '\u00a0'}
+              {hasBall && <span className="ml-1 normal-case" title="Has the ball">🏈</span>}
             </p>
-            {/* Once there's a score it takes the Away/Home line, so
-                it costs no width — beside the name it squeezed
-                "Seahawks" down to "S…" on a phone. */}
+            <p className="text-[14px] sm:text-base font-bold leading-tight tracking-tight sm:tracking-normal truncate">{t.name || team}</p>
             {score !== null ? (
-              <p className={`text-lg font-bold tabular-nums leading-tight mt-0.5 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
+              <p className={`text-lg font-bold tabular-nums leading-5 h-5 mt-0.5 ${leader === team ? 'text-white' : 'text-slate-500'}`}>{score}</p>
             ) : (
-              <p className={`text-[11px] mt-0.5 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
+              <p className={`text-[11px] leading-5 h-5 mt-0.5 ${pickedTeam === team ? 'text-blue-300/70' : 'text-slate-500'}`}>{side}</p>
             )}
           </div>
           <span className="absolute top-1 right-1.5 leading-none">{resultIcon(team)}</span>

@@ -15,7 +15,7 @@ interface Prefs {
  * A player's own notification switches, for the profile panel.
  *
  * Two different scopes live here on purpose, and the labels say which is which:
- * pick reminders and the weekly spreadsheet are per person and follow you to
+ * pick reminders and the weekly recap are per person and follow you to
  * any device, while 💩 Talk is per browser — a phone on the sofa and a laptop
  * at work reasonably want different answers for a chat thread.
  *
@@ -166,13 +166,6 @@ export default function NotificationSettings() {
             checked={prefs?.notify_digest_email !== false}
             busy={busy === 'notify_digest_email'}
             onChange={v => savePref('notify_digest_email', v)}
-          />
-          <Row
-            label="Weekly picks spreadsheet"
-            hint="The emailed sheet of everyone's picks for the week."
-            checked={prefs?.email_recipient === true}
-            busy={busy === 'email_recipient'}
-            onChange={v => savePref('email_recipient', v)}
           />
         </div>
       )}

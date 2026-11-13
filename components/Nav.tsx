@@ -20,7 +20,6 @@ const baseTabs = [
   { label: 'All Picks', icon: '📋', href: '/all-picks' },
   { label: 'Standings', icon: '🏆', href: '/standings' },
   { label: 'Talk', icon: '💩', href: '/talk' },
-  { label: 'Sheets', icon: '📊', href: '/spreadsheets' },
   { label: 'Champions', icon: '👑', href: '/champions' },
 ]
 

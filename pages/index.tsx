@@ -754,14 +754,14 @@ export default function DashboardPage() {
 
           <div className="animate-slide-up" style={{ animationDelay: '200ms' }}>
             <SectionHeader title="Everything" className="mb-2" />
-            <div className="grid grid-cols-4 sm:grid-cols-none sm:grid-flow-col sm:auto-cols-fr gap-1.5 min-[360px]:gap-2">
+            {/* Three across on a phone: five or six tiles make two even-ish rows. */}
+            <div className="grid grid-cols-3 sm:grid-cols-none sm:grid-flow-col sm:auto-cols-fr gap-1.5 min-[360px]:gap-2">
               <MiniTile href="/all-picks" icon="📋" title="All Picks" />
               <MiniTile href="/standings" icon="🏆" title="Standings" />
               <MiniTile href="/talk" icon="💩" title="Talk" badge={unreadTalk} />
               {d.recapWeek !== null
                 ? <MiniTile href={`/recap?season=${season}&week=${d.recapWeek}`} icon="📰" title="Recap" sub={`Week ${d.recapWeek}`} />
                 : <MiniTile icon="📰" title="Recap" disabled />}
-              <MiniTile href="/spreadsheets" icon="📊" title="Sheets" />
               <MiniTile href="/champions" icon="👑" title="Champions" />
               {(isAdmin || isManager) && <MiniTile href="/admin" icon="🔧" title="Admin" />}
             </div>
@@ -821,12 +821,13 @@ export default function DashboardPage() {
               ) : (
                 <Tile icon="📰" title="Recap" sub="After Week 1 finishes" disabled />
               )}
-              <Tile href="/spreadsheets" icon="📊" title="Sheets" sub="Weekly spreadsheets" />
+              {/* Two to a row on a phone: with no Admin tile, Champions is the fifth and
+                  takes the full row rather than sitting alone in half of one. */}
               <Tile href="/champions" icon="👑" title="Champions"
-                sub={d.latestChampion ? `${d.latestChampion.year}: ${d.latestChampion.winner}` : 'Every winner since 1996'} />
+                sub={d.latestChampion ? `${d.latestChampion.year}: ${d.latestChampion.winner}` : 'Every winner since 1996'}
+                className={isAdmin || isManager ? undefined : 'col-span-2 sm:col-span-1'} />
               {(isAdmin || isManager) && (
-                // Seventh tile: full width on a phone rather than alone in half a row.
-                <Tile href="/admin" icon="🔧" title="Admin" sub={isAdmin ? 'Results, players, recaps' : 'Your players'} className="col-span-2 sm:col-span-1" />
+                <Tile href="/admin" icon="🔧" title="Admin" sub={isAdmin ? 'Results, players, recaps' : 'Your players'} />
               )}
             </div>
           </div>

@@ -61,6 +61,8 @@ export default function BowlAdmin() {
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [sheet, setSheet] = useState<{ status: string; totalGames: number; players: Progress[] } | null>(null)
+  // The shareable join link: { url, open } once loaded, or why it can't be shown.
+  const [link, setLink] = useState<{ url: string; open: boolean } | { error: string } | null>(null)
 
   useEffect(() => {
     if (loading) return
@@ -81,6 +83,11 @@ export default function BowlAdmin() {
         const st = await fetch('/api/bowls/status', { headers: { Authorization: `Bearer ${await token()}` } })
         if (st.ok) setSheet(await st.json())
       } catch { /* progress is extra */ }
+      try {
+        const jl = await fetch('/api/bowls/admin/join-link', { headers: { Authorization: `Bearer ${await token()}` } })
+        const j = await jl.json()
+        setLink(jl.ok ? { url: j.url, open: j.open } : { error: j.error ?? 'Could not make the link' })
+      } catch { setLink({ error: 'Could not make the link' }) }
     } catch (err) {
       setListError(err instanceof Error ? err.message : 'Could not load players')
     } finally {
@@ -194,6 +201,38 @@ export default function BowlAdmin() {
   const sheetOut = !!sheet && sheet.status !== 'setup' && sheet.totalGames > 0
   const progressOf = new Map((sheet?.players ?? []).map(p => [p.id, p]))
 
+  // Share the join link: the phone's share sheet where there is one, otherwise copy it.
+  const shareLink = async (url: string) => {
+    const text = `Join our ${season ? bowlSeasonLabel(season.season) + ' ' : ''}Bowl Pick'em — pick a winner for every bowl game and the Playoff:`
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try { await navigator.share({ title: "Bowl Pick'em", text, url }); return } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+      }
+    }
+    await copyLink(url)
+  }
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.show('Link copied — paste it in a text or email', 'success')
+    } catch {
+      toast.show('Could not copy — press and hold the link to copy it', 'error')
+    }
+  }
+  const resetLink = async () => {
+    if (!window.confirm('Make a new join link? The old link will stop working for anyone who hasn\'t used it yet.')) return
+    setBusy('link')
+    try {
+      const json = await post('/api/bowls/admin/join-link', { action: 'reset' })
+      setLink({ url: json.url, open: json.open })
+      toast.show(json.message, 'success')
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Could not reset the link', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   // Who can make picks for a managed player: this season's players with their own login.
   const pickers = players.filter(p => !p.is_managed)
   const q = search.trim().toLowerCase()
@@ -214,6 +253,47 @@ export default function BowlAdmin() {
             <span className="text-[11px] font-semibold text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-full">
               {bowlSeasonLabel(season.season)} · {season.status === 'setup' ? 'Setting up' : season.status}
             </span>
+          )}
+        </div>
+
+        {/* Share a link anyone can use to join this season, until picks lock. */}
+        <div className="glass-card rounded-2xl p-4" aria-label="Share a join link" role="region">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">Share a join link</p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {link && 'url' in link && !link.open
+                  ? 'Joining is closed — this year’s picks are locked.'
+                  : 'Anyone with the link can join until the first kickoff. New people get an email to set their password.'}
+              </p>
+            </div>
+            {link && 'url' in link && link.open && (
+              <button type="button" onClick={() => shareLink(link.url)}
+                className="press shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-b from-yellow-400 to-yellow-600 text-zinc-950 text-sm font-semibold hover:brightness-110 transition">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M16 6l-4-4-4 4" /><path d="M12 2v13" />
+                </svg>
+                Share
+              </button>
+            )}
+          </div>
+          {!link ? (
+            <div className="skeleton h-9 rounded-xl mt-3" />
+          ) : 'error' in link ? (
+            <p className="text-xs text-yellow-300/90 mt-3">{link.error}</p>
+          ) : link.open && (
+            <div className="mt-3 flex items-center gap-2">
+              <input readOnly value={link.url} aria-label="Join link" onFocus={e => e.currentTarget.select()}
+                className="min-w-0 flex-1 px-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-zinc-300 font-mono truncate focus:outline-none focus:ring-2 focus:ring-yellow-500/40" />
+              <button type="button" onClick={() => copyLink(link.url)}
+                className="press shrink-0 px-3 py-2 rounded-xl border border-white/[0.1] bg-white/[0.04] text-xs font-semibold text-zinc-200 hover:bg-white/[0.08] transition">
+                Copy
+              </button>
+              <button type="button" onClick={resetLink} disabled={busy === 'link'}
+                className="shrink-0 px-1 text-xs text-zinc-500 hover:text-red-400 disabled:opacity-50 transition">
+                {busy === 'link' ? 'Resetting…' : 'Reset'}
+              </button>
+            </div>
           )}
         </div>
 

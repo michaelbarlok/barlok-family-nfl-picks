@@ -4,6 +4,11 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  // The weekly spreadsheets aren't used any more: the page is hidden (its links
+  // are gone too) and anyone with an old link lands on Home instead.
+  async redirects() {
+    return [{ source: '/spreadsheets', destination: '/', permanent: false }]
+  },
   async headers() {
     return [
       {

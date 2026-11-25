@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASES, pickSections } from '@/lib/bowls/sheet'
+import { PHASES, offSheetLabel, pickSections } from '@/lib/bowls/sheet'
 import { TIEBREAK_LABEL, type Standing } from '@/lib/bowls/scoring'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
@@ -158,6 +158,10 @@ export default function BowlStandings() {
                 Ties go to the better Best 5 record, then semifinal picks, then the closest guess at the title game&apos;s total points — on an equal miss, the guess under wins.
                 &ldquo;Max&rdquo; is the most points still possible, counting only picks still alive.
                 Eliminated means no way the games left can go puts that player first — or tied for first going into the title-game total.
+                {(board.canceled ?? []).length > 0 && (
+                  <> {(board.canceled ?? []).map(g => g.status === 'canceled' || g.status === 'postponed' ? `${g.name} (${offSheetLabel(g).toLowerCase()})` : g.name).join(', ')}{' '}
+                    {(board.canceled ?? []).length === 1 ? 'is off the pick’em and counts' : 'are off the pick’em and count'} for nobody.</>
+                )}
               </p>
             </>
           )}

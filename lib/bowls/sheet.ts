@@ -85,6 +85,28 @@ export function sortGames(games: BowlGame[]): BowlGame[] {
     || a.name.localeCompare(b.name))
 }
 
+/**
+ * Bowls that came off the pick'em once it was under way, to show as
+ * "canceled — counts for nobody" rather than have them quietly vanish:
+ * canceled or postponed on ESPN, or taken off by the admin after people had
+ * picked them (`picked`: game ids anyone has a pick on). A game the admin
+ * dropped while building the sheet, before anyone could pick, isn't one.
+ */
+export function offSheetGames(games: BowlGame[], picked: Set<string>): BowlGame[] {
+  return sortGames(games.filter(g => !!g.phase && g.removed && (g.status === 'canceled' || g.status === 'postponed' || picked.has(g.id))))
+}
+
+/** "Canceled", "Postponed", or — taken off by the admin — "Off the pick'em". */
+export function offSheetLabel(g: Pick<BowlGame, 'status'>): string {
+  return g.status === 'canceled' ? 'Canceled' : g.status === 'postponed' ? 'Postponed' : "Off the pick'em"
+}
+
+/** Which tab of the sheet a game sits in: the playoff's rounds, semifinals and title game share one. */
+export function sectionOfPhase(phase: Phase | null): SectionKey | null {
+  if (!phase) return null
+  return phase === 'playoff' || phase === 'semi' || phase === 'title' ? 'playoff' : phase
+}
+
 export function sheetGames(games: BowlGame[]): BowlGame[] {
   return sortGames(games.filter(onSheet))
 }

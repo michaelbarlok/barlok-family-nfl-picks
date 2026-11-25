@@ -3,7 +3,7 @@ import { getAdminClient } from '@/lib/supabaseAdmin'
 import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bowls/season'
 import { inSeason, OVERRIDE_BEFORE_LOCK, overrideAllowed, pickTarget, storedPicks } from '@/lib/bowls/entry'
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
-import { sampleBracket, samplePreview, sheetGames } from '@/lib/bowls/sheet'
+import { offSheetGames, sampleBracket, samplePreview, sheetGames } from '@/lib/bowls/sheet'
 import { managedBy } from '@/lib/bowls/managed'
 
 /**
@@ -16,6 +16,8 @@ import { managedBy } from '@/lib/bowls/managed'
  * are counts only (/api/bowls/status).
  *
  * `managing` lists the managed players you pick for, for My Picks' tabs.
+ * `canceled` lists bowls that came off the pick'em, with this player's pick
+ * and Best 5 star on them, so they show as canceled instead of vanishing.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
@@ -56,6 +58,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       games: showSheet ? sheetGames(sample ? sampleBracket(games) : games) : [],
       picks: cleanPicks(games, stored.picks).picks,
       best5: cleanBest5(games, stored.best5),
+      // Bowls that came off the pick'em: what this player had on them, so they
+      // show as canceled rather than vanish (a Best 5 spot there is now empty).
+      canceled: showSheet && !sample
+        ? offSheetGames(games, new Set(Object.keys(stored.picks))).map(g => ({ game: g, pick: stored.picks[g.id] ?? null, best5: (stored.best5 ?? []).includes(g.id) }))
+        : [],
       titleTotal: stored.titleTotal,
       enteredByAdmin: stored.enteredByAdmin,
     })

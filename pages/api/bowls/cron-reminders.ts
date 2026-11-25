@@ -4,11 +4,14 @@ import { loadSeason, isMissingSheetTables } from '@/lib/bowls/season'
 import { isMissingBowlTables } from '@/lib/bowls/server'
 import { isMissingTalkTables } from '@/lib/bowls/notify'
 import { dueReminder, sendReminders, siteOrigin } from '@/lib/bowls/reminders'
+import { sendReceipts } from '@/lib/bowls/receipts'
 
 /**
  * Cron — every 15 minutes. The Bowl Pick'em's reminders (see
  * lib/bowls/reminders.ts): picks are open, then 72 hours, 24 hours, 1 hour and
- * 15 minutes before the first kickoff to whoever hasn't finished.
+ * 15 minutes before the first kickoff to whoever hasn't finished. Then, once
+ * picks lock, everyone's pick receipt (lib/bowls/receipts.ts) — once a season,
+ * and only in the first few days after the lock.
  *
  * Separate from the NFL's reminder crons and their log; it does nothing at all
  * until the admin opens bowl picks.
@@ -24,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const loaded = await loadSeason(supabase)
     if (!loaded) return res.status(200).json({ message: 'No bowl season.' })
     const { state } = loaded
+    if (state.status === 'locked' && state.lockAt) return res.status(200).json(await receipts(supabase, state.season, state.lockAt))
     if (state.status !== 'open' || !state.lockAt) return res.status(200).json({ message: `Bowl picks are ${state.status}; nothing to send.` })
 
     const { data: log, error: logErr } = await supabase.from('bowl_reminder_log').select('kind, sent_at').eq('season', state.season)
@@ -58,3 +62,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: e.message ?? 'Something went wrong' })
   }
 }
+
+/** Picks have locked: send everyone their receipt, once — claimed in the log first so two runs can't both send. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function receipts(supabase: any, season: number, lockAt: string) {
+  if (Date.now() - Date.parse(lockAt) > RECEIPT_WINDOW_MS) return { message: 'Picks locked a while ago; no receipts now.' }
+  const { error: claim } = await supabase.from('bowl_reminder_log').insert({ season, kind: 'receipt', recipients: 0 })
+  if (claim) {
+    if (claim.code === '23505' || /duplicate|unique/i.test(claim.message ?? '')) return { message: 'Receipts already sent.' }
+    throw new Error(claim.message)
+  }
+  const result = await sendReceipts(supabase, siteOrigin())
+  await supabase.from('bowl_reminder_log').update({ recipients: result.players }).eq('season', season).eq('kind', 'receipt')
+  return { kind: 'receipt', ...result }
+}
+
+const RECEIPT_WINDOW_MS = 3 * 24 * 3600 * 1000

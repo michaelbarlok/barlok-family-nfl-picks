@@ -20,6 +20,8 @@ export interface Board {
   /** The admin's made-up board while sample teams are on (see lib/bowls/demo). */
   demo?: boolean
   games?: BowlGame[]
+  /** Bowls that came off the pick'em once people had picked them — they count for nobody. */
+  canceled?: BowlGame[]
   players?: BoardPlayer[]
   picks?: Record<string, PickMap>
   best5?: Record<string, string[]>

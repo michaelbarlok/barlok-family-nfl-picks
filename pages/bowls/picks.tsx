@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASES, pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
+import { PHASES, offSheetLabel, pickSections, sectionOfPhase, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
 import { isDecided } from '@/lib/bowls/scoring'
 import { cleanPicks, indexGames, optionsFor, progress, type PickMap, type Progress } from '@/lib/bowls/bracket'
 import { countdown, kickoffText, lockText } from '@/lib/bowls/format'
@@ -34,7 +34,11 @@ interface SheetData {
   best5?: string[]
   titleTotal?: number | null
   enteredByAdmin?: number
+  /** Bowls that came off the pick'em, with this player's pick and Best 5 star on them. */
+  canceled?: CanceledGame[]
 }
+
+interface CanceledGame { game: BowlGame; pick: string | null; best5: boolean }
 
 interface Managed { id: string; name: string; avatar_url: string | null }
 
@@ -491,6 +495,11 @@ function PicksFor({ forId, managing, onManaging }: { forId?: string; managing: M
                     </div>
                   ))}
 
+                  {/* Bowls in this phase that came off the pick'em: shown, not just gone. */}
+                  {(data.canceled ?? []).filter(c => sectionOfPhase(c.game.phase) === tab.key).map(c => (
+                    <CanceledCard key={c.game.id} c={c} editable={editable} />
+                  ))}
+
                   {finishing && (!data.proxy || asManager) && (
                     <FinishUp prog={prog} onBest5={showBest5} onTotal={focusTotal} whose={asManager ? `${firstName}'s` : 'Your'} />
                   )}
@@ -693,6 +702,34 @@ function FinishUp({ prog, onBest5, onTotal, whose }: { prog: Progress; onBest5: 
  * My Picks | 👤 Dani | 👤 Maddie — for someone who makes a managed player's
  * picks. Hidden while the admin has someone else's picks open.
  */
+/**
+ * A bowl that came off the pick'em (canceled, postponed, or taken off by the
+ * admin): it counts for nobody. Says what the player had on it, and — if it
+ * was one of their Best 5 — what that means now.
+ */
+function CanceledCard({ c, editable }: { c: CanceledGame; editable: boolean }) {
+  const g = c.game
+  const picked = c.pick ? [g.away, g.home].find(t => t?.id === c.pick) ?? null : null
+  return (
+    <div className="rounded-2xl border border-dashed border-white/[0.12] bg-zinc-900/50 p-3.5" data-canceled={g.id}>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-bold text-zinc-400 truncate line-through decoration-zinc-600">{g.name}</p>
+          <p className="text-[11px] text-zinc-500 truncate">{g.away?.name ?? 'TBD'} vs {g.home?.name ?? 'TBD'}</p>
+        </div>
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-300 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full">{offSheetLabel(g)}</span>
+      </div>
+      <p className="text-xs text-zinc-400 mt-2">Off the pick&apos;em — this game counts for nobody.</p>
+      {picked && <p className="text-xs text-zinc-500 mt-0.5">Your pick, {picked.name}, doesn&apos;t count either way.</p>}
+      {c.best5 && (
+        <p className="text-xs text-yellow-300/90 mt-1.5">
+          ★ It was one of your Best 5 — {editable ? 'star another game to fill that spot.' : 'that spot is empty now, and an empty spot counts as a loss.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function PlayerTabs({ managing, forId }: { managing: Managed[]; forId?: string }) {
   const router = useRouter()
   if (!managing.length || (forId && !managing.some(m => m.id === forId))) return null

@@ -2,12 +2,13 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASES, pickSections } from '@/lib/bowls/sheet'
+import { PHASES, offSheetLabel, pickSections } from '@/lib/bowls/sheet'
 import { TIEBREAK_LABEL, type Standing } from '@/lib/bowls/scoring'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
 import { DemoNote, HiddenUntilLock, ResultsLine, StreakBadge, UpdateResults, firstName, pts, sectionPoints, useBoard, winStreak } from '@/components/bowls/board'
 import { useBowlLive } from '@/lib/bowls/useBowlLive'
+import { RootingGuideCard } from '@/components/bowls/RootingGuide'
 
 const rankText = (s: Standing) => `${s.tied ? 'T' : ''}${s.rank}`
 const MEDAL = ['from-yellow-300 to-yellow-600', 'from-zinc-200 to-zinc-400', 'from-amber-600 to-amber-800']
@@ -154,10 +155,17 @@ export default function BowlStandings() {
                 })}
               </div>
 
+              {/* Under the table here (Home has it up top): your games to root for. */}
+              {player && <RootingGuideCard board={board} me={player.id} />}
+
               <p className="text-[11px] text-zinc-500 px-1 leading-relaxed">
                 Ties go to the better Best 5 record, then semifinal picks, then the closest guess at the title game&apos;s total points — on an equal miss, the guess under wins.
                 &ldquo;Max&rdquo; is the most points still possible, counting only picks still alive.
                 Eliminated means no way the games left can go puts that player first — or tied for first going into the title-game total.
+                {(board.canceled ?? []).length > 0 && (
+                  <> {(board.canceled ?? []).map(g => g.status === 'canceled' || g.status === 'postponed' ? `${g.name} (${offSheetLabel(g).toLowerCase()})` : g.name).join(', ')}{' '}
+                    {(board.canceled ?? []).length === 1 ? 'is off the pick’em and counts' : 'are off the pick’em and count'} for nobody.</>
+                )}
               </p>
             </>
           )}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useBowlAuth } from '@/lib/bowls/auth'
-import { PHASE_BY_KEY, pickSections, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
+import { PHASE_BY_KEY, offSheetLabel, pickSections, sectionOfPhase, type BowlGame, type BowlTeam, type PickSection, type SectionKey } from '@/lib/bowls/sheet'
 import { eliminated, isDecided, pickState, teamDirectory, type PickState, type Standing } from '@/lib/bowls/scoring'
 import { kickoffText } from '@/lib/bowls/format'
 import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
@@ -11,10 +11,11 @@ import {
   firstName, pts, sectionPoints, useBoard, type Board, type BoardPlayer,
 } from '@/components/bowls/board'
 import { GameCast, LiveTag, PlayFlash } from '@/components/bowls/live'
+import { BracketView } from '@/components/bowls/Bracket'
 import { ourSide, scoreOf, type BowlLive } from '@/lib/bowls/live'
 import { useBowlLive, useBowlPlays, type PlayEvent } from '@/lib/bowls/useBowlLive'
 
-type View = 'game' | 'grid' | 'player'
+type View = 'game' | 'grid' | 'player' | 'bracket'
 type Show = 'all' | 'live' | 'upcoming' | 'final'
 type Tab = SectionKey | 'all'
 type LiveMap = Map<string, BowlLive>
@@ -22,7 +23,7 @@ type LiveMap = Map<string, BowlLive>
 interface Group { key: string; label: string; games: BowlGame[] }
 const VIEW_KEY = 'bowls-allpicks-view'
 const NAMES_KEY = 'bowls-allpicks-names'
-const isView = (v: unknown): v is View => v === 'game' || v === 'grid' || v === 'player'
+const isView = (v: unknown): v is View => v === 'game' || v === 'grid' || v === 'player' || v === 'bracket'
 const isTab = (v: unknown): v is Tab => v === 'all' || v === 'little' || v === 'between' || v === 'big' || v === 'playoff'
 
 /** A player's points in one phase of the pick'em (the playoff counts its semis and title game). */
@@ -40,6 +41,8 @@ const STATE_CELL: Record<PickState, string> = {
  * tabs for Phase 1, 2, 3 and the Playoff (or All), opening on the phase being
  * played. The grid puts you first and keeps each player's points for the
  * phase, their total and their Best 5 record pinned along the bottom.
+ * Bracket shows any player's playoff bracket against what's happened, and
+ * how everyone's champion pick is doing.
  *
  * By game, the cards show how the group split — counts and percentages, and
  * your own pick — with everyone's names behind a "Show names" switch (off
@@ -174,9 +177,9 @@ export default function AllPicks() {
           : (
             <>
               <Segmented label="View" value={view} onChange={chooseView}
-                options={[{ key: 'game', label: 'By game' }, { key: 'grid', label: 'Grid' }, { key: 'player', label: 'By player' }]} />
-              <PhaseTabs sections={sections} tab={current} onChange={chooseTab} live={live.byGameId} />
-              {view !== 'player' && (() => {
+                options={[{ key: 'game', label: 'By game' }, { key: 'grid', label: 'Grid' }, { key: 'player', label: 'By player' }, { key: 'bracket', label: 'Bracket' }]} />
+              {view !== 'bracket' && <PhaseTabs sections={sections} tab={current} onChange={chooseTab} live={live.byGameId} />}
+              {view !== 'player' && view !== 'bracket' && (() => {
                 const inTab = (board.games ?? []).filter(g => current === 'all' || sectionOf.get(g.id) === current)
                 const onInTab = inTab.filter(g => isOn(g.id)).length
                 return (
@@ -192,8 +195,10 @@ export default function AllPicks() {
               {view === 'game' && <NamesSwitch on={names} onChange={chooseNames} />}
               {view === 'game' && (show === 'live' && !games.length
                 ? <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games are on right now.</p>
-                : <ByGame board={board} groups={groups} me={player?.id} live={live.byGameId} plays={plays} names={names} />)}
+                : <ByGame board={board} groups={groups} me={player?.id} live={live.byGameId} plays={plays} names={names}
+                    canceled={show === 'all' || show === 'final' ? (board.canceled ?? []).filter(g => current === 'all' || sectionOfPhase(g.phase) === current) : []} />)}
               {view === 'grid' && <Grid board={board} groups={groups} me={player?.id} live={live.byGameId} tab={current} sections={sections} />}
+              {view === 'bracket' && <BracketView board={board} me={player?.id} selected={typeof router.query.player === 'string' ? router.query.player : undefined} onSelect={id => setQuery({ player: id })} />}
               {view === 'player' && <ByPlayer board={board} me={player?.id} live={live.byGameId} tab={current} sections={sections} selected={typeof router.query.player === 'string' ? router.query.player : undefined} onSelect={id => setQuery({ player: id })} />}
             </>
           )}
@@ -277,8 +282,8 @@ function NamesSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) =>
   )
 }
 
-function ByGame({ board, groups, me, live, plays, names }: { board: Board; groups: Group[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent>; names: boolean }) {
-  if (!groups.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
+function ByGame({ board, groups, me, live, plays, names, canceled }: { board: Board; groups: Group[]; me?: string; live: LiveMap; plays: Map<string, PlayEvent>; names: boolean; canceled: BowlGame[] }) {
+  if (!groups.length && !canceled.length) return <p className="text-sm text-zinc-500 px-1 py-6 text-center">No games match.</p>
   return (
     <div className="space-y-4">
       {groups.map(gr => (
@@ -287,6 +292,24 @@ function ByGame({ board, groups, me, live, plays, names }: { board: Board; group
           <GameCards board={board} games={gr.games} me={me} live={live} plays={plays} names={names} />
         </section>
       ))}
+      {canceled.length > 0 && (
+        <section aria-label="Canceled" className="space-y-2">
+          <GroupHeading label="Canceled" />
+          {canceled.map(g => (
+            <article key={g.id} aria-label={g.name} data-canceled={g.id}
+              className="rounded-2xl border border-dashed border-white/[0.12] bg-zinc-900/50 p-3.5">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-zinc-400 truncate line-through decoration-zinc-600">{g.name}</p>
+                  <p className="text-[11px] text-zinc-500 truncate">{g.away?.name ?? 'TBD'} vs {g.home?.name ?? 'TBD'}</p>
+                </div>
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-300 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full">{offSheetLabel(g)}</span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-2">Off the pick&apos;em — this game counts for nobody, and a Best 5 star on it is an empty spot.</p>
+            </article>
+          ))}
+        </section>
+      )}
     </div>
   )
 }

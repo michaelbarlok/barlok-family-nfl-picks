@@ -5,7 +5,7 @@ import { isMissingSheetTables, loadSeason, SHEET_MIGRATION_HINT } from '@/lib/bo
 import { cleanBest5, cleanPicks } from '@/lib/bowls/bracket'
 import { score, type Entry } from '@/lib/bowls/scoring'
 import { eliminations } from '@/lib/bowls/elimination'
-import { samplePreview, sheetGames } from '@/lib/bowls/sheet'
+import { offSheetGames, samplePreview, sheetGames } from '@/lib/bowls/sheet'
 import { demoBoard } from '@/lib/bowls/demo'
 
 /**
@@ -48,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         hidden: false,
         demo: true,
         games: sheetGames(demo.games),
+        canceled: offSheetGames(demo.games, new Set()),
         players: board.standings.map(s => ({ id: s.id, name: s.name, avatar_url: s.avatar_url })),
         picks: Object.fromEntries(demo.entries.map(e => [e.id, e.picks])),
         best5: Object.fromEntries(demo.entries.map(e => [e.id, e.best5])),
@@ -88,6 +89,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ...base,
       hidden: false,
       games: sheetGames(games),
+      // Bowls that came off the pick'em once people had picked them: shown as canceled, counting for nobody.
+      canceled: offSheetGames(games, new Set(Array.from(raw.values()).flatMap(m => Object.keys(m)))),
       players: board.standings.map(s => ({ id: s.id, name: s.name, avatar_url: s.avatar_url })),
       picks: Object.fromEntries(entries.map(e => [e.id, e.picks])),
       best5: Object.fromEntries(entries.map(e => [e.id, e.best5])),

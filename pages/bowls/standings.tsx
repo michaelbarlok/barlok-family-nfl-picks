@@ -8,7 +8,6 @@ import BowlHeader, { BowlAvatar } from '@/components/bowls/BowlHeader'
 import { PHASE_TONE, TeamLogo } from '@/components/bowls/ui'
 import { DemoNote, HiddenUntilLock, ResultsLine, StreakBadge, UpdateResults, firstName, pts, sectionPoints, useBoard, winStreak } from '@/components/bowls/board'
 import { useBowlLive } from '@/lib/bowls/useBowlLive'
-import { RootingGuideCard } from '@/components/bowls/RootingGuide'
 
 const rankText = (s: Standing) => `${s.tied ? 'T' : ''}${s.rank}`
 const MEDAL = ['from-yellow-300 to-yellow-600', 'from-zinc-200 to-zinc-400', 'from-amber-600 to-amber-800']
@@ -154,9 +153,6 @@ export default function BowlStandings() {
                   )
                 })}
               </div>
-
-              {/* Under the table here (Home has it up top): your games to root for. */}
-              {player && <RootingGuideCard board={board} me={player.id} />}
 
               <p className="text-[11px] text-zinc-500 px-1 leading-relaxed">
                 Ties go to the better Best 5 record, then semifinal picks, then the closest guess at the title game&apos;s total points — on an equal miss, the guess under wins.

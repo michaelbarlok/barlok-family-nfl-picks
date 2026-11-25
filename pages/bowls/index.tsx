@@ -10,7 +10,6 @@ import BowlRules from '@/components/bowls/BowlRules'
 import { countdown, lockText } from '@/lib/bowls/format'
 import { LeaderboardCard } from '@/components/bowls/LeaderboardCard'
 import TodaysGames from '@/components/bowls/TodaysGames'
-import { RootingGuideCard } from '@/components/bowls/RootingGuide'
 import { useBowlLive } from '@/lib/bowls/useBowlLive'
 import { useBoard } from '@/components/bowls/board'
 
@@ -215,8 +214,6 @@ export default function BowlHome() {
         )}
 
         {leaders && <TodaysGames board={leaders} live={live.byGameId} me={player?.id} />}
-
-        {leaders && player && <RootingGuideCard board={leaders} me={player.id} live={live.byGameId} />}
 
         {leaders && <LeaderboardCard board={leaders} me={player?.id} />}
 
